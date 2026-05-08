@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: doclifts-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: doclifts
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: doclifts
+    ports:
+      - "127.0.0.1:5432:5432"   # bind to localhost only, not 0.0.0.0
+    volumes:
+      - doclifts-pgdata:/var/lib/postgresql/data
+
+volumes:
+  doclifts-pgdata:

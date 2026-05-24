@@ -6,7 +6,7 @@
 
 DocLifts is a personal lifting log built as a SvelteKit + Drizzle + Postgres app. It tracks training sessions structured around the v5 program: programs → days → exercises (with tier + progression policy metadata) → prescribed sets → executed sets. History is append-only in effect; snapshot semantics copy prescribed values from the template into the `sets` table at session-start, so past sessions preserve what was prescribed at the time even if the template is later edited.
 
-The app is built for personal use only — Chris uses it on his phone at the gym via Tailscale, hitting a production build (adapter-node) served by systemd on the VM. Real-use rollout begins **Tuesday 2026-05-26**.
+The app is built for personal use only — Chris uses it on his phone at the gym via Tailscale at **`https://testdev01.tail29bbdb.ts.net`** (HTTPS via Tailscale Serve, fronting the adapter-node systemd service on `localhost:3000`). Real-use rollout begins **Tuesday 2026-05-26**.
 
 ## Current state (2026-05-24)
 
@@ -58,6 +58,7 @@ These are non-negotiable without explicit user approval. Full text with rational
 - **Gym deploy moved off `pnpm dev`** (was Low priority) — production build via `@sveltejs/adapter-node`, served by `doclifts.service` systemd unit on port 3000. CSRF origin check disabled for the single-user Tailscale threat model (re-enable on adding auth). Verified end-to-end. Commit `a9b3f6f`.
 - **Real-device check against the production build** (was Medium gap) — opened `http://testdev01:3000` on the iPhone, logged a set, confirmed it persists after refresh. Closes the last pre-rollout verification loop.
 - **Stale open sessions cleared** (was Medium gap) — two pre-existing open sessions (Push with a 777 test row, Legs with deadlift warmups) deleted along with their 36 sets in a single transaction. Zero open sessions remain; program list shows clean Start buttons for every day.
+- **Tailscale Serve repointed to port 3000** — Serve was still forwarding `https://testdev01.tail29bbdb.ts.net` to `localhost:5173` after the adapter-node swap, so the iPhone fell back to `http://testdev01:3000` direct — which works but triggers iOS Safari's "submission is not secure" dialog on every form POST. Now `https://testdev01.tail29bbdb.ts.net` → `localhost:3000`, Tailscale-issued cert auto-trusted on tailnet devices, no warnings. **Bookmark the HTTPS URL, not the HTTP one.**
 
 ## Recent work this session
 

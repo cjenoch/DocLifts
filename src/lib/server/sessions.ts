@@ -248,8 +248,10 @@ export async function updateSetInSession(
  * `prescribedSetId` is 1:1 at session-start (every set is created with its
  * prescription). The column is nullable with `onDelete: 'set null'`, so a
  * future flow that deletes prescribed_sets rows referenced by past sets
- * would orphan them from this traversal — tighten if/when snapshot
- * immutability is fully enforced at the schema level.
+ * would NULL the FK; the innerJoin here would then drop those sets, the
+ * findIndex below would miss `currentSetId`, and the caller would scroll
+ * to top instead of advancing. Tighten if/when snapshot immutability is
+ * fully enforced at the schema level.
  */
 export async function nextSetIdInSession(
 	db: Database,

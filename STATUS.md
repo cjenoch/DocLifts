@@ -6,7 +6,7 @@
 
 DocLifts is a personal lifting log built as a SvelteKit + Drizzle + Postgres app. It tracks training sessions structured around the v5 program: programs → days → exercises (with tier + progression policy metadata) → prescribed sets → executed sets. History is append-only in effect; snapshot semantics copy prescribed values from the template into the `sets` table at session-start, so past sessions preserve what was prescribed at the time even if the template is later edited.
 
-The app is built for personal use only — Chris uses it on his phone at the gym via Tailscale, hitting a production build (adapter-node) served by systemd on the VM. Real-use rollout begins **week of 2026-05-25**.
+The app is built for personal use only — Chris uses it on his phone at the gym via Tailscale, hitting a production build (adapter-node) served by systemd on the VM. Real-use rollout begins **Tuesday 2026-05-27**.
 
 ## Current state (2026-05-24)
 
@@ -16,7 +16,7 @@ The app is built for personal use only — Chris uses it on his phone at the gym
   - `startSession` (programs/[id]) — creates session, snapshots prescribed sets, applies dumb prefill (last executed load OR `initialLoad`).
   - `endSession` and `updateSet` (sessions/[id]) — stamps `endedAt` idempotently, edits one set per submit with Zod validation and a stale-tab guard (409 on ended sessions).
 - **UI:** dark zinc/indigo palette, thumb-driven entry on iPhone 12 (16px input font to suppress iOS Safari auto-zoom). Past sessions are read-only; editable rows only while the session is open.
-- **End-to-end dry run completed** via Playwright against the prod build — full flow works, persistence holds, read-only past view renders correctly. One remaining loop-closer: 30-second manual sanity check on the real iPhone (typed load value differing from prefill must persist after refresh) — scheduled for tomorrow. Additional verify on 2026-05-24 after the adapter-node deploy: drove `startSession` → `updateSet` → reload via curl against the live systemd service, all four executed fields persisted exactly, hostile-Origin probe confirmed CSRF off as designed, Zod validation rejected garbage with structured field errors.
+- **End-to-end dry run completed** via Playwright against the prod build — full flow works, persistence holds, read-only past view renders correctly. After the adapter-node deploy (2026-05-24), drove `startSession` → `updateSet` → reload via curl against the live systemd service: all four executed fields persisted exactly, hostile-Origin probe confirmed CSRF off as designed, Zod validation rejected garbage with structured field errors. The manual iPhone Safari input check (typed load differing from prefill persists after save) was run against the **dev server** and passed — but **not** yet against the adapter-node production build on port 3000, which is the artifact going live and so far only curl-verified. See Known gaps.
 - **MVP-A** behavior throughout — dumb prefill only, no progression engine wired in, no plate snap applied at runtime (both are implemented and tested, deliberately deferred to MVP-B per planning).
 
 ## Test coverage (88 server tests)
@@ -46,7 +46,9 @@ These are non-negotiable without explicit user approval. Full text with rational
 
 | Priority | Gap |
 |---|---|
-| Medium | **30-second manual phone sanity check** still pending. Curl + Playwright have exercised the request/response and persistence paths; the remaining loop-closer is iPhone Safari input behavior specifically (type a load that differs from the prefill, submit, refresh, confirm value persists). Narrow scope — not "does it work," just real-device input-field behavior. |
+| Medium | **Real-device check against the production build** still pending. The manual iPhone Safari input check passed against the dev server, but the build going live (adapter-node, port 3000) is a different artifact and has only been curl-verified. Before rollout: open `http://testdev01:3000` on the iPhone, log a full set, confirm it renders and persists. |
+| Medium | **Two stale open sessions** sit in the DB, showing as "Resume" in the program list. End or delete them before the first real workout — otherwise starting a day that has a stale session shows "Resume" instead of "Start." |
+| Low | **`pnpm redeploy` does not run migrations.** Harmless today (no pending schema change); but once MVP-B touches the schema, a redeploy without `pnpm db:migrate` leaves the running code expecting a schema the DB lacks. Chain `pnpm db:migrate &&` into redeploy before then. |
 | Medium | `snapForEquipment` is tested but **not wired into the runtime pipeline**. Cold-start `initialLoad` shows unsnapped at the gym. Not a crash, just mental plate math. |
 | Medium | Progression engine (`suggestNextLoad`) tested but not wired in. MVP-A is dumb prefill only — intentional per planning, becomes MVP-B work. |
 | Low | Pain event UI doesn't exist. Schema does. Either build a one-button "log pain" affordance, or accept paper. |
@@ -70,7 +72,7 @@ These are non-negotiable without explicit user approval. Full text with rational
 9. **`nextSetIdInSession` comment hardening** (`a85c0ee`, `217f44e`) — softened a "1:1 by construction" overclaim into a named failure mode (nullable FK orphan → innerJoin drops the set → `findIndex` misses → scroll to top instead of advancing). Three sequential code-review passes; reviewer's polish taken because the comment is load-bearing context for future LLM-assisted edits in this area.
 10. **Switch gym deploy to adapter-node + systemd** (`a9b3f6f`) — autostart was `pnpm dev`; now it's a built adapter-node artifact (`node build`) under `doclifts.service` with `EnvironmentFile=.env` for `DATABASE_URL`. Added `pnpm redeploy` script (build + restart). Disabled `csrf.checkOrigin` (single-user / Tailscale / no auth — `svelte.config.js` carries the re-enable trigger comment).
 
-The verify run also surfaced a "1 of 5 sets had wrong value" finding which on further investigation turned out to be a Playwright/Chromium mobile-emulation artifact (input.value silently reverts to the prefill on number inputs when `isMobile: true, hasTouch: true`). Confirmed not reproducible in desktop context or in production build, so not a real-app concern. Real Mobile Safari on the iPhone is a different rendering engine and won't behave this way. Manual phone check tomorrow will close this finding for good.
+The verify run also surfaced a "1 of 5 sets had wrong value" finding which on further investigation turned out to be a Playwright/Chromium mobile-emulation artifact (input.value silently reverts to the prefill on number inputs when `isMobile: true, hasTouch: true`). Confirmed not reproducible in desktop context or in production build, so not a real-app concern. Real Mobile Safari on the iPhone is a different rendering engine and won't behave this way. The subsequent real-device check on the dev server confirmed correct saves with no value reversion, consistent with an emulation-only artifact; the equivalent check on the production build is the remaining loop-closer (see Known gaps).
 
 ## File map
 
@@ -103,7 +105,7 @@ planning_v2_*.md       # Source of truth for design decisions
 
 ```bash
 pnpm dev                  # Vite dev server (allowedHosts includes .ts.net + testdev01)
-pnpm redeploy             # Build + restart doclifts.service on the VM (pushes code to gym)
+pnpm redeploy             # Build + restart doclifts.service (does NOT migrate — run pnpm db:migrate first after a schema change)
 pnpm test                 # Full suite (both projects, ~10s)
 pnpm test --project server   # Server only (~5s)
 pnpm check                # svelte-check / TypeScript

@@ -4,7 +4,7 @@
 
 DocLifts is a single-user lifting log for the gym. It encodes a structured training program (the "v5 program"), prescribes the next set's load + reps + RIR target based on history, captures executed work as you go, and preserves what was prescribed at the time even if the program template later changes. It is intentionally a personal tool, not a product — no auth, no cloud, no sharing.
 
-The runtime model is a SvelteKit app talking to a local Postgres in Docker. The app is used on a phone at the gym via Tailscale, hitting a production build (adapter-node) served by systemd on the VM. Forms are plain HTML — no client JavaScript is required for any user-visible action.
+The runtime model is a SvelteKit app talking to a local Postgres in Docker. The app is used on a phone at the gym via Tailscale, hitting a production build (adapter-node) served by systemd on the VM. Forms are progressively enhanced: they work as plain HTML POSTs with no JavaScript, and when JavaScript is available `use:enhance` submits them via `fetch` without a full-page reload.
 
 ---
 
@@ -18,7 +18,7 @@ The runtime model is a SvelteKit app talking to a local Postgres in Docker. The 
 
 **Start a day's session.** The app snapshots the day's prescribed sets into the session: one row per set, frozen with the prescription that was active at session-start. Each row is prefilled with a target load (last executed load for that exercise + set role + position, or the cold-start `initialLoad` if no history exists).
 
-**Log sets as you train.** Each set row shows: position, role (warmup / working / top / backoff), prescribed load × reps target with RIR, and the most recent completed prior set ("Last: 284 × 3 @ RIR 1"). You fill in `load`, `reps`, `RIR`, optional `notes`, and tap Save. The row turns green and shows a "logged" badge.
+**Log sets as you train.** Each set row shows: position, role (warmup / working / top / backoff), prescribed load × reps target with RIR, and the most recent completed prior set ("Last: 284 × 3 @ RIR 1"). You fill in `load`, `reps`, `RIR`, optional `notes`, and tap Save. The row turns green and shows a "logged" badge, and the view scrolls to the next set so you move down the workout without scrolling manually.
 
 **End the session.** A sticky bottom button stamps `endedAt` and returns you to the program list. The session view becomes read-only after this.
 
@@ -142,7 +142,7 @@ Four actions across three pages. All four extract their business logic into help
 - **Dark theme** is always-on (not user-toggleable). Zinc-950 background, zinc-900 cards with zinc-800 borders, indigo accents, emerald for success states (logged, end session), amber for top-set + resume.
 - **`color-scheme: dark`** is set in the base layer so native form controls (number spinners, scrollbars) also render dark on iOS/Android.
 - **Inputs are 16px minimum** to prevent iOS Safari's auto-zoom-on-focus behavior. Enforced in the base layer; Tailwind `text-sm`/`text-xs` would override the 16px floor if applied to inputs, so don't.
-- **No client JavaScript** is required for any action. Forms are plain HTML POSTs to SvelteKit server actions. Saves work over a flaky gym Wi-Fi connection.
+- **Forms are progressively enhanced** via `use:enhance`. With no JavaScript they fall back to plain HTML POSTs, so a save still succeeds if scripts fail; with JavaScript, submissions go through `fetch` and the page updates without a full reload.
 - **Provenance lives near the load field**, never in a tooltip. "Last: 284 × 3 @ RIR 1" is something you need to see every set.
 - **Past sessions are read-only.** The session view detects `endedAt != null` and replaces editable forms with executed-value displays.
 - **Numeric values use `font-mono` and `tabular-nums`** so loads and reps align column-wise across set rows.
@@ -178,6 +178,8 @@ pnpm db:migrate                   # Apply to dev DB
 
 Generated migration files in `drizzle/` are committed to the repo.
 
+`pnpm redeploy` builds and restarts the gym service but does **not** run migrations. After any schema change, apply `pnpm db:migrate` to the gym database as part of the deploy.
+
 ---
 
 ## File conventions
@@ -201,7 +203,7 @@ DB code lives **only** under `src/lib/server`. Importing DB code from a client c
 
 Per the locked design decisions, none of the following will be added without explicit user approval:
 
-- Authentication or login
+- Authentication or login (note: `csrf.checkOrigin` in `svelte.config.js` is currently disabled because there are no sessions to protect — if auth is ever added, it must be re-enabled)
 - Cloud deployment
 - AI/LLM integration in the app
 - Mobile or PWA shells

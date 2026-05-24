@@ -29,6 +29,27 @@
           {#if day.notes}
             <div class="mt-1 text-xs text-gray-600">{day.notes}</div>
           {/if}
+
+          <div class="mt-3">
+            {#if day.openSessionId}
+              <a
+                href="/sessions/{day.openSessionId}"
+                class="inline-block rounded bg-amber-500 px-4 py-2 text-sm font-medium text-white active:bg-amber-600"
+              >
+                Resume
+              </a>
+            {:else}
+              <form method="POST" action="?/startSession">
+                <input type="hidden" name="dayId" value={day.id} />
+                <button
+                  type="submit"
+                  class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white active:bg-blue-700"
+                >
+                  Start
+                </button>
+              </form>
+            {/if}
+          </div>
         </li>
       {/each}
     </ul>

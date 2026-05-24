@@ -8,9 +8,9 @@ This file is read by Claude, Cursor, and other AI coding tools when working in t
 - **Runtime:** Node 24 LTS
 - **Database:** PostgreSQL 16, self-hosted in Docker for dev
 - **ORM:** Drizzle (TypeScript-native, SQL-shaped)
-- **Forms:** sveltekit-superforms + Zod
+- **Forms:** plain HTML POSTs to SvelteKit server actions, Zod-validated server-side. (`sveltekit-superforms` is installed but not currently used.)
 - **Styling:** Tailwind CSS
-- **Linter/formatter:** Biome (single tool, low config)
+- **Formatter:** Prettier (with `prettier-plugin-svelte` and `prettier-plugin-tailwindcss`). Config in `.prettierrc`: tabs, single quotes, no trailing commas, 100-char print width.
 - **Testing:** Vitest
 - **Package manager:** pnpm
 
@@ -149,7 +149,9 @@ If the user asks for any of these, confirm before building. The "personal tool, 
 - `src/lib/server/db/index.ts` — Drizzle client singleton
 - `src/lib/server/progression.ts` — engine + history helpers
 - `src/lib/server/plates.ts` — plate snap algorithms + router
+- `src/lib/server/sessions.ts` — action helpers (`startSessionForDay`, `endSession`, `updateSetInSession`). The route `+page.server.ts` files are thin wrappers around these.
 - `src/lib/server/gym-config.ts` — single-gym hardcoded config (move to `gyms` table when multi-gym arrives)
+- `src/lib/server/test-db.ts` — integration-test DB bootstrap. Not imported by production code.
 - `drizzle/` — generated migration files (committed to repo)
 - `drizzle.config.ts` — Drizzle Kit config
 

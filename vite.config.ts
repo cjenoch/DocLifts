@@ -5,6 +5,11 @@ import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
+	server: {
+		// Allow Tailscale MagicDNS + Serve hostnames (and any other tailnet
+		// hostname under .ts.net) to hit the dev server.
+		allowedHosts: ['.ts.net', 'testdev01']
+	},
 	test: {
 		expect: { requireAssertions: true },
 		projects: [

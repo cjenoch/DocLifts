@@ -1,0 +1,379 @@
+/**
+ * Integration tests for `startSessionForDay`.
+ *
+ * Primary invariant under test (CLAUDE.md §Session-start integrity):
+ *   session.programId MUST come from the day row, never from a client-supplied
+ *   value. The function signature itself enforces this — only `(db, dayId)` is
+ *   accepted — and these tests confirm the runtime behavior across multiple
+ *   programs and the snapshot/prefill flow.
+ */
+
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { asc, eq } from 'drizzle-orm';
+import type postgres from 'postgres';
+import {
+	dayExercises,
+	days,
+	exercises,
+	prescribedSets,
+	programs,
+	sessions,
+	sets
+} from './db/schema';
+import { startSessionForDay } from './sessions';
+import { resetTestDb, setupTestDb, type TestDb } from './test-db';
+
+let db: TestDb;
+let client: postgres.Sql;
+let end: () => Promise<void>;
+
+beforeAll(async () => {
+	const handle = await setupTestDb();
+	db = handle.db;
+	client = handle.client;
+	end = handle.end;
+});
+
+afterAll(async () => {
+	await end();
+});
+
+beforeEach(async () => {
+	await resetTestDb(client);
+});
+
+// ---------- Fixture helpers ----------
+
+type ProgramFixture = {
+	programId: string;
+	dayId: string;
+	dayExerciseId: string;
+	exerciseId: string;
+	prescribedSetId: string;
+};
+
+/**
+ * Build a minimal but realistic program: one program, one day, one exercise,
+ * one prescribed set with an initialLoad of 100 unless overridden.
+ */
+async function seedProgram(opts: {
+	programName?: string;
+	exerciseName?: string;
+	initialLoad?: number | null;
+	tier?: 'main' | 'secondary' | 'isolation';
+} = {}): Promise<ProgramFixture> {
+	const [prog] = await db
+		.insert(programs)
+		.values({ name: opts.programName ?? 'Test Program' })
+		.returning();
+
+	const [day] = await db
+		.insert(days)
+		.values({ programId: prog.id, name: 'Day 1', position: 1 })
+		.returning();
+
+	const [ex] = await db
+		.insert(exercises)
+		.values({ name: opts.exerciseName ?? 'Bench Press' })
+		.returning();
+
+	const [dx] = await db
+		.insert(dayExercises)
+		.values({
+			dayId: day.id,
+			exerciseId: ex.id,
+			position: 1,
+			tier: opts.tier ?? 'main'
+		})
+		.returning();
+
+	const [ps] = await db
+		.insert(prescribedSets)
+		.values({
+			dayExerciseId: dx.id,
+			position: 1,
+			setRole: 'top',
+			targetMetric: 'reps',
+			targetRepsMin: 3,
+			targetRepsMax: 5,
+			targetRir: 1,
+			initialLoad: opts.initialLoad === undefined ? 100 : opts.initialLoad
+		})
+		.returning();
+
+	return {
+		programId: prog.id,
+		dayId: day.id,
+		dayExerciseId: dx.id,
+		exerciseId: ex.id,
+		prescribedSetId: ps.id
+	};
+}
+
+// ---------- Tests ----------
+
+describe('startSessionForDay: session-start integrity', () => {
+	it('derives session.programId from the day row, not a parameter', async () => {
+		// The function signature is `(db, dayId)` — no programId parameter exists
+		// to corrupt. This test confirms the runtime lookup behavior.
+		const fixture = await seedProgram();
+
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [session] = await db
+			.select()
+			.from(sessions)
+			.where(eq(sessions.id, result.sessionId))
+			.limit(1);
+
+		expect(session.programId).toBe(fixture.programId);
+		expect(session.dayId).toBe(fixture.dayId);
+	});
+
+	it('routes session.programId to the right program when multiple exist', async () => {
+		// Two programs in the DB. Starting a session for B's day must produce a
+		// session with B's programId, not A's. (The naive bug would be a global
+		// "active program" or grabbing the wrong row.)
+		const a = await seedProgram({ programName: 'Program A' });
+		const b = await seedProgram({
+			programName: 'Program B',
+			exerciseName: 'Squat'
+		});
+
+		const resultA = await startSessionForDay(db, a.dayId);
+		const resultB = await startSessionForDay(db, b.dayId);
+		expect(resultA.ok).toBe(true);
+		expect(resultB.ok).toBe(true);
+		if (!resultA.ok || !resultB.ok) return;
+
+		const [sessionA] = await db
+			.select()
+			.from(sessions)
+			.where(eq(sessions.id, resultA.sessionId));
+		const [sessionB] = await db
+			.select()
+			.from(sessions)
+			.where(eq(sessions.id, resultB.sessionId));
+
+		expect(sessionA.programId).toBe(a.programId);
+		expect(sessionB.programId).toBe(b.programId);
+		expect(sessionA.programId).not.toBe(sessionB.programId);
+	});
+
+	it('returns 404 when the day does not exist', async () => {
+		// A syntactically valid but non-existent UUID.
+		const result = await startSessionForDay(
+			db,
+			'00000000-0000-0000-0000-000000000000'
+		);
+		expect(result).toEqual({
+			ok: false,
+			status: 404,
+			message: 'Day not found'
+		});
+	});
+
+	it('does not create a session when the day does not exist', async () => {
+		await startSessionForDay(db, '00000000-0000-0000-0000-000000000000');
+		const rows = await db.select().from(sessions);
+		expect(rows).toHaveLength(0);
+	});
+
+	it('sets session.startedAt and leaves endedAt null', async () => {
+		const fixture = await seedProgram();
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [session] = await db
+			.select()
+			.from(sessions)
+			.where(eq(sessions.id, result.sessionId));
+
+		expect(session.startedAt).toBeInstanceOf(Date);
+		expect(session.endedAt).toBeNull();
+	});
+});
+
+describe('startSessionForDay: snapshot semantics', () => {
+	it('snapshots prescribed set structure into the sets table', async () => {
+		const fixture = await seedProgram();
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const sessionSets = await db
+			.select()
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+
+		expect(sessionSets).toHaveLength(1);
+		expect(sessionSets[0]).toMatchObject({
+			exerciseId: fixture.exerciseId,
+			prescribedSetId: fixture.prescribedSetId,
+			position: 1,
+			setRole: 'top',
+			targetMetric: 'reps',
+			prescribedRepsMin: 3,
+			prescribedRepsMax: 5,
+			prescribedRir: 1
+		});
+	});
+
+	it('inserts one sets row per prescribed_set, in (exercise, set) order', async () => {
+		// Build a day with 2 exercises, exercise 1 has 2 prescribed sets, exercise
+		// 2 has 1 prescribed set → expect 3 sets total in the right order.
+		const [prog] = await db
+			.insert(programs)
+			.values({ name: 'multi' })
+			.returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day', position: 1 })
+			.returning();
+		const [ex1] = await db
+			.insert(exercises)
+			.values({ name: 'Bench' })
+			.returning();
+		const [ex2] = await db
+			.insert(exercises)
+			.values({ name: 'Row' })
+			.returning();
+		const [dx1] = await db
+			.insert(dayExercises)
+			.values({ dayId: day.id, exerciseId: ex1.id, position: 1, tier: 'main' })
+			.returning();
+		const [dx2] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex2.id,
+				position: 2,
+				tier: 'secondary'
+			})
+			.returning();
+		await db.insert(prescribedSets).values([
+			{
+				dayExerciseId: dx1.id,
+				position: 1,
+				setRole: 'top',
+				initialLoad: 100
+			},
+			{
+				dayExerciseId: dx1.id,
+				position: 2,
+				setRole: 'backoff',
+				initialLoad: 80
+			},
+			{
+				dayExerciseId: dx2.id,
+				position: 1,
+				setRole: 'working',
+				initialLoad: 50
+			}
+		]);
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const sessionSets = await db
+			.select()
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.loggedAt));
+
+		expect(sessionSets).toHaveLength(3);
+		expect(sessionSets.map((s) => [s.exerciseId, s.position, s.setRole])).toEqual([
+			[ex1.id, 1, 'top'],
+			[ex1.id, 2, 'backoff'],
+			[ex2.id, 1, 'working']
+		]);
+	});
+});
+
+describe('startSessionForDay: dumb prefill', () => {
+	it('prefills prescribedLoad from initialLoad when no history exists', async () => {
+		const fixture = await seedProgram({ initialLoad: 95 });
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [s] = await db
+			.select({ prescribedLoad: sets.prescribedLoad })
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+		expect(s.prescribedLoad).toBe(95);
+	});
+
+	it('prefills prescribedLoad from history.executedLoad when available', async () => {
+		const fixture = await seedProgram({ initialLoad: 100 });
+
+		// Seed a prior completed session at 110 lb for the same
+		// (exerciseId, setRole, position).
+		const [priorSession] = await db
+			.insert(sessions)
+			.values({
+				dayId: fixture.dayId,
+				programId: fixture.programId,
+				endedAt: new Date()
+			})
+			.returning();
+		await db.insert(sets).values({
+			sessionId: priorSession.id,
+			exerciseId: fixture.exerciseId,
+			position: 1,
+			setRole: 'top',
+			targetMetric: 'reps',
+			executedLoad: 110,
+			executedReps: 5,
+			executedRir: 1
+		});
+
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [s] = await db
+			.select({ prescribedLoad: sets.prescribedLoad })
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+		expect(s.prescribedLoad).toBe(110);
+	});
+
+	it('falls back to initialLoad when prior session is unfinished (blank-row safe)', async () => {
+		// A blank-row poison would slip a NULL through history. The prefill must
+		// see no history and fall back to initialLoad.
+		const fixture = await seedProgram({ initialLoad: 100 });
+
+		const [openSession] = await db
+			.insert(sessions)
+			.values({
+				dayId: fixture.dayId,
+				programId: fixture.programId,
+				endedAt: null
+			})
+			.returning();
+		await db.insert(sets).values({
+			sessionId: openSession.id,
+			exerciseId: fixture.exerciseId,
+			position: 1,
+			setRole: 'top',
+			targetMetric: 'reps',
+			executedLoad: null,
+			executedReps: null
+		});
+
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [s] = await db
+			.select({ prescribedLoad: sets.prescribedLoad })
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+		expect(s.prescribedLoad).toBe(100);
+	});
+});

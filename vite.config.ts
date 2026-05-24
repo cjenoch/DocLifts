@@ -33,7 +33,12 @@ export default defineConfig({
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
+					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
+					// DB integration tests share a single doclifts_test database, so
+					// test files must run one-at-a-time. Pure-function files would be
+					// safe to parallelize, but the cost of running everything serial
+					// is small and avoids per-file partitioning gymnastics.
+					fileParallelism: false
 				}
 			}
 		]

@@ -1,15 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
-import {
-  db,
-  dayExercises,
-  days,
-  prescribedSets,
-  programs,
-  sessions,
-  sets,
-} from '$lib/server/db';
-import { getLastCompletedSet } from '$lib/server/progression';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { db, days, programs, sessions } from '$lib/server/db';
+import { startSessionForDay } from '$lib/server/sessions';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params }) => {
@@ -61,86 +53,11 @@ export const actions: Actions = {
       return fail(400, { message: 'Missing dayId' });
     }
 
-    // Derive programId from the day server-side — never trust client form value.
-    // (CLAUDE.md: session-start integrity rule.)
-    const [day] = await db
-      .select({ id: days.id, programId: days.programId })
-      .from(days)
-      .where(eq(days.id, dayId))
-      .limit(1);
-    if (!day) {
-      return fail(404, { message: 'Day not found' });
+    const result = await startSessionForDay(db, dayId);
+    if (!result.ok) {
+      return fail(result.status, { message: result.message });
     }
 
-    // Pull all prescribed sets for the day, joined to day_exercises for
-    // exerciseId + ordering. Ordered by exercise position, then set position.
-    const prescribed = await db
-      .select({
-        prescribedSetId: prescribedSets.id,
-        setPosition: prescribedSets.position,
-        setRole: prescribedSets.setRole,
-        targetMetric: prescribedSets.targetMetric,
-        targetRepsMin: prescribedSets.targetRepsMin,
-        targetRepsMax: prescribedSets.targetRepsMax,
-        targetRir: prescribedSets.targetRir,
-        initialLoad: prescribedSets.initialLoad,
-        exerciseId: dayExercises.exerciseId,
-        exercisePosition: dayExercises.position,
-      })
-      .from(prescribedSets)
-      .innerJoin(
-        dayExercises,
-        eq(prescribedSets.dayExerciseId, dayExercises.id),
-      )
-      .where(eq(dayExercises.dayId, day.id))
-      .orderBy(asc(dayExercises.position), asc(prescribedSets.position));
-
-    // Dumb prefill per row: history.executedLoad ?? initialLoad.
-    // History filter (executedLoad/Reps non-null, session ended) lives inside
-    // getLastCompletedSet, per CLAUDE.md history-lookup rule.
-    // N+1 by design — single-user localhost Postgres, see handoff notes.
-    // Reads kept outside the transaction; the tx only wraps writes so a
-    // mid-loop failure can't orphan a session.
-    const prefilledLoads = await Promise.all(
-      prescribed.map(async (p) => {
-        const history = await getLastCompletedSet(
-          db,
-          p.exerciseId,
-          p.setRole,
-          p.setPosition,
-        );
-        return history?.executedLoad ?? p.initialLoad;
-      }),
-    );
-
-    const sessionId = await db.transaction(async (tx) => {
-      const [session] = await tx
-        .insert(sessions)
-        .values({
-          dayId: day.id,
-          programId: day.programId,
-        })
-        .returning({ id: sessions.id });
-
-      for (let i = 0; i < prescribed.length; i++) {
-        const p = prescribed[i];
-        await tx.insert(sets).values({
-          sessionId: session.id,
-          exerciseId: p.exerciseId,
-          prescribedSetId: p.prescribedSetId,
-          position: p.setPosition,
-          setRole: p.setRole,
-          targetMetric: p.targetMetric,
-          prescribedLoad: prefilledLoads[i],
-          prescribedRepsMin: p.targetRepsMin,
-          prescribedRepsMax: p.targetRepsMax,
-          prescribedRir: p.targetRir,
-        });
-      }
-
-      return session.id;
-    });
-
-    redirect(303, `/sessions/${sessionId}`);
+    redirect(303, `/sessions/${result.sessionId}`);
   },
 };

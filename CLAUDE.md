@@ -152,6 +152,7 @@ If the user asks for any of these, confirm before building. The "personal tool, 
 - `src/lib/server/sessions.ts` — action helpers (`startSessionForDay`, `endSession`, `updateSetInSession`). The route `+page.server.ts` files are thin wrappers around these.
 - `src/lib/server/gym-config.ts` — single-gym hardcoded config (move to `gyms` table when multi-gym arrives)
 - `src/lib/server/test-db.ts` — integration-test DB bootstrap. Not imported by production code.
+- `scripts/backup-db.sh` — daily `pg_dump` to `~/backups/doclifts/`, 30-day rotation. Installed in user crontab (`0 3 * * *`). Cron log at `~/backups/doclifts/cron.log`.
 - `drizzle/` — generated migration files (committed to repo)
 - `drizzle.config.ts` — Drizzle Kit config
 

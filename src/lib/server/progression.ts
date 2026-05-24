@@ -293,6 +293,7 @@ export async function getLastCompletedSet(
         isNotNull(sets.executedLoad),
         isNotNull(sets.executedReps),
         isNotNull(sessions.endedAt),
+        // drizzle drops `undefined` operands inside and(...), so this is a no-op when no session is being excluded.
         excludeSessionId ? ne(sessions.id, excludeSessionId) : undefined,
       ),
     )

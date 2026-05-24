@@ -713,4 +713,81 @@ describe('nextSetIdInSession', () => {
 		);
 		expect(next).toBeNull();
 	});
+
+	it('handles the same exercise appearing at two day positions', async () => {
+		// Schema permits a day to schedule the same exercise twice (unique on
+		// (dayId, position), not (dayId, exerciseId)). Earlier join joined on
+		// (dayExercises.exerciseId, sessions.dayId) and would fan out in that
+		// case — duplicating set rows and landing the user on the wrong next.
+		// The fix routes the join through prescribed_sets, which is 1:1.
+		const [prog] = await db
+			.insert(programs)
+			.values({ name: 'dup-exercise prog' })
+			.returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'Same Exercise Twice' })
+			.returning();
+
+		// Same exerciseId at two day positions — legal per the schema.
+		const [dxA] = await db
+			.insert(dayExercises)
+			.values({ dayId: day.id, exerciseId: ex.id, position: 1, tier: 'main' })
+			.returning();
+		const [dxB] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex.id,
+				position: 2,
+				tier: 'secondary'
+			})
+			.returning();
+
+		// dxA: 2 sets (top, backoff). dxB: 1 set (working).
+		// Expected order: dxA-top, dxA-backoff, dxB-working.
+		await db.insert(prescribedSets).values([
+			{ dayExerciseId: dxA.id, position: 1, setRole: 'top', initialLoad: 100 },
+			{
+				dayExerciseId: dxA.id,
+				position: 2,
+				setRole: 'backoff',
+				initialLoad: 80
+			},
+			{
+				dayExerciseId: dxB.id,
+				position: 1,
+				setRole: 'working',
+				initialLoad: 60
+			}
+		]);
+
+		const start = await startSessionForDay(db, day.id);
+		if (!start.ok) throw new Error('seed: startSessionForDay failed');
+
+		const rows = await db
+			.select({ id: sets.id, setRole: sets.setRole, position: sets.position })
+			.from(sets)
+			.where(eq(sets.sessionId, start.sessionId));
+		const top = rows.find((r) => r.setRole === 'top');
+		const backoff = rows.find((r) => r.setRole === 'backoff');
+		const working = rows.find((r) => r.setRole === 'working');
+		expect(top && backoff && working).toBeTruthy();
+		if (!top || !backoff || !working) return;
+
+		// top → backoff (within dxA)
+		expect(await nextSetIdInSession(db, start.sessionId, top.id)).toBe(
+			backoff.id
+		);
+		// backoff → working (crossing dxA → dxB, same exerciseId)
+		expect(await nextSetIdInSession(db, start.sessionId, backoff.id)).toBe(
+			working.id
+		);
+		// working → null (last)
+		expect(await nextSetIdInSession(db, start.sessionId, working.id)).toBeNull();
+	});
 });

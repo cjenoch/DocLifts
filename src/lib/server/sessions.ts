@@ -231,14 +231,21 @@ export async function updateSetInSession(
 
 /**
  * Returns the id of the set that follows `currentSetId` in the same session,
- * using the same ordering the session view renders (exercise position, then
- * set position within the exercise). Returns null if `currentSetId` is the
- * last set in the session — or if it can't be found in the session at all,
- * which is a defensive case rather than an expected one.
+ * using the same ordering the session view renders (day-exercise position,
+ * then set position within the exercise). Returns null if `currentSetId` is
+ * the last set in the session — or if it can't be found in the session at
+ * all, which is a defensive case rather than an expected one.
  *
  * Used by the updateSet action to redirect to a fragment anchoring the NEXT
  * row, so saving a set scrolls the user toward what they'll log next instead
  * of resetting to top.
+ *
+ * Implementation note: the join goes through `prescribed_sets` to reach the
+ * owning `day_exercises` row, NOT through `(day_exercises.exerciseId,
+ * sessions.dayId)`. The exerciseId join would fan out if a day ever scheduled
+ * the same exercise at two different positions — the schema permits it
+ * (`day_exercises` is unique on `(dayId, position)` only). Joining via
+ * `prescribedSetId` is 1:1 by construction.
  */
 export async function nextSetIdInSession(
 	db: Database,
@@ -248,13 +255,10 @@ export async function nextSetIdInSession(
 	const rows = await db
 		.select({ id: sets.id })
 		.from(sets)
-		.innerJoin(sessions, eq(sessions.id, sets.sessionId))
+		.innerJoin(prescribedSets, eq(prescribedSets.id, sets.prescribedSetId))
 		.innerJoin(
 			dayExercises,
-			and(
-				eq(dayExercises.exerciseId, sets.exerciseId),
-				eq(dayExercises.dayId, sessions.dayId)
-			)
+			eq(dayExercises.id, prescribedSets.dayExerciseId)
 		)
 		.where(eq(sets.sessionId, sessionId))
 		.orderBy(asc(dayExercises.position), asc(sets.position));

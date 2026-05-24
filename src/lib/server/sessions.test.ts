@@ -791,3 +791,345 @@ describe('nextSetIdInSession', () => {
 		expect(await nextSetIdInSession(db, start.sessionId, working.id)).toBeNull();
 	});
 });
+
+// ---------- Test 1: Snapshot immutability after template edit ----------
+
+describe('startSessionForDay: snapshot immutability after template edit', () => {
+	it('sets row keeps prescribed values even after the originating prescribed_sets row is mutated', async () => {
+		// INVARIANT (CLAUDE.md §Snapshot semantics): once a session starts, the
+		// prescribed values copied into the sets row are frozen. A later edit to
+		// the program template must NOT retroactively change those values.
+		const fixture = await seedProgram({
+			initialLoad: 200,
+			// targetRepsMin: 3, targetRepsMax: 5 are the seedProgram defaults
+		});
+
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		// Capture the sets row as written at session-start time.
+		const [beforeEdit] = await db
+			.select()
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+		expect(beforeEdit.prescribedLoad).toBe(200);
+		expect(beforeEdit.prescribedRepsMin).toBe(3);
+		expect(beforeEdit.prescribedRepsMax).toBe(5);
+
+		// Simulate a program template edit: change reps range and initial load on
+		// the originating prescribed_sets row.
+		await db
+			.update(prescribedSets)
+			.set({ targetRepsMin: 6, targetRepsMax: 8, initialLoad: 999 })
+			.where(eq(prescribedSets.id, fixture.prescribedSetId));
+
+		// Re-read the sets row. The snapshot values must be unchanged.
+		const [afterEdit] = await db
+			.select()
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+
+		expect(afterEdit.prescribedLoad).toBe(200);
+		expect(afterEdit.prescribedRepsMin).toBe(3);
+		expect(afterEdit.prescribedRepsMax).toBe(5);
+	});
+});
+
+// ---------- Test 2: nextSetIdInSession returns null when prescribedSetId is NULL ----------
+
+describe('nextSetIdInSession: orphaned set (prescribedSetId is NULL)', () => {
+	it('returns null for the current set when its prescribedSetId has been NULLed out', async () => {
+		// INVARIANT (sessions.ts comment, lines 243-256): the join goes through
+		// prescribed_sets. If a set's prescribedSetId is NULL (e.g., because the
+		// prescribed_sets row was deleted with onDelete:'set null'), the inner join
+		// drops that set from the ordered list, findIndex returns -1, and the
+		// function returns null. This documents and pins that failure mode.
+		const fixture = await seedProgram();
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [currentSet] = await db
+			.select()
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+
+		// NULL out prescribedSetId — simulates onDelete:'set null' trigger or a
+		// manual cleanup that drops a prescribed_sets row.
+		await db
+			.update(sets)
+			.set({ prescribedSetId: null })
+			.where(eq(sets.id, currentSet.id));
+
+		const next = await nextSetIdInSession(db, result.sessionId, currentSet.id);
+		expect(next).toBeNull();
+	});
+});
+
+// ---------- Test 3: startSessionForDay with initialLoad: null cold start ----------
+
+describe('startSessionForDay: null initialLoad cold start', () => {
+	it('sets prescribedLoad to null (not 0) when initialLoad is null and no history exists', async () => {
+		// INVARIANT (CLAUDE.md §No prescribed loads in program template): initialLoad
+		// is only a cold-start fallback. When it is explicitly null (i.e. the
+		// template author left it unset), the sets row must also have a null
+		// prescribedLoad, not zero or any other sentinel.
+		const fixture = await seedProgram({ initialLoad: null });
+
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [s] = await db
+			.select({ prescribedLoad: sets.prescribedLoad })
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+
+		expect(s.prescribedLoad).toBeNull();
+	});
+
+	it('uses executedLoad from prior completed session as prefill, not null, when history exists', async () => {
+		// Bonus: after one completed session at a real load, the next session's
+		// prescribedLoad should reflect the executed load — even though initialLoad
+		// is null. Confirms the history path works correctly for null-initialLoad
+		// exercises.
+		const fixture = await seedProgram({ initialLoad: null });
+
+		// Complete a session with an executed load.
+		const firstResult = await startSessionForDay(db, fixture.dayId);
+		expect(firstResult.ok).toBe(true);
+		if (!firstResult.ok) return;
+
+		const [firstSet] = await db
+			.select()
+			.from(sets)
+			.where(eq(sets.sessionId, firstResult.sessionId));
+
+		await db
+			.update(sets)
+			.set({ executedLoad: 135, executedReps: 5, executedRir: 1 })
+			.where(eq(sets.id, firstSet.id));
+
+		await db
+			.update(sessions)
+			.set({ endedAt: new Date() })
+			.where(eq(sessions.id, firstResult.sessionId));
+
+		// Second session: prefill should pick up the executedLoad from history.
+		const secondResult = await startSessionForDay(db, fixture.dayId);
+		expect(secondResult.ok).toBe(true);
+		if (!secondResult.ok) return;
+
+		const [secondSet] = await db
+			.select({ prescribedLoad: sets.prescribedLoad })
+			.from(sets)
+			.where(eq(sets.sessionId, secondResult.sessionId));
+
+		expect(secondSet.prescribedLoad).toBe(135);
+	});
+});
+
+// ---------- Test 4: nextSetIdInSession ordering with non-contiguous exercise positions ----------
+
+describe('nextSetIdInSession: ordering with non-contiguous exercise positions (1 and 10)', () => {
+	it('navigates from last set of exercise at position 1 to first set of exercise at position 10, regardless of insert order', async () => {
+		// INVARIANT: nextSetIdInSession orders by dayExercises.position, NOT by
+		// insert order. This test seeds positions 1 and 10 (not 1 and 2), and
+		// inserts prescribed_sets for the position-10 exercise first to prove
+		// insert order cannot govern the navigation result.
+		const [prog] = await db
+			.insert(programs)
+			.values({ name: 'non-contiguous positions' })
+			.returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day', position: 1 })
+			.returning();
+		const [exEarly] = await db
+			.insert(exercises)
+			.values({ name: 'Exercise pos-1' })
+			.returning();
+		const [exLate] = await db
+			.insert(exercises)
+			.values({ name: 'Exercise pos-10' })
+			.returning();
+
+		// dayExercise at position 1 (inserted first).
+		const [dxEarly] = await db
+			.insert(dayExercises)
+			.values({ dayId: day.id, exerciseId: exEarly.id, position: 1, tier: 'main' })
+			.returning();
+
+		// dayExercise at position 10 (large gap — not contiguous).
+		const [dxLate] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: exLate.id,
+				position: 10,
+				tier: 'secondary'
+			})
+			.returning();
+
+		// Insert prescribed_sets for the position-10 exercise FIRST to prove insert
+		// order cannot govern the result.
+		await db.insert(prescribedSets).values([
+			{ dayExerciseId: dxLate.id, position: 1, setRole: 'working', initialLoad: 50 }
+		]);
+		await db.insert(prescribedSets).values([
+			{ dayExerciseId: dxEarly.id, position: 1, setRole: 'top', initialLoad: 100 },
+			{ dayExerciseId: dxEarly.id, position: 2, setRole: 'backoff', initialLoad: 80 }
+		]);
+
+		const start = await startSessionForDay(db, day.id);
+		if (!start.ok) throw new Error('seed: startSessionForDay failed');
+
+		// Retrieve all sets and identify by exercise.
+		const rows = await db
+			.select({ id: sets.id, exerciseId: sets.exerciseId, position: sets.position })
+			.from(sets)
+			.where(eq(sets.sessionId, start.sessionId));
+
+		const earlyRows = rows.filter((r) => r.exerciseId === exEarly.id)
+			.sort((a, b) => a.position - b.position);
+		const lateRows = rows.filter((r) => r.exerciseId === exLate.id)
+			.sort((a, b) => a.position - b.position);
+
+		expect(earlyRows).toHaveLength(2);
+		expect(lateRows).toHaveLength(1);
+
+		// From early-pos-1 (top) → early-pos-2 (backoff): same exercise.
+		expect(
+			await nextSetIdInSession(db, start.sessionId, earlyRows[0].id)
+		).toBe(earlyRows[1].id);
+
+		// From early-pos-2 (backoff, LAST of position-1 exercise) → late-pos-1
+		// (working, FIRST of position-10 exercise). This is the cross-exercise
+		// boundary that must be governed by dayExercises.position order, not
+		// insert order.
+		expect(
+			await nextSetIdInSession(db, start.sessionId, earlyRows[1].id)
+		).toBe(lateRows[0].id);
+
+		// From late-pos-1 (working, last set overall) → null.
+		expect(
+			await nextSetIdInSession(db, start.sessionId, lateRows[0].id)
+		).toBeNull();
+	});
+});
+
+// ---------- Test 5: Multi-exercise pairwise prescribedSetId + prescribedLoad correctness ----------
+
+describe('startSessionForDay: pairwise prescribedSetId and prescribedLoad correctness across exercises', () => {
+	it('each sets row points at the correct prescribed_sets row and carries the matching initialLoad', async () => {
+		// INVARIANT (sessions.ts loop, startSessionForDay): the loop index `i` ties
+		// `prescribed[i]` to `prefilledLoads[i]`. A drift between these two arrays
+		// (e.g. different ordering, off-by-one) would misroute loads to wrong rows.
+		// This test seeds four prescribed sets at DISTINCT initialLoads across two
+		// exercises and verifies each resulting sets row is correctly paired.
+		const [prog] = await db
+			.insert(programs)
+			.values({ name: 'pairwise-check' })
+			.returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day', position: 1 })
+			.returning();
+		const [ex1] = await db.insert(exercises).values({ name: 'Squat' }).returning();
+		const [ex2] = await db.insert(exercises).values({ name: 'Leg Press' }).returning();
+
+		const [dx1] = await db
+			.insert(dayExercises)
+			.values({ dayId: day.id, exerciseId: ex1.id, position: 1, tier: 'main' })
+			.returning();
+		const [dx2] = await db
+			.insert(dayExercises)
+			.values({ dayId: day.id, exerciseId: ex2.id, position: 2, tier: 'secondary' })
+			.returning();
+
+		// Four prescribed sets at distinctly different loads so a mis-mapping is
+		// immediately apparent: 100, 80, 60, 40.
+		const [ps1a] = await db
+			.insert(prescribedSets)
+			.values({
+				dayExerciseId: dx1.id,
+				position: 1,
+				setRole: 'top',
+				targetRepsMin: 3,
+				targetRepsMax: 5,
+				initialLoad: 100
+			})
+			.returning();
+		const [ps1b] = await db
+			.insert(prescribedSets)
+			.values({
+				dayExerciseId: dx1.id,
+				position: 2,
+				setRole: 'backoff',
+				targetRepsMin: 5,
+				targetRepsMax: 8,
+				initialLoad: 80
+			})
+			.returning();
+		const [ps2a] = await db
+			.insert(prescribedSets)
+			.values({
+				dayExerciseId: dx2.id,
+				position: 1,
+				setRole: 'working',
+				targetRepsMin: 8,
+				targetRepsMax: 12,
+				initialLoad: 60
+			})
+			.returning();
+		const [ps2b] = await db
+			.insert(prescribedSets)
+			.values({
+				dayExerciseId: dx2.id,
+				position: 2,
+				setRole: 'working',
+				targetRepsMin: 8,
+				targetRepsMax: 12,
+				initialLoad: 40
+			})
+			.returning();
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const sessionSets = await db
+			.select()
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.loggedAt));
+
+		// Expect 4 sets total.
+		expect(sessionSets).toHaveLength(4);
+
+		// Build a lookup from prescribedSetId → expected initialLoad.
+		const expected: Record<string, number> = {
+			[ps1a.id]: 100,
+			[ps1b.id]: 80,
+			[ps2a.id]: 60,
+			[ps2b.id]: 40
+		};
+
+		for (const s of sessionSets) {
+			expect(s.prescribedSetId).not.toBeNull();
+			// Each sets row must point at a real prescription.
+			expect(s.prescribedSetId).toBeDefined();
+			if (!s.prescribedSetId) continue;
+
+			// The prescribedLoad must exactly match the initialLoad of the prescription
+			// it points at — proving no index-drift between the prescribed array and
+			// the prefilledLoads array in startSessionForDay.
+			expect(s.prescribedLoad).toBe(expected[s.prescribedSetId]);
+		}
+
+		// All four prescriptions must be referenced (no doubled or missing pairings).
+		const referencedIds = sessionSets.map((s) => s.prescribedSetId).sort();
+		expect(referencedIds).toEqual([ps1a.id, ps1b.id, ps2a.id, ps2b.id].sort());
+	});
+});

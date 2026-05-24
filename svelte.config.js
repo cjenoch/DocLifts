@@ -8,9 +8,13 @@ const config = {
 	},
 	kit: {
 		adapter: adapter(),
-		// Disabled: single-user, Tailscale-only, no auth — no session cookies for
-		// an attacker to ride. RE-ENABLE THIS the moment a login flow is added.
-		csrf: { checkOrigin: false }
+		// Single-user, Tailscale-only, no auth — explicit allowlist matches the
+		// canonical HTTPS URL fronted by Tailscale Serve. Without this entry
+		// adapter-node computes url.origin from the Host header (possibly
+		// localhost behind the proxy) and POSTs 403 on mismatch. Add origins
+		// here if the app moves; on adding auth, also wire PROTOCOL_HEADER /
+		// HOST_HEADER so adapter-node trusts the proxy's forwarded values.
+		csrf: { trustedOrigins: ['https://testdev01.tail29bbdb.ts.net'] }
 	}
 };
 

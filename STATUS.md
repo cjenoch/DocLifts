@@ -1,6 +1,6 @@
 # DocLifts — Status & Handoff Summary
 
-**Date:** 2026-05-24 · **Branch:** `main` · **Tests:** 88 passing
+**Date:** 2026-05-24 · **Branch:** `main` · **Tests:** 99 passing
 
 ## What this is
 
@@ -19,14 +19,14 @@ The app is built for personal use only — Chris uses it on his phone at the gym
 - **End-to-end dry run completed** via Playwright against the prod build — full flow works, persistence holds, read-only past view renders correctly. After the adapter-node deploy (2026-05-24), drove `startSession` → `updateSet` → reload via curl against the live systemd service: all four executed fields persisted exactly, hostile-Origin probe confirmed CSRF off as designed, Zod validation rejected garbage with structured field errors. The manual iPhone Safari input check (typed load differing from prefill persists after save) passed against both the dev server and the adapter-node production build on port 3000.
 - **MVP-A** behavior throughout — dumb prefill only, no progression engine wired in, no plate snap applied at runtime (both are implemented and tested, deliberately deferred to MVP-B per planning).
 
-## Test coverage (88 server tests)
+## Test coverage (99 server tests)
 
 | File | What it covers |
 |---|---|
 | `progression.test.ts` | Pure-function engine: tier branches (MAIN top-set, SECONDARY/ISOLATION all-sets), policy gating, 10% deload + 0.5 lb rounding, edge cases. |
 | `plates.test.ts` | `snapForEquipment` router, `snapToAchievable`, `snapPerSidePlates`, round-trip on every v5 deadlift increment, EZ-bar path. |
 | `progression.db.test.ts` | History-filter rule: defends the **blank-row poisoning** regression class called out in planning v2.2 §3. Covers `getLastCompletedSet` + `computeConsecutiveBackwards`, including the `excludeSessionId` path so a past-session view doesn't pull its own row as "last." |
-| `sessions.test.ts` | Session-start integrity (programId derived from day, never client), snapshot semantics, dumb prefill, endSession idempotency, updateSet 404/409/400 paths, cross-session injection no-op. |
+| `sessions.test.ts` | Session-start integrity (programId derived from day, never client), snapshot semantics + immutability after template edit, dumb prefill (incl. null-initialLoad cold start), endSession idempotency, updateSet 404/409/400 paths, cross-session injection no-op, `nextSetIdInSession` ordering (incl. non-contiguous positions + NULLed-FK orphan), pairwise prescribedSetId+prescribedLoad correctness. |
 
 DB tests share one `doclifts_test` database; `vite.config.ts` forces server file serialization to avoid races on the `exercises.name` unique constraint. The test-db helper auto-creates the DB + applies migrations on first run.
 
@@ -59,6 +59,8 @@ These are non-negotiable without explicit user approval. Full text with rational
 - **Real-device check against the production build** (was Medium gap) — opened `http://testdev01:3000` on the iPhone, logged a set, confirmed it persists after refresh. Closes the last pre-rollout verification loop.
 - **Stale open sessions cleared** (was Medium gap) — two pre-existing open sessions (Push with a 777 test row, Legs with deadlift warmups) deleted along with their 36 sets in a single transaction. Zero open sessions remain; program list shows clean Start buttons for every day.
 - **Tailscale Serve repointed to port 3000** — Serve was still forwarding `https://testdev01.tail29bbdb.ts.net` to `localhost:5173` after the adapter-node swap, so the iPhone fell back to `http://testdev01:3000` direct — which works but triggers iOS Safari's "submission is not secure" dialog on every form POST. Now `https://testdev01.tail29bbdb.ts.net` → `localhost:3000`, Tailscale-issued cert auto-trusted on tailnet devices, no warnings. **Bookmark the HTTPS URL, not the HTTP one.**
+- **CSRF config migrated off the deprecated `checkOrigin: false`** — replaced with `csrf: { trustedOrigins: ['https://testdev01.tail29bbdb.ts.net'] }` and redeployed. Functionally equivalent for the single-origin tool, slightly stricter: POSTs from non-listed origins now 403 (was 200). Side effect documented inline in `svelte.config.js`: curl POSTs without an `Origin` header also 403 — when scripting against the running service add `-H 'Origin: https://testdev01.tail29bbdb.ts.net'`. Commits `fe118b3`, `7a1d635`.
+- **DB cold-start for rollout** — cleared all of today's test sessions (both still-open and ended) along with their sets. At end-of-session: **0 sessions, 0 sets in the DB**. Tomorrow's first real workout starts as a true cold start: every prefill falls back to `initialLoad` from the v5 template; subsequent sessions pick up real history.
 
 ## Recent work this session
 
@@ -72,6 +74,8 @@ These are non-negotiable without explicit user approval. Full text with rational
 8. **"Last:" duplication fix** (`41f4429`) — `getLastCompletedSet` now accepts an optional `excludeSessionId`; the session-view loader passes the current session id. Two new tests cover the exclusion behavior. Re-verified visually in the browser.
 9. **`nextSetIdInSession` comment hardening** (`a85c0ee`, `217f44e`) — softened a "1:1 by construction" overclaim into a named failure mode (nullable FK orphan → innerJoin drops the set → `findIndex` misses → scroll to top instead of advancing). Three sequential code-review passes; reviewer's polish taken because the comment is load-bearing context for future LLM-assisted edits in this area.
 10. **Switch gym deploy to adapter-node + systemd** (`a9b3f6f`) — autostart was `pnpm dev`; now it's a built adapter-node artifact (`node build`) under `doclifts.service` with `EnvironmentFile=.env` for `DATABASE_URL`. Added `pnpm redeploy` script (build + restart). Disabled `csrf.checkOrigin` (single-user / Tailscale / no auth — `svelte.config.js` carries the re-enable trigger comment).
+11. **5 invariant-defending tests + csrf.trustedOrigins migration** (`fe118b3`, `7a1d635`) — added vitest cases for snapshot immutability after template edit, NULLed-FK orphan in `nextSetIdInSession`, null-`initialLoad` cold start, non-contiguous exercise positions, and pairwise `prescribedSetId`+`prescribedLoad` correctness. Same commits migrated the deprecated `csrf.checkOrigin: false` to `csrf: { trustedOrigins: [...] }` with the canonical HTTPS URL allowlisted. Inline doc comment captures the curl-needs-Origin side effect.
+12. **Added `vitest-test-author` sub-agent + accumulated memory** (`6f57c3c`) — agent definition plus four memory files (infra-patterns, bug-shapes, coverage-map, MEMORY index) so future runs of the agent reuse what it learned about this codebase.
 
 The verify run also surfaced a "1 of 5 sets had wrong value" finding which on further investigation turned out to be a Playwright/Chromium mobile-emulation artifact (input.value silently reverts to the prefill on number inputs when `isMobile: true, hasTouch: true`). Confirmed not reproducible in desktop context or in production build, so not a real-app concern. Real Mobile Safari on the iPhone is a different rendering engine and won't behave this way. The subsequent real-device checks on both the dev server and the adapter-node production build confirmed correct saves with no value reversion, consistent with an emulation-only artifact.
 

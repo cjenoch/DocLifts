@@ -6,7 +6,7 @@
 
 DocLifts is a personal lifting log built as a SvelteKit + Drizzle + Postgres app. It tracks training sessions structured around the v5 program: programs → days → exercises (with tier + progression policy metadata) → prescribed sets → executed sets. History is append-only in effect; snapshot semantics copy prescribed values from the template into the `sets` table at session-start, so past sessions preserve what was prescribed at the time even if the template is later edited.
 
-The app is built for personal use only — Chris uses it on his phone at the gym via Tailscale, hitting a production build (adapter-node) served by systemd on the VM. Real-use rollout begins **Tuesday 2026-05-27**.
+The app is built for personal use only — Chris uses it on his phone at the gym via Tailscale, hitting a production build (adapter-node) served by systemd on the VM. Real-use rollout begins **Tuesday 2026-05-26**.
 
 ## Current state (2026-05-24)
 

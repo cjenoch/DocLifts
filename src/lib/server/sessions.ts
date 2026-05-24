@@ -245,7 +245,11 @@ export async function updateSetInSession(
  * sessions.dayId)`. The exerciseId join would fan out if a day ever scheduled
  * the same exercise at two different positions — the schema permits it
  * (`day_exercises` is unique on `(dayId, position)` only). Joining via
- * `prescribedSetId` is 1:1 by construction.
+ * `prescribedSetId` is 1:1 at session-start (every set is created with its
+ * prescription). The column is nullable with `onDelete: 'set null'`, so a
+ * future flow that deletes prescribed_sets rows referenced by past sets
+ * would orphan them from this traversal — tighten if/when snapshot
+ * immutability is fully enforced at the schema level.
  */
 export async function nextSetIdInSession(
 	db: Database,

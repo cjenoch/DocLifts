@@ -31,48 +31,48 @@
   function roleBadge(role: Role): { text: string; cls: string } {
     switch (role) {
       case 'top':
-        return { text: 'TOP', cls: 'bg-amber-500 text-white' };
+        return { text: 'TOP', cls: 'bg-amber-500 text-zinc-950' };
       case 'warmup':
-        return { text: 'warmup', cls: 'bg-gray-200 text-gray-700' };
+        return { text: 'warmup', cls: 'bg-zinc-800 text-zinc-400' };
       case 'backoff':
-        return { text: 'backoff', cls: 'bg-blue-100 text-blue-800' };
+        return { text: 'backoff', cls: 'bg-indigo-500/15 text-indigo-300' };
       default:
-        return { text: 'working', cls: 'bg-gray-100 text-gray-700' };
+        return { text: 'working', cls: 'bg-zinc-800 text-zinc-300' };
     }
   }
 
   function rowClass(role: Role, logged: boolean): string {
-    if (logged) return 'border-l-4 border-green-500 bg-green-50';
-    if (role === 'top') return 'border-l-4 border-amber-500 bg-amber-50';
-    if (role === 'warmup') return 'opacity-80';
-    return '';
+    if (logged) return 'border-l-4 border-emerald-400 bg-emerald-500/10';
+    if (role === 'top') return 'border-l-4 border-amber-400 bg-amber-500/10';
+    if (role === 'warmup') return 'opacity-70';
+    return 'border-l-4 border-zinc-800';
   }
 </script>
 
-<div class="mx-auto max-w-md p-4 pb-24">
+<div class="mx-auto max-w-md px-4 py-6 pb-28">
   <a
     href="/programs/{data.session.programId}"
-    class="text-sm text-blue-600 active:underline"
+    class="text-sm text-indigo-400 active:underline"
   >
     ← Back
   </a>
 
-  <h1 class="mt-2 text-xl font-semibold">{data.day.name}</h1>
-  <p class="text-xs text-gray-500">
+  <h1 class="mt-2 text-xl font-semibold tracking-tight">{data.day.name}</h1>
+  <p class="text-xs text-zinc-500">
     Started {new Date(data.session.startedAt).toLocaleString()}
     {#if data.session.endedAt}· ended{/if}
   </p>
 
   {#each data.groups as group (group.exerciseId)}
-    <section class="mt-6">
+    <section class="mt-7">
       <div class="flex items-baseline justify-between gap-2">
-        <h2 class="text-base font-semibold">{group.exerciseName}</h2>
-        <div class="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-gray-500">
+        <h2 class="text-base font-semibold text-zinc-100">{group.exerciseName}</h2>
+        <div class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
           {#if group.tier}
             <span>{group.tier}</span>
           {/if}
           {#if group.progressionPolicy && group.progressionPolicy !== 'standard'}
-            <span class="rounded bg-gray-200 px-1 text-gray-700">
+            <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">
               {group.progressionPolicy}
             </span>
           {/if}
@@ -88,23 +88,23 @@
           {@const rowMessage =
             form?.setId === set.id && 'message' in form ? form.message : null}
           {@const sessionEnded = data.session.endedAt != null}
-          <li class="rounded p-2 text-sm {rowClass(set.setRole, logged)}">
+          <li class="rounded-lg bg-zinc-900/60 p-3 text-sm {rowClass(set.setRole, logged)}">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
-                <span class="w-5 text-right text-xs text-gray-500">{set.position}</span>
-                <span class="rounded px-1.5 py-0.5 text-[10px] font-medium {badge.cls}">
+                <span class="w-5 text-right text-xs text-zinc-500">{set.position}</span>
+                <span class="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {badge.cls}">
                   {badge.text}
                 </span>
                 {#if logged}
-                  <span class="rounded bg-green-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                  <span class="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
                     logged
                   </span>
                 {/if}
               </div>
-              <div class="text-right text-xs text-gray-600">
-                <span class="font-mono">{set.prescribedLoad ?? '—'}</span>
+              <div class="text-right text-xs text-zinc-400">
+                <span class="font-mono text-zinc-200">{set.prescribedLoad ?? '—'}</span>
                 ×
-                <span class="font-mono">
+                <span class="font-mono text-zinc-200">
                   {formatTarget(set.prescribedRepsMin, set.prescribedRepsMax, set.targetMetric)}
                 </span>
                 {#if set.prescribedRir != null}
@@ -113,7 +113,7 @@
               </div>
             </div>
             {#if hist}
-              <div class="pl-9 text-xs text-gray-500">Last: {hist}</div>
+              <div class="pl-9 text-xs text-zinc-500">Last: {hist}</div>
             {/if}
 
             {#if !sessionEnded}
@@ -124,7 +124,7 @@
               >
                 <input type="hidden" name="setId" value={set.id} />
                 <label class="flex items-center gap-1">
-                  <span class="text-[10px] text-gray-500">load</span>
+                  <span class="text-[10px] uppercase tracking-wide text-zinc-500">load</span>
                   <input
                     type="number"
                     name="executedLoad"
@@ -132,11 +132,11 @@
                     step="0.5"
                     min="0"
                     value={set.executedLoad ?? set.prescribedLoad ?? ''}
-                    class="w-16 rounded border border-gray-300 px-1.5 py-1 text-sm tabular-nums"
+                    class="w-16 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-1 tabular-nums"
                   />
                 </label>
                 <label class="flex items-center gap-1">
-                  <span class="text-[10px] text-gray-500">
+                  <span class="text-[10px] uppercase tracking-wide text-zinc-500">
                     {set.targetMetric === 'seconds' ? 'sec' : 'reps'}
                   </span>
                   <input
@@ -146,11 +146,11 @@
                     step="1"
                     min="0"
                     value={set.executedReps ?? ''}
-                    class="w-14 rounded border border-gray-300 px-1.5 py-1 text-sm tabular-nums"
+                    class="w-14 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-1 tabular-nums"
                   />
                 </label>
                 <label class="flex items-center gap-1">
-                  <span class="text-[10px] text-gray-500">RIR</span>
+                  <span class="text-[10px] uppercase tracking-wide text-zinc-500">RIR</span>
                   <input
                     type="number"
                     name="executedRir"
@@ -159,12 +159,12 @@
                     min="0"
                     max="10"
                     value={set.executedRir ?? ''}
-                    class="w-12 rounded border border-gray-300 px-1.5 py-1 text-sm tabular-nums"
+                    class="w-12 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-1 tabular-nums"
                   />
                 </label>
                 <button
                   type="submit"
-                  class="ml-auto rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white active:bg-blue-700"
+                  class="ml-auto rounded-md bg-indigo-500 px-3 py-1 text-xs font-semibold text-white shadow-sm shadow-indigo-500/20 transition active:scale-[0.97] active:bg-indigo-600"
                 >
                   Save
                 </button>
@@ -173,30 +173,30 @@
                   name="notes"
                   placeholder="notes"
                   value={set.notes ?? ''}
-                  class="basis-full rounded border border-gray-200 px-2 py-1 text-xs"
+                  class="basis-full rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1"
                 />
                 {#if rowError}
-                  <div class="basis-full text-xs text-red-600">
+                  <div class="basis-full text-xs text-rose-400">
                     {#each Object.entries(rowError) as [field, msgs]}
                       <span class="mr-2">{field}: {msgs?.[0]}</span>
                     {/each}
                   </div>
                 {/if}
                 {#if rowMessage}
-                  <div class="basis-full text-xs text-red-600">{rowMessage}</div>
+                  <div class="basis-full text-xs text-rose-400">{rowMessage}</div>
                 {/if}
               </form>
             {:else if logged}
-              <div class="mt-1 pl-9 text-xs text-gray-700">
+              <div class="mt-1 pl-9 text-xs text-zinc-300">
                 Executed
-                <span class="font-mono">{set.executedLoad ?? '—'}</span>
+                <span class="font-mono text-zinc-100">{set.executedLoad ?? '—'}</span>
                 ×
-                <span class="font-mono">{set.executedReps ?? '—'}</span>
+                <span class="font-mono text-zinc-100">{set.executedReps ?? '—'}</span>
                 {#if set.executedRir != null}
                   @ RIR {set.executedRir}
                 {/if}
                 {#if set.notes}
-                  <div class="italic text-gray-500">{set.notes}</div>
+                  <div class="italic text-zinc-500">{set.notes}</div>
                 {/if}
               </div>
             {/if}
@@ -211,12 +211,12 @@
   <form
     method="POST"
     action="?/endSession"
-    class="sticky bottom-0 border-t border-gray-200 bg-white/95 p-4 backdrop-blur"
+    class="sticky bottom-0 border-t border-zinc-800 bg-zinc-950/90 p-4 backdrop-blur"
   >
     <div class="mx-auto max-w-md">
       <button
         type="submit"
-        class="w-full rounded bg-green-600 px-4 py-3 text-base font-semibold text-white active:bg-green-700"
+        class="w-full rounded-lg bg-emerald-500 px-4 py-3 text-base font-semibold text-zinc-950 shadow-sm shadow-emerald-500/20 transition active:scale-[0.99] active:bg-emerald-600"
       >
         End Session
       </button>

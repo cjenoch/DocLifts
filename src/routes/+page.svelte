@@ -4,22 +4,22 @@
   let { data }: { data: PageData } = $props();
 </script>
 
-<div class="mx-auto max-w-md p-4">
-  <h1 class="mb-4 text-2xl font-semibold">Programs</h1>
+<div class="mx-auto max-w-md px-4 py-6">
+  <h1 class="mb-5 text-2xl font-semibold tracking-tight">Programs</h1>
 
   {#if data.programs.length === 0}
-    <p class="text-gray-500">No active programs.</p>
+    <p class="text-zinc-500">No active programs.</p>
   {:else}
     <ul class="space-y-2">
       {#each data.programs as program (program.id)}
         <li>
           <a
             href="/programs/{program.id}"
-            class="block rounded border border-gray-200 p-3 active:bg-gray-100"
+            class="block rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 transition active:scale-[0.99] active:bg-zinc-900"
           >
-            <div class="font-medium">{program.name}</div>
+            <div class="font-medium text-zinc-100">{program.name}</div>
             {#if program.description}
-              <div class="mt-1 text-sm text-gray-600">{program.description}</div>
+              <div class="mt-1 text-sm text-zinc-400">{program.description}</div>
             {/if}
           </a>
         </li>

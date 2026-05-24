@@ -1,1 +1,19 @@
 @import 'tailwindcss';
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-zinc-950 text-zinc-100 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  input[type='number'],
+  input[type='text'] {
+    @apply bg-zinc-900 text-zinc-100 placeholder:text-zinc-500;
+    font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
+  }
+  input:focus {
+    @apply outline-none ring-2 ring-indigo-500/60 border-indigo-500/60;
+  }
+}

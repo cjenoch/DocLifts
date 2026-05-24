@@ -1,6 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { and, asc, eq, isNull } from 'drizzle-orm';
-import { z } from 'zod';
+import { asc, eq } from 'drizzle-orm';
 import {
   db,
   dayExercises,
@@ -10,35 +9,8 @@ import {
   sets,
 } from '$lib/server/db';
 import { getLastCompletedSet, type HistoryRow } from '$lib/server/progression';
+import { endSession, updateSetInSession } from '$lib/server/sessions';
 import type { Actions, PageServerLoad } from './$types';
-
-// Empty string / null / undefined → null. Otherwise parse, pass through
-// unparseable values for Zod to flag with "Expected number" rather than NaN.
-const optionalNumber = (numSchema: z.ZodNumber) =>
-  z.preprocess((v) => {
-    if (v === null || v === undefined) return null;
-    if (typeof v === 'string') {
-      const t = v.trim();
-      if (t === '') return null;
-      const n = Number(t);
-      return Number.isFinite(n) ? n : v;
-    }
-    return v;
-  }, numSchema.nullable());
-
-const updateSetSchema = z.object({
-  executedLoad: optionalNumber(z.number().nonnegative()),
-  executedReps: optionalNumber(z.number().int().nonnegative()),
-  executedRir: optionalNumber(z.number().int().min(0).max(10)),
-  notes: z.preprocess(
-    (v) => {
-      if (typeof v !== 'string') return null;
-      const t = v.trim();
-      return t === '' ? null : t;
-    },
-    z.string().nullable(),
-  ),
-});
 
 export const load: PageServerLoad = async ({ params }) => {
   const [session] = await db
@@ -149,19 +121,11 @@ export const load: PageServerLoad = async ({ params }) => {
 };
 
 export const actions: Actions = {
-  // Idempotent: only stamps endedAt if currently null. Redirects either way,
-  // so a stale second submit still lands on /.
   endSession: async ({ params }) => {
-    await db
-      .update(sessions)
-      .set({ endedAt: new Date() })
-      .where(and(eq(sessions.id, params.id), isNull(sessions.endedAt)));
+    await endSession(db, params.id);
     redirect(303, '/');
   },
 
-  // One-row save. Plain HTML form; no client JS required.
-  // Returns `{ setId }` on success so the rerender can scope per-row error
-  // / saved-state display.
   updateSet: async ({ request, params }) => {
     const form = await request.formData();
     const setId = form.get('setId');
@@ -169,43 +133,23 @@ export const actions: Actions = {
       return fail(400, { setId: null, message: 'Missing setId' });
     }
 
-    // Guard: a stale tab from an already-ended session must not mutate
-    // historical executed values. Keeps history append-only in practice.
-    const [session] = await db
-      .select({ endedAt: sessions.endedAt })
-      .from(sessions)
-      .where(eq(sessions.id, params.id))
-      .limit(1);
-    if (!session) return fail(404, { setId, message: 'Session not found' });
-    if (session.endedAt) {
-      return fail(409, { setId, message: 'Session has ended' });
-    }
-
-    const parsed = updateSetSchema.safeParse({
+    const result = await updateSetInSession(db, params.id, setId, {
       executedLoad: form.get('executedLoad'),
       executedReps: form.get('executedReps'),
       executedRir: form.get('executedRir'),
       notes: form.get('notes'),
     });
-    if (!parsed.success) {
-      return fail(400, {
-        setId,
-        fieldErrors: parsed.error.flatten().fieldErrors,
+
+    if (!result.ok) {
+      return fail(result.status, {
+        setId: result.setId,
+        ...(result.message !== undefined && { message: result.message }),
+        ...(result.fieldErrors !== undefined && {
+          fieldErrors: result.fieldErrors,
+        }),
       });
     }
 
-    // Session-scoped WHERE: a hand-crafted POST cannot reach sets from
-    // other sessions.
-    await db
-      .update(sets)
-      .set({
-        executedLoad: parsed.data.executedLoad,
-        executedReps: parsed.data.executedReps,
-        executedRir: parsed.data.executedRir,
-        notes: parsed.data.notes,
-      })
-      .where(and(eq(sets.id, setId), eq(sets.sessionId, params.id)));
-
-    return { setId, saved: true };
+    return { setId: result.setId, saved: true };
   },
 };

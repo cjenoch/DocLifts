@@ -20,7 +20,7 @@ import {
 	sessions,
 	sets
 } from './db/schema';
-import { startSessionForDay } from './sessions';
+import { endSession, startSessionForDay, updateSetInSession } from './sessions';
 import { resetTestDb, setupTestDb, type TestDb } from './test-db';
 
 let db: TestDb;
@@ -375,5 +375,220 @@ describe('startSessionForDay: dumb prefill', () => {
 			.from(sets)
 			.where(eq(sets.sessionId, result.sessionId));
 		expect(s.prescribedLoad).toBe(100);
+	});
+});
+
+// ---------- endSession ----------
+
+describe('endSession', () => {
+	it('stamps endedAt on an open session', async () => {
+		const fixture = await seedProgram();
+		const start = await startSessionForDay(db, fixture.dayId);
+		if (!start.ok) throw new Error('seed failed');
+
+		const before = Date.now();
+		const result = await endSession(db, start.sessionId);
+		expect(result.updated).toBe(true);
+
+		const [s] = await db
+			.select()
+			.from(sessions)
+			.where(eq(sessions.id, start.sessionId));
+		expect(s.endedAt).toBeInstanceOf(Date);
+		expect(s.endedAt!.getTime()).toBeGreaterThanOrEqual(before);
+	});
+
+	it('is idempotent: returns updated=false on an already-ended session', async () => {
+		// And critically, must NOT overwrite the original endedAt — a silent
+		// timestamp shift on resubmit would corrupt history.
+		const fixture = await seedProgram();
+		const start = await startSessionForDay(db, fixture.dayId);
+		if (!start.ok) throw new Error('seed failed');
+
+		await endSession(db, start.sessionId);
+		const [first] = await db
+			.select({ endedAt: sessions.endedAt })
+			.from(sessions)
+			.where(eq(sessions.id, start.sessionId));
+		const firstEndedAt = first.endedAt;
+
+		const second = await endSession(db, start.sessionId);
+		expect(second.updated).toBe(false);
+
+		const [after] = await db
+			.select({ endedAt: sessions.endedAt })
+			.from(sessions)
+			.where(eq(sessions.id, start.sessionId));
+		expect(after.endedAt?.getTime()).toBe(firstEndedAt?.getTime());
+	});
+
+	it('returns updated=false for a nonexistent session', async () => {
+		const result = await endSession(
+			db,
+			'00000000-0000-0000-0000-000000000000'
+		);
+		expect(result.updated).toBe(false);
+	});
+
+	it('does not affect other open sessions', async () => {
+		const fixture = await seedProgram();
+		const a = await startSessionForDay(db, fixture.dayId);
+		const b = await startSessionForDay(db, fixture.dayId);
+		if (!a.ok || !b.ok) throw new Error('seed failed');
+
+		await endSession(db, a.sessionId);
+
+		const [sb] = await db
+			.select()
+			.from(sessions)
+			.where(eq(sessions.id, b.sessionId));
+		expect(sb.endedAt).toBeNull();
+	});
+});
+
+// ---------- updateSetInSession ----------
+
+async function setupOpenSet(): Promise<{ sessionId: string; setId: string }> {
+	const fixture = await seedProgram();
+	const start = await startSessionForDay(db, fixture.dayId);
+	if (!start.ok) throw new Error('setupOpenSet: startSessionForDay failed');
+	const [set] = await db
+		.select()
+		.from(sets)
+		.where(eq(sets.sessionId, start.sessionId));
+	return { sessionId: start.sessionId, setId: set.id };
+}
+
+describe('updateSetInSession', () => {
+	it('writes executed values + notes on valid input', async () => {
+		const { sessionId, setId } = await setupOpenSet();
+		const result = await updateSetInSession(db, sessionId, setId, {
+			executedLoad: '105.5',
+			executedReps: '5',
+			executedRir: '1',
+			notes: 'felt strong'
+		});
+		expect(result).toEqual({ ok: true, setId });
+
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.executedLoad).toBe(105.5);
+		expect(s.executedReps).toBe(5);
+		expect(s.executedRir).toBe(1);
+		expect(s.notes).toBe('felt strong');
+	});
+
+	it('treats empty strings on numeric fields and notes as null', async () => {
+		const { sessionId, setId } = await setupOpenSet();
+		const result = await updateSetInSession(db, sessionId, setId, {
+			executedLoad: '',
+			executedReps: '',
+			executedRir: '',
+			notes: ''
+		});
+		expect(result.ok).toBe(true);
+
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.executedLoad).toBeNull();
+		expect(s.executedReps).toBeNull();
+		expect(s.executedRir).toBeNull();
+		expect(s.notes).toBeNull();
+	});
+
+	it('treats whitespace-only notes as null', async () => {
+		const { sessionId, setId } = await setupOpenSet();
+		await updateSetInSession(db, sessionId, setId, {
+			executedLoad: '100',
+			executedReps: '5',
+			executedRir: '1',
+			notes: '   '
+		});
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.notes).toBeNull();
+	});
+
+	it('returns 404 when the session does not exist', async () => {
+		const result = await updateSetInSession(
+			db,
+			'00000000-0000-0000-0000-000000000000',
+			'00000000-0000-0000-0000-000000000001',
+			{ executedLoad: '100', executedReps: '5', executedRir: '1', notes: '' }
+		);
+		expect(result).toEqual({
+			ok: false,
+			setId: '00000000-0000-0000-0000-000000000001',
+			status: 404,
+			message: 'Session not found'
+		});
+	});
+
+	it('returns 409 on an ended session and does not mutate the row', async () => {
+		// The stale-tab guard — history is append-only in practice.
+		const { sessionId, setId } = await setupOpenSet();
+		await endSession(db, sessionId);
+
+		const result = await updateSetInSession(db, sessionId, setId, {
+			executedLoad: '999',
+			executedReps: '99',
+			executedRir: '0',
+			notes: 'late'
+		});
+		expect(result).toMatchObject({
+			ok: false,
+			setId,
+			status: 409,
+			message: 'Session has ended'
+		});
+
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.executedLoad).toBeNull();
+		expect(s.executedReps).toBeNull();
+		expect(s.notes).toBeNull();
+	});
+
+	it('returns 400 with fieldErrors on invalid input and does not mutate', async () => {
+		const { sessionId, setId } = await setupOpenSet();
+		const result = await updateSetInSession(db, sessionId, setId, {
+			executedLoad: '-5',
+			executedReps: 'abc',
+			executedRir: '11',
+			notes: ''
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.status).toBe(400);
+		expect(result.fieldErrors?.executedLoad).toBeDefined();
+		expect(result.fieldErrors?.executedReps).toBeDefined();
+		expect(result.fieldErrors?.executedRir).toBeDefined();
+
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.executedLoad).toBeNull();
+		expect(s.executedReps).toBeNull();
+	});
+
+	it('cross-session injection: setId from another session does not mutate', async () => {
+		// Hand-crafted POST naming sessionB with setA must NOT touch setA.
+		// Current behavior: helper returns ok (sessionB is valid + open) but the
+		// session-scoped WHERE clause matches 0 rows, so the row is unchanged.
+		const fixture = await seedProgram();
+		const a = await startSessionForDay(db, fixture.dayId);
+		const b = await startSessionForDay(db, fixture.dayId);
+		if (!a.ok || !b.ok) throw new Error('seed failed');
+		const [setA] = await db
+			.select()
+			.from(sets)
+			.where(eq(sets.sessionId, a.sessionId));
+
+		const result = await updateSetInSession(db, b.sessionId, setA.id, {
+			executedLoad: '999',
+			executedReps: '1',
+			executedRir: '0',
+			notes: 'hijack'
+		});
+		expect(result.ok).toBe(true);
+
+		const [after] = await db.select().from(sets).where(eq(sets.id, setA.id));
+		expect(after.executedLoad).toBeNull();
+		expect(after.executedReps).toBeNull();
+		expect(after.notes).toBeNull();
 	});
 });

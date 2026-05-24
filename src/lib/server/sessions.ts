@@ -9,7 +9,8 @@
  * derived from the day row, never accepted as a parameter.
  */
 
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
+import { z } from 'zod';
 import {
 	dayExercises,
 	days,
@@ -108,4 +109,122 @@ export async function startSessionForDay(
 	});
 
 	return { ok: true, sessionId };
+}
+
+/**
+ * Stamps `endedAt` on the session if it is currently open. Idempotent:
+ * calling on an already-ended or nonexistent session is a no-op.
+ *
+ * Returns `updated: true` only when a row was actually closed.
+ */
+export async function endSession(
+	db: Database,
+	sessionId: string
+): Promise<{ updated: boolean }> {
+	const result = await db
+		.update(sessions)
+		.set({ endedAt: new Date() })
+		.where(and(eq(sessions.id, sessionId), isNull(sessions.endedAt)))
+		.returning({ id: sessions.id });
+	return { updated: result.length > 0 };
+}
+
+// ---------- updateSetInSession ----------
+
+// Empty / null / undefined → null. Strings parse to number when finite;
+// unparseable strings pass through so Zod flags "Expected number" rather
+// than silently NaN-ing.
+const optionalNumber = (numSchema: z.ZodNumber) =>
+	z.preprocess((v) => {
+		if (v === null || v === undefined) return null;
+		if (typeof v === 'string') {
+			const t = v.trim();
+			if (t === '') return null;
+			const n = Number(t);
+			return Number.isFinite(n) ? n : v;
+		}
+		return v;
+	}, numSchema.nullable());
+
+const updateSetSchema = z.object({
+	executedLoad: optionalNumber(z.number().nonnegative()),
+	executedReps: optionalNumber(z.number().int().nonnegative()),
+	executedRir: optionalNumber(z.number().int().min(0).max(10)),
+	notes: z.preprocess(
+		(v) => {
+			if (typeof v !== 'string') return null;
+			const t = v.trim();
+			return t === '' ? null : t;
+		},
+		z.string().nullable()
+	)
+});
+
+export type UpdateSetInput = {
+	executedLoad: unknown;
+	executedReps: unknown;
+	executedRir: unknown;
+	notes: unknown;
+};
+
+export type UpdateSetResult =
+	| { ok: true; setId: string }
+	| {
+			ok: false;
+			setId: string;
+			status: number;
+			message?: string;
+			fieldErrors?: Record<string, string[] | undefined>;
+	  };
+
+/**
+ * Validate + apply a one-row executed-set update.
+ *
+ * Returns 404 if the session does not exist, 409 if it has ended (the
+ * stale-tab guard preserves history append-only semantics), 400 with
+ * fieldErrors on validation failure, otherwise updates the row.
+ *
+ * The UPDATE is scoped by `(setId, sessionId)` — a hand-crafted POST that
+ * names a setId from a different session silently no-ops (current behavior;
+ * the helper returns ok because the session itself is valid).
+ */
+export async function updateSetInSession(
+	db: Database,
+	sessionId: string,
+	setId: string,
+	input: UpdateSetInput
+): Promise<UpdateSetResult> {
+	const [session] = await db
+		.select({ endedAt: sessions.endedAt })
+		.from(sessions)
+		.where(eq(sessions.id, sessionId))
+		.limit(1);
+	if (!session) {
+		return { ok: false, setId, status: 404, message: 'Session not found' };
+	}
+	if (session.endedAt) {
+		return { ok: false, setId, status: 409, message: 'Session has ended' };
+	}
+
+	const parsed = updateSetSchema.safeParse(input);
+	if (!parsed.success) {
+		return {
+			ok: false,
+			setId,
+			status: 400,
+			fieldErrors: parsed.error.flatten().fieldErrors
+		};
+	}
+
+	await db
+		.update(sets)
+		.set({
+			executedLoad: parsed.data.executedLoad,
+			executedReps: parsed.data.executedReps,
+			executedRir: parsed.data.executedRir,
+			notes: parsed.data.notes
+		})
+		.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)));
+
+	return { ok: true, setId };
 }

@@ -9,7 +9,11 @@ import {
   sets,
 } from '$lib/server/db';
 import { getLastCompletedSet, type HistoryRow } from '$lib/server/progression';
-import { endSession, updateSetInSession } from '$lib/server/sessions';
+import {
+  endSession,
+  nextSetIdInSession,
+  updateSetInSession,
+} from '$lib/server/sessions';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params }) => {
@@ -153,6 +157,12 @@ export const actions: Actions = {
       });
     }
 
-    return { setId: result.setId, saved: true };
+    // Redirect to the same page with a fragment anchoring the NEXT row,
+    // so saving scrolls the user toward what they're about to log instead
+    // of resetting to top. Falls back to the just-saved row when there's
+    // no next set (last row of the session). Browser-native scroll-to-
+    // anchor; no client JS required.
+    const nextId = await nextSetIdInSession(db, params.id, result.setId);
+    redirect(303, `/sessions/${params.id}#set-${nextId ?? result.setId}`);
   },
 };

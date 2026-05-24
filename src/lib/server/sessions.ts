@@ -228,3 +228,38 @@ export async function updateSetInSession(
 
 	return { ok: true, setId };
 }
+
+/**
+ * Returns the id of the set that follows `currentSetId` in the same session,
+ * using the same ordering the session view renders (exercise position, then
+ * set position within the exercise). Returns null if `currentSetId` is the
+ * last set in the session — or if it can't be found in the session at all,
+ * which is a defensive case rather than an expected one.
+ *
+ * Used by the updateSet action to redirect to a fragment anchoring the NEXT
+ * row, so saving a set scrolls the user toward what they'll log next instead
+ * of resetting to top.
+ */
+export async function nextSetIdInSession(
+	db: Database,
+	sessionId: string,
+	currentSetId: string
+): Promise<string | null> {
+	const rows = await db
+		.select({ id: sets.id })
+		.from(sets)
+		.innerJoin(sessions, eq(sessions.id, sets.sessionId))
+		.innerJoin(
+			dayExercises,
+			and(
+				eq(dayExercises.exerciseId, sets.exerciseId),
+				eq(dayExercises.dayId, sessions.dayId)
+			)
+		)
+		.where(eq(sets.sessionId, sessionId))
+		.orderBy(asc(dayExercises.position), asc(sets.position));
+
+	const idx = rows.findIndex((r) => r.id === currentSetId);
+	if (idx < 0 || idx === rows.length - 1) return null;
+	return rows[idx + 1].id;
+}

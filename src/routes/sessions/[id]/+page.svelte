@@ -88,7 +88,7 @@
           {@const rowMessage =
             form?.setId === set.id && 'message' in form ? form.message : null}
           {@const sessionEnded = data.session.endedAt != null}
-          <li class="rounded-lg bg-zinc-900/60 p-3 text-sm {rowClass(set.setRole, logged)}">
+          <li id="set-{set.id}" class="rounded-lg bg-zinc-900/60 p-3 text-sm {rowClass(set.setRole, logged)}">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
                 <span class="w-5 text-right text-xs text-zinc-500">{set.position}</span>

@@ -20,7 +20,12 @@ import {
 	sessions,
 	sets
 } from './db/schema';
-import { endSession, startSessionForDay, updateSetInSession } from './sessions';
+import {
+	endSession,
+	nextSetIdInSession,
+	startSessionForDay,
+	updateSetInSession
+} from './sessions';
 import { resetTestDb, setupTestDb, type TestDb } from './test-db';
 
 let db: TestDb;
@@ -590,5 +595,122 @@ describe('updateSetInSession', () => {
 		expect(after.executedLoad).toBeNull();
 		expect(after.executedReps).toBeNull();
 		expect(after.notes).toBeNull();
+	});
+});
+
+// ---------- nextSetIdInSession ----------
+
+describe('nextSetIdInSession', () => {
+	/**
+	 * Build a day with two exercises, each carrying multiple prescribed sets,
+	 * then start a session so the sets table has the expected ordered rows.
+	 * Returns the session id plus the ordered list of inserted set ids in the
+	 * exact (exercisePos, setPos) order the session view renders.
+	 */
+	async function seedMultiExerciseSession(): Promise<{
+		sessionId: string;
+		orderedSetIds: string[];
+	}> {
+		const [prog] = await db
+			.insert(programs)
+			.values({ name: 'Next-set fixture program' })
+			.returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day', position: 1 })
+			.returning();
+		const [exA] = await db
+			.insert(exercises)
+			.values({ name: 'Exercise A' })
+			.returning();
+		const [exB] = await db
+			.insert(exercises)
+			.values({ name: 'Exercise B' })
+			.returning();
+		const [dxA] = await db
+			.insert(dayExercises)
+			.values({ dayId: day.id, exerciseId: exA.id, position: 1, tier: 'main' })
+			.returning();
+		const [dxB] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: exB.id,
+				position: 2,
+				tier: 'secondary'
+			})
+			.returning();
+		// Exercise A: 2 sets; Exercise B: 1 set. Expected order: A1, A2, B1.
+		await db.insert(prescribedSets).values([
+			{ dayExerciseId: dxA.id, position: 1, setRole: 'top', initialLoad: 100 },
+			{
+				dayExerciseId: dxA.id,
+				position: 2,
+				setRole: 'backoff',
+				initialLoad: 80
+			},
+			{
+				dayExerciseId: dxB.id,
+				position: 1,
+				setRole: 'working',
+				initialLoad: 60
+			}
+		]);
+
+		const start = await startSessionForDay(db, day.id);
+		if (!start.ok) throw new Error('seed: startSessionForDay failed');
+
+		const rows = await db
+			.select({ id: sets.id, exId: sets.exerciseId, pos: sets.position })
+			.from(sets)
+			.where(eq(sets.sessionId, start.sessionId));
+		// Sort the same way the loader does: exercise position, then set position.
+		// exA.id maps to exercise position 1; exB.id maps to position 2.
+		const orderedSetIds = rows
+			.slice()
+			.sort((a, b) => {
+				const aEx = a.exId === exA.id ? 1 : 2;
+				const bEx = b.exId === exA.id ? 1 : 2;
+				if (aEx !== bEx) return aEx - bEx;
+				return a.pos - b.pos;
+			})
+			.map((r) => r.id);
+
+		return { sessionId: start.sessionId, orderedSetIds };
+	}
+
+	it('returns the next set in the same exercise', async () => {
+		const { sessionId, orderedSetIds } = await seedMultiExerciseSession();
+		// orderedSetIds = [A1, A2, B1]; from A1, next is A2.
+		const next = await nextSetIdInSession(db, sessionId, orderedSetIds[0]);
+		expect(next).toBe(orderedSetIds[1]);
+	});
+
+	it('crosses exercise boundaries to the first set of the next exercise', async () => {
+		const { sessionId, orderedSetIds } = await seedMultiExerciseSession();
+		// From A2, next is B1.
+		const next = await nextSetIdInSession(db, sessionId, orderedSetIds[1]);
+		expect(next).toBe(orderedSetIds[2]);
+	});
+
+	it('returns null when the current set is the last set in the session', async () => {
+		const { sessionId, orderedSetIds } = await seedMultiExerciseSession();
+		// From B1 (last), no next.
+		const next = await nextSetIdInSession(
+			db,
+			sessionId,
+			orderedSetIds[orderedSetIds.length - 1]
+		);
+		expect(next).toBeNull();
+	});
+
+	it('returns null when the setId does not belong to the session', async () => {
+		const { sessionId } = await seedMultiExerciseSession();
+		const next = await nextSetIdInSession(
+			db,
+			sessionId,
+			'00000000-0000-0000-0000-000000000000'
+		);
+		expect(next).toBeNull();
 	});
 });

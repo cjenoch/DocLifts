@@ -15,7 +15,7 @@
  * (via `snapForEquipment`).
  */
 
-import { and, desc, eq, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, ne } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './db/schema';
 import { sessions, sets } from './db/schema';
@@ -261,12 +261,18 @@ export type HistoryRow = {
  * Implements the v2.1 §11 prefill query with v2.2 §3 safety filters. These
  * filters apply to MVP-A's dumb prefill too — not just MVP-B's smart prefill.
  * Per CLAUDE.md, every history lookup uses these filters.
+ *
+ * `excludeSessionId` lets a session-view loader skip the session being
+ * displayed — otherwise, once that session ends, its own set becomes "the
+ * most recent completed" and the per-row "Last: …" duplicates the executed
+ * value shown right above it.
  */
 export async function getLastCompletedSet(
   db: Database,
   exerciseId: string,
   setRole: SetRole,
   position: number,
+  excludeSessionId?: string,
 ): Promise<HistoryRow | null> {
   const rows = await db
     .select({
@@ -287,6 +293,7 @@ export async function getLastCompletedSet(
         isNotNull(sets.executedLoad),
         isNotNull(sets.executedReps),
         isNotNull(sessions.endedAt),
+        excludeSessionId ? ne(sessions.id, excludeSessionId) : undefined,
       ),
     )
     .orderBy(desc(sets.loggedAt))

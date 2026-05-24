@@ -78,9 +78,12 @@ export const load: PageServerLoad = async ({ params }) => {
     .orderBy(asc(sets.position));
 
   // Per-set history for inline display. N+1 by design (MVP).
+  // Exclude THIS session — once it ends, its own set would otherwise become
+  // "the most recent completed" and the "Last: …" line would duplicate the
+  // executed value shown right above it in the same row.
   const histories = await Promise.all(
     sessionSets.map((s) =>
-      getLastCompletedSet(db, s.exerciseId, s.setRole, s.position),
+      getLastCompletedSet(db, s.exerciseId, s.setRole, s.position, session.id),
     ),
   );
 

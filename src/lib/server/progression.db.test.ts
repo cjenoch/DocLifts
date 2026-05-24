@@ -241,6 +241,52 @@ describe('getLastCompletedSet: history filter', () => {
 		expect(result).toBeNull();
 	});
 
+	it('excludeSessionId skips the named session', async () => {
+		// Defends the past-session view: once a session ends, its own set would
+		// otherwise become "the most recent completed" for that slot and the
+		// "Last: …" line would duplicate the Executed line shown right above.
+		const olderSession = await addSession({ ended: true });
+		const currentSession = await addSession({ ended: true });
+		await addSet({
+			sessionId: olderSession,
+			executedLoad: 100,
+			loggedAt: new Date(BASE_DATE)
+		});
+		await addSet({
+			sessionId: currentSession,
+			executedLoad: 110,
+			loggedAt: new Date(BASE_DATE + DAY_MS)
+		});
+
+		// Without exclusion: returns the current (newer) session's set.
+		const unfiltered = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		expect(unfiltered?.executedLoad).toBe(110);
+
+		// With exclusion: returns the older session's set.
+		const filtered = await getLastCompletedSet(
+			db,
+			exerciseId,
+			'top',
+			1,
+			currentSession
+		);
+		expect(filtered?.executedLoad).toBe(100);
+	});
+
+	it('returns null when excludeSessionId hides the only completed history', async () => {
+		const onlySession = await addSession({ ended: true });
+		await addSet({ sessionId: onlySession, executedLoad: 100 });
+
+		const result = await getLastCompletedSet(
+			db,
+			exerciseId,
+			'top',
+			1,
+			onlySession
+		);
+		expect(result).toBeNull();
+	});
+
 	it('returns prescribed range fields alongside executed', async () => {
 		// `prescribedLoad` is intentionally NOT in the prefill result — current
 		// load comes from engine output / last-executed, not the prior snapshot.

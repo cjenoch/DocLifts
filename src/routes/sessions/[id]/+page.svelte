@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { PageData } from './$types';
+  import type { ActionData, PageData } from './$types';
 
-  let { data }: { data: PageData } = $props();
+  let { data, form }: { data: PageData; form: ActionData } = $props();
 
   type Metric = 'reps' | 'seconds';
   type Role = 'warmup' | 'working' | 'top' | 'backoff';
@@ -41,9 +41,10 @@
     }
   }
 
-  function rowClass(role: Role): string {
+  function rowClass(role: Role, logged: boolean): string {
+    if (logged) return 'border-l-4 border-green-500 bg-green-50';
     if (role === 'top') return 'border-l-4 border-amber-500 bg-amber-50';
-    if (role === 'warmup') return 'opacity-70';
+    if (role === 'warmup') return 'opacity-80';
     return '';
   }
 </script>
@@ -71,36 +72,133 @@
             <span>{group.tier}</span>
           {/if}
           {#if group.progressionPolicy && group.progressionPolicy !== 'standard'}
-            <span class="rounded bg-gray-200 px-1 text-gray-700">{group.progressionPolicy}</span>
+            <span class="rounded bg-gray-200 px-1 text-gray-700">
+              {group.progressionPolicy}
+            </span>
           {/if}
         </div>
       </div>
 
-      <ul class="mt-2 space-y-1">
+      <ul class="mt-2 space-y-2">
         {#each group.sets as set (set.id)}
           {@const badge = roleBadge(set.setRole)}
           {@const hist = formatHistory(set.history, set.targetMetric)}
-          <li class="flex flex-col gap-1 rounded p-2 text-sm {rowClass(set.setRole)}">
+          {@const logged = set.executedLoad != null}
+          {@const rowError = form?.setId === set.id ? (form.fieldErrors ?? null) : null}
+          {@const rowMessage =
+            form?.setId === set.id && 'message' in form ? form.message : null}
+          {@const sessionEnded = data.session.endedAt != null}
+          <li class="rounded p-2 text-sm {rowClass(set.setRole, logged)}">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2">
                 <span class="w-5 text-right text-xs text-gray-500">{set.position}</span>
                 <span class="rounded px-1.5 py-0.5 text-[10px] font-medium {badge.cls}">
                   {badge.text}
                 </span>
+                {#if logged}
+                  <span class="rounded bg-green-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                    logged
+                  </span>
+                {/if}
               </div>
-              <div class="text-right">
+              <div class="text-right text-xs text-gray-600">
                 <span class="font-mono">{set.prescribedLoad ?? '—'}</span>
                 ×
                 <span class="font-mono">
                   {formatTarget(set.prescribedRepsMin, set.prescribedRepsMax, set.targetMetric)}
                 </span>
                 {#if set.prescribedRir != null}
-                  <span class="ml-1 text-xs text-gray-500">RIR {set.prescribedRir}</span>
+                  <span class="ml-1">RIR {set.prescribedRir}</span>
                 {/if}
               </div>
             </div>
             {#if hist}
               <div class="pl-9 text-xs text-gray-500">Last: {hist}</div>
+            {/if}
+
+            {#if !sessionEnded}
+              <form
+                method="POST"
+                action="?/updateSet"
+                class="mt-2 flex flex-wrap items-center gap-1.5"
+              >
+                <input type="hidden" name="setId" value={set.id} />
+                <label class="flex items-center gap-1">
+                  <span class="text-[10px] text-gray-500">load</span>
+                  <input
+                    type="number"
+                    name="executedLoad"
+                    inputmode="decimal"
+                    step="0.5"
+                    min="0"
+                    value={set.executedLoad ?? set.prescribedLoad ?? ''}
+                    class="w-16 rounded border border-gray-300 px-1.5 py-1 text-sm tabular-nums"
+                  />
+                </label>
+                <label class="flex items-center gap-1">
+                  <span class="text-[10px] text-gray-500">
+                    {set.targetMetric === 'seconds' ? 'sec' : 'reps'}
+                  </span>
+                  <input
+                    type="number"
+                    name="executedReps"
+                    inputmode="numeric"
+                    step="1"
+                    min="0"
+                    value={set.executedReps ?? ''}
+                    class="w-14 rounded border border-gray-300 px-1.5 py-1 text-sm tabular-nums"
+                  />
+                </label>
+                <label class="flex items-center gap-1">
+                  <span class="text-[10px] text-gray-500">RIR</span>
+                  <input
+                    type="number"
+                    name="executedRir"
+                    inputmode="numeric"
+                    step="1"
+                    min="0"
+                    max="10"
+                    value={set.executedRir ?? ''}
+                    class="w-12 rounded border border-gray-300 px-1.5 py-1 text-sm tabular-nums"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  class="ml-auto rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white active:bg-blue-700"
+                >
+                  Save
+                </button>
+                <input
+                  type="text"
+                  name="notes"
+                  placeholder="notes"
+                  value={set.notes ?? ''}
+                  class="basis-full rounded border border-gray-200 px-2 py-1 text-xs"
+                />
+                {#if rowError}
+                  <div class="basis-full text-xs text-red-600">
+                    {#each Object.entries(rowError) as [field, msgs]}
+                      <span class="mr-2">{field}: {msgs?.[0]}</span>
+                    {/each}
+                  </div>
+                {/if}
+                {#if rowMessage}
+                  <div class="basis-full text-xs text-red-600">{rowMessage}</div>
+                {/if}
+              </form>
+            {:else if logged}
+              <div class="mt-1 pl-9 text-xs text-gray-700">
+                Executed
+                <span class="font-mono">{set.executedLoad ?? '—'}</span>
+                ×
+                <span class="font-mono">{set.executedReps ?? '—'}</span>
+                {#if set.executedRir != null}
+                  @ RIR {set.executedRir}
+                {/if}
+                {#if set.notes}
+                  <div class="italic text-gray-500">{set.notes}</div>
+                {/if}
+              </div>
             {/if}
           </li>
         {/each}

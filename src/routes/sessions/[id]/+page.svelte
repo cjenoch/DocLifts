@@ -48,7 +48,7 @@
   }
 </script>
 
-<div class="mx-auto max-w-md p-4 pb-8">
+<div class="mx-auto max-w-md p-4 pb-24">
   <a
     href="/programs/{data.session.programId}"
     class="text-sm text-blue-600 active:underline"
@@ -108,3 +108,20 @@
     </section>
   {/each}
 </div>
+
+{#if !data.session.endedAt}
+  <form
+    method="POST"
+    action="?/endSession"
+    class="sticky bottom-0 border-t border-gray-200 bg-white/95 p-4 backdrop-blur"
+  >
+    <div class="mx-auto max-w-md">
+      <button
+        type="submit"
+        class="w-full rounded bg-green-600 px-4 py-3 text-base font-semibold text-white active:bg-green-700"
+      >
+        End Session
+      </button>
+    </div>
+  </form>
+{/if}

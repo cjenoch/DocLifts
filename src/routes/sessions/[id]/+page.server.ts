@@ -1,5 +1,5 @@
-import { error } from '@sveltejs/kit';
-import { asc, eq } from 'drizzle-orm';
+import { error, redirect } from '@sveltejs/kit';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import {
   db,
   dayExercises,
@@ -9,7 +9,7 @@ import {
   sets,
 } from '$lib/server/db';
 import { getLastCompletedSet, type HistoryRow } from '$lib/server/progression';
-import type { PageServerLoad } from './$types';
+import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params }) => {
   const [session] = await db
@@ -117,4 +117,16 @@ export const load: PageServerLoad = async ({ params }) => {
   for (const g of groups) g.sets.sort((a, b) => a.position - b.position);
 
   return { session, day, groups };
+};
+
+export const actions: Actions = {
+  // Idempotent: only stamps endedAt if currently null. Redirects either way,
+  // so a stale second submit still lands on /.
+  endSession: async ({ params }) => {
+    await db
+      .update(sessions)
+      .set({ endedAt: new Date() })
+      .where(and(eq(sessions.id, params.id), isNull(sessions.endedAt)));
+    redirect(303, '/');
+  },
 };

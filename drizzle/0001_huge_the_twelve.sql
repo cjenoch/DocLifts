@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "sessions_one_open_per_day" ON "sessions" USING btree ("day_id") WHERE ended_at IS NULL;

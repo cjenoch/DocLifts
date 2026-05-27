@@ -35,6 +35,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -235,6 +236,12 @@ export const sessions = pgTable(
       t.startedAt.desc(),
     ),
     programIdIdx: index('sessions_program_id_idx').on(t.programId),
+    // At most one open session per day. Partial unique index — closes the
+    // double-submit race in `startSessionForDay` (the app-layer check there
+    // covers the common case; this catches true concurrent inserts).
+    oneOpenPerDay: uniqueIndex('sessions_one_open_per_day')
+      .on(t.dayId)
+      .where(sql`ended_at IS NULL`),
   }),
 );
 

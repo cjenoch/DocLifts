@@ -1,7 +1,11 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
+
+  // Per-day flag: one day's in-flight start must not disable other days' buttons.
+  let starting = $state<Record<string, boolean>>({});
 </script>
 
 <div class="mx-auto max-w-md px-4 py-6">
@@ -39,13 +43,29 @@
                 Resume
               </a>
             {:else}
-              <form method="POST" action="?/startSession">
+              <form
+                method="POST"
+                action="?/startSession"
+                use:enhance={({ formData, cancel }) => {
+                  const id = String(formData.get('dayId') ?? '');
+                  if (starting[id]) {
+                    cancel();
+                    return;
+                  }
+                  starting[id] = true;
+                  return async ({ update }) => {
+                    await update();
+                    starting[id] = false;
+                  };
+                }}
+              >
                 <input type="hidden" name="dayId" value={day.id} />
                 <button
                   type="submit"
-                  class="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/20 transition active:scale-[0.98] active:bg-indigo-600"
+                  disabled={starting[day.id]}
+                  class="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/20 transition active:scale-[0.98] active:bg-indigo-600 disabled:opacity-60"
                 >
-                  Start
+                  {starting[day.id] ? 'Starting…' : 'Start'}
                 </button>
               </form>
             {/if}

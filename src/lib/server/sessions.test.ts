@@ -202,6 +202,86 @@ describe('startSessionForDay: session-start integrity', () => {
 	});
 });
 
+describe('startSessionForDay: one-open-per-day idempotency', () => {
+	it('returns the existing open session id instead of creating a duplicate', async () => {
+		// Double-tap defense. A second call while a session is already open for
+		// the same day must return the same session id and not insert a phantom.
+		const fixture = await seedProgram();
+
+		const first = await startSessionForDay(db, fixture.dayId);
+		const second = await startSessionForDay(db, fixture.dayId);
+		expect(first.ok).toBe(true);
+		expect(second.ok).toBe(true);
+		if (!first.ok || !second.ok) return;
+
+		expect(second.sessionId).toBe(first.sessionId);
+
+		const allSessions = await db
+			.select({ id: sessions.id })
+			.from(sessions)
+			.where(eq(sessions.dayId, fixture.dayId));
+		expect(allSessions).toHaveLength(1);
+	});
+
+	it('does NOT re-snapshot sets on the idempotent return', async () => {
+		// The second call must not insert another batch of snapshot rows — that
+		// would corrupt the snapshot-immutability invariant and double the set
+		// count for the open session.
+		const fixture = await seedProgram();
+		const first = await startSessionForDay(db, fixture.dayId);
+		expect(first.ok).toBe(true);
+		if (!first.ok) return;
+
+		const before = await db
+			.select({ id: sets.id })
+			.from(sets)
+			.where(eq(sets.sessionId, first.sessionId));
+
+		await startSessionForDay(db, fixture.dayId);
+
+		const after = await db
+			.select({ id: sets.id })
+			.from(sets)
+			.where(eq(sets.sessionId, first.sessionId));
+		expect(after).toHaveLength(before.length);
+	});
+
+	it('creates a new session once the previous one for the day is ended', async () => {
+		// The cap is "one OPEN session per day", not "one session ever". Ending
+		// the first must free the day for a fresh start.
+		const fixture = await seedProgram();
+
+		const first = await startSessionForDay(db, fixture.dayId);
+		expect(first.ok).toBe(true);
+		if (!first.ok) return;
+		await endSession(db, first.sessionId);
+
+		const second = await startSessionForDay(db, fixture.dayId);
+		expect(second.ok).toBe(true);
+		if (!second.ok) return;
+		expect(second.sessionId).not.toBe(first.sessionId);
+	});
+
+	it('the DB rejects a hand-crafted insert that bypasses the helper', async () => {
+		// Layer 2 (partial unique index) check. If app code somehow tries to
+		// INSERT a second open session for the same day directly — bypassing the
+		// helper — the database itself blocks it. This is the safety net for the
+		// TOCTOU race between two concurrent startSessionForDay calls.
+		const fixture = await seedProgram();
+		const first = await startSessionForDay(db, fixture.dayId);
+		expect(first.ok).toBe(true);
+		if (!first.ok) return;
+
+		await expect(
+			db.insert(sessions).values({
+				dayId: fixture.dayId,
+				programId: fixture.programId,
+				endedAt: null
+			})
+		).rejects.toMatchObject({ cause: { code: '23505' } });
+	});
+});
+
 describe('startSessionForDay: snapshot semantics', () => {
 	it('snapshots prescribed set structure into the sets table', async () => {
 		const fixture = await seedProgram();
@@ -351,13 +431,25 @@ describe('startSessionForDay: dumb prefill', () => {
 	it('falls back to initialLoad when prior session is unfinished (blank-row safe)', async () => {
 		// A blank-row poison would slip a NULL through history. The prefill must
 		// see no history and fall back to initialLoad.
+		//
+		// The poisoned open session lives on a SEPARATE day (different program +
+		// day, same exerciseId) — the new one-open-per-day cap would otherwise
+		// short-circuit startSessionForDay before prefill even runs.
 		const fixture = await seedProgram({ initialLoad: 100 });
 
+		const [otherProgram] = await db
+			.insert(programs)
+			.values({ name: 'blank-row poison host' })
+			.returning();
+		const [otherDay] = await db
+			.insert(days)
+			.values({ programId: otherProgram.id, name: 'other', position: 1 })
+			.returning();
 		const [openSession] = await db
 			.insert(sessions)
 			.values({
-				dayId: fixture.dayId,
-				programId: fixture.programId,
+				dayId: otherDay.id,
+				programId: otherProgram.id,
 				endedAt: null
 			})
 			.returning();
@@ -436,10 +528,14 @@ describe('endSession', () => {
 	});
 
 	it('does not affect other open sessions', async () => {
-		const fixture = await seedProgram();
-		const a = await startSessionForDay(db, fixture.dayId);
-		const b = await startSessionForDay(db, fixture.dayId);
+		// Two distinct days — one open session per day is the cap (partial unique
+		// index `sessions_one_open_per_day`). Ending one must leave the other open.
+		const fixtureA = await seedProgram({ programName: 'A' });
+		const fixtureB = await seedProgram({ programName: 'B', exerciseName: 'Squat' });
+		const a = await startSessionForDay(db, fixtureA.dayId);
+		const b = await startSessionForDay(db, fixtureB.dayId);
 		if (!a.ok || !b.ok) throw new Error('seed failed');
+		expect(a.sessionId).not.toBe(b.sessionId);
 
 		await endSession(db, a.sessionId);
 
@@ -574,9 +670,11 @@ describe('updateSetInSession', () => {
 		// Hand-crafted POST naming sessionB with setA must NOT touch setA.
 		// Current behavior: helper returns ok (sessionB is valid + open) but the
 		// session-scoped WHERE clause matches 0 rows, so the row is unchanged.
-		const fixture = await seedProgram();
-		const a = await startSessionForDay(db, fixture.dayId);
-		const b = await startSessionForDay(db, fixture.dayId);
+		// Two distinct days — one open session per day is the cap.
+		const fixtureA = await seedProgram({ programName: 'A' });
+		const fixtureB = await seedProgram({ programName: 'B', exerciseName: 'Squat' });
+		const a = await startSessionForDay(db, fixtureA.dayId);
+		const b = await startSessionForDay(db, fixtureB.dayId);
 		if (!a.ok || !b.ok) throw new Error('seed failed');
 		const [setA] = await db
 			.select()

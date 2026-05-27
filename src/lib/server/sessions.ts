@@ -25,10 +25,18 @@ export type StartSessionResult =
 	| { ok: false; status: number; message: string };
 
 /**
- * Creates a new session for the given dayId.
+ * Creates a new session for the given dayId, OR returns the existing open
+ * session for that day if one already exists.
  *
  * Looks up the day server-side to derive `programId` — never trusts a
  * client-supplied programId (per CLAUDE.md "Session-start integrity" rule).
+ *
+ * Idempotent on (dayId, no-open-session). A second call while a session for
+ * the same day is still open returns that session's id rather than creating a
+ * phantom duplicate (defends against double-submit / double-tap on the Start
+ * button). The DB-level guarantee is the partial unique index
+ * `sessions_one_open_per_day`; the pre-check here just avoids wasted prefill
+ * work and a unique-violation round-trip in the common case.
  *
  * Snapshots all prescribed sets into the session's `sets` rows (per snapshot
  * semantics rule). Dumb prefill per row: history.executedLoad ?? initialLoad.
@@ -47,6 +55,11 @@ export async function startSessionForDay(
 		.limit(1);
 	if (!day) {
 		return { ok: false, status: 404, message: 'Day not found' };
+	}
+
+	const existing = await findOpenSessionForDay(db, day.id);
+	if (existing) {
+		return { ok: true, sessionId: existing };
 	}
 
 	const prescribed = await db
@@ -80,35 +93,67 @@ export async function startSessionForDay(
 		})
 	);
 
-	const sessionId = await db.transaction(async (tx) => {
-		const [session] = await tx
-			.insert(sessions)
-			.values({
-				dayId: day.id,
-				programId: day.programId
-			})
-			.returning({ id: sessions.id });
+	try {
+		const sessionId = await db.transaction(async (tx) => {
+			const [session] = await tx
+				.insert(sessions)
+				.values({
+					dayId: day.id,
+					programId: day.programId
+				})
+				.returning({ id: sessions.id });
 
-		for (let i = 0; i < prescribed.length; i++) {
-			const p = prescribed[i];
-			await tx.insert(sets).values({
-				sessionId: session.id,
-				exerciseId: p.exerciseId,
-				prescribedSetId: p.prescribedSetId,
-				position: p.setPosition,
-				setRole: p.setRole,
-				targetMetric: p.targetMetric,
-				prescribedLoad: prefilledLoads[i],
-				prescribedRepsMin: p.targetRepsMin,
-				prescribedRepsMax: p.targetRepsMax,
-				prescribedRir: p.targetRir
-			});
+			for (let i = 0; i < prescribed.length; i++) {
+				const p = prescribed[i];
+				await tx.insert(sets).values({
+					sessionId: session.id,
+					exerciseId: p.exerciseId,
+					prescribedSetId: p.prescribedSetId,
+					position: p.setPosition,
+					setRole: p.setRole,
+					targetMetric: p.targetMetric,
+					prescribedLoad: prefilledLoads[i],
+					prescribedRepsMin: p.targetRepsMin,
+					prescribedRepsMax: p.targetRepsMax,
+					prescribedRir: p.targetRir
+				});
+			}
+
+			return session.id;
+		});
+
+		return { ok: true, sessionId };
+	} catch (err) {
+		// True race: another request's tx committed between our pre-check and
+		// our INSERT, so the `sessions_one_open_per_day` partial unique index
+		// rejected ours. Re-fetch the winner and return its id so the caller
+		// is unblocked. (Postgres SQLSTATE 23505 = unique_violation.)
+		if (isUniqueViolation(err)) {
+			const winner = await findOpenSessionForDay(db, day.id);
+			if (winner) return { ok: true, sessionId: winner };
 		}
+		throw err;
+	}
+}
 
-		return session.id;
-	});
+async function findOpenSessionForDay(
+	db: Database,
+	dayId: string
+): Promise<string | null> {
+	const [row] = await db
+		.select({ id: sessions.id })
+		.from(sessions)
+		.where(and(eq(sessions.dayId, dayId), isNull(sessions.endedAt)))
+		.limit(1);
+	return row?.id ?? null;
+}
 
-	return { ok: true, sessionId };
+function isUniqueViolation(err: unknown): boolean {
+	// Drizzle wraps driver errors in `DrizzleQueryError` with the original
+	// PostgresError on `.cause`, so we have to unwrap to reach the SQLSTATE.
+	if (typeof err !== 'object' || err === null) return false;
+	if ((err as { code?: unknown }).code === '23505') return true;
+	return isUniqueViolation((err as { cause?: unknown }).cause);
 }
 
 /**

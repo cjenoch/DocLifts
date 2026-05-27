@@ -1,6 +1,6 @@
 # DocLifts — Status & Handoff Summary
 
-**Date:** 2026-05-24 · **Branch:** `main` · **Tests:** 99 passing
+**Date:** 2026-05-27 · **Branch:** `main` · **Tests:** 104 passing
 
 ## What this is
 
@@ -8,12 +8,12 @@ DocLifts is a personal lifting log built as a SvelteKit + Drizzle + Postgres app
 
 The app is built for personal use only — Chris uses it on his phone at the gym via Tailscale at **`https://testdev01.tail29bbdb.ts.net`** (HTTPS via Tailscale Serve, fronting the adapter-node systemd service on `localhost:3000`). Real-use rollout begins **Tuesday 2026-05-26**.
 
-## Current state (2026-05-24)
+## Current state (2026-05-27)
 
-- **Schema + migrations:** stable. Single migration in `drizzle/`.
+- **Schema + migrations:** stable. **Two** migrations in `drizzle/` (added `0001_huge_the_twelve.sql` — `sessions_one_open_per_day` partial unique index).
 - **Seed:** v5 program seeded with cautious progression policy on shoulder-fragility lifts.
 - **Server actions:**
-  - `startSession` (programs/[id]) — creates session, snapshots prescribed sets, applies dumb prefill (last executed load OR `initialLoad`).
+  - `startSession` (programs/[id]) — creates session, snapshots prescribed sets, applies dumb prefill (last executed load OR `initialLoad`). **Idempotent for open sessions** — a second call for the same day returns the existing open session id instead of inserting a duplicate, with a unique-violation catch as the backstop for true concurrent inserts.
   - `endSession` and `updateSet` (sessions/[id]) — stamps `endedAt` idempotently, edits one set per submit with Zod validation and a stale-tab guard (409 on ended sessions).
 - **UI:** dark zinc/indigo palette, thumb-driven entry on iPhone 12 (16px input font to suppress iOS Safari auto-zoom). Past sessions are read-only; editable rows only while the session is open.
 - **End-to-end dry run completed** via Playwright against the prod build — full flow works, persistence holds, read-only past view renders correctly. After the adapter-node deploy (2026-05-24), drove `startSession` → `updateSet` → reload via curl against the live systemd service: all four executed fields persisted exactly, hostile-Origin probe confirmed CSRF off as designed, Zod validation rejected garbage with structured field errors. The manual iPhone Safari input check (typed load differing from prefill persists after save) passed against both the dev server and the adapter-node production build on port 3000.
@@ -52,6 +52,7 @@ These are non-negotiable without explicit user approval. Full text with rational
 | Low | Pain event UI doesn't exist. Schema does. Either build a one-button "log pain" affordance, or accept paper. |
 
 **Resolved this session:**
+- **Double-session bug on Start (was real-rollout day-1 finding)** — first real workout produced two sessions for the same day 0.7 s apart, breaking the save UI mid-set. Phantom rows recovered manually; fix shipped as three-layer defense (idempotent app helper, partial unique index `sessions_one_open_per_day`, `use:enhance` client guard with per-day flag). Verified via Playwright: double-tap and 5-click mash-tap each produce exactly one POST and one new session row. 4 new tests, 3 updated. Commit `99b1052`.
 - DB backup gap (was high priority) — daily `pg_dump` cron now writes gzipped dumps to `~/backups/doclifts/` with 30-day rotation. First backup verified.
 - Backup restore drill (was low priority) — restored the 2026-05-24 dump into a throwaway `doclifts_restore_test` DB on 2026-05-24, all 8 application tables matched live row counts, spot-checks confirmed program/day/session/set data intact. Backup is verifiably restorable.
 - **`nextSetIdInSession` join correctness** — comment hardening over three review passes (commits `a85c0ee`, `217f44e`); also re-verified end-to-end in production via the redirect-fragment in the verify run.
@@ -76,6 +77,7 @@ These are non-negotiable without explicit user approval. Full text with rational
 10. **Switch gym deploy to adapter-node + systemd** (`a9b3f6f`) — autostart was `pnpm dev`; now it's a built adapter-node artifact (`node build`) under `doclifts.service` with `EnvironmentFile=.env` for `DATABASE_URL`. Added `pnpm redeploy` script (build + restart). Disabled `csrf.checkOrigin` (single-user / Tailscale / no auth — `svelte.config.js` carries the re-enable trigger comment).
 11. **5 invariant-defending tests + csrf.trustedOrigins migration** (`fe118b3`, `7a1d635`) — added vitest cases for snapshot immutability after template edit, NULLed-FK orphan in `nextSetIdInSession`, null-`initialLoad` cold start, non-contiguous exercise positions, and pairwise `prescribedSetId`+`prescribedLoad` correctness. Same commits migrated the deprecated `csrf.checkOrigin: false` to `csrf: { trustedOrigins: [...] }` with the canonical HTTPS URL allowlisted. Inline doc comment captures the curl-needs-Origin side effect.
 12. **Added `vitest-test-author` sub-agent + accumulated memory** (`6f57c3c`) — agent definition plus four memory files (infra-patterns, bug-shapes, coverage-map, MEMORY index) so future runs of the agent reuse what it learned about this codebase.
+13. **Double-session fix + verify run** (`99b1052`) — three layers of defense against double-submit at session start. App-layer idempotency in `startSessionForDay`, partial unique index in the DB, `use:enhance` on the Start form. Playwright-driven end-to-end verification through the live SvelteKit dev server.
 
 The verify run also surfaced a "1 of 5 sets had wrong value" finding which on further investigation turned out to be a Playwright/Chromium mobile-emulation artifact (input.value silently reverts to the prefill on number inputs when `isMobile: true, hasTouch: true`). Confirmed not reproducible in desktop context or in production build, so not a real-app concern. Real Mobile Safari on the iPhone is a different rendering engine and won't behave this way. The subsequent real-device checks on both the dev server and the adapter-node production build confirmed correct saves with no value reversion, consistent with an emulation-only artifact.
 

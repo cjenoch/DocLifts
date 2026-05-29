@@ -45,8 +45,9 @@ jobs:
       # locally; npm regenerates its own resolution from package.json on CI.
       - run: npm install --no-audit --no-fund
 
-      # drizzle-kit migrate — reads DATABASE_URL.
-      - run: npm run db:migrate
+      # Migrations: applied implicitly by the test setup. src/lib/server/test-db.ts
+      # calls drizzle's programmatic migrate() at vitest startup, so the schema
+      # exists before any test runs. No separate migrate step needed.
 
       # svelte-kit sync + svelte-check.
       - run: npm run check

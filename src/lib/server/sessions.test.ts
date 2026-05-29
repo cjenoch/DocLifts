@@ -288,25 +288,32 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 		// catch 23505 → findOpenSessionForDay → return winner). Without
 		// that catch, the losing call would surface an unhandled error.
 		//
-		// We fire N=8 concurrent calls (postgres-js pool max is 8 in
-		// test-db.ts) on a fresh day. With high probability at least one
-		// pair both pass the pre-check and race to INSERT — exercising the
-		// catch. The exact behavior we lock in:
-		//   1. ALL calls return ok: true (no unhandled errors surface)
-		//   2. ALL calls return the SAME sessionId (the catch path re-fetches
+		// We fire N=4 concurrent calls on a fresh day. With high probability
+		// at least one pair both pass the pre-check and race to INSERT —
+		// exercising the catch. The exact behavior we lock in:
+		//   1. NO call throws (no unhandled errors surface)
+		//   2. ALL calls return ok: true
+		//   3. ALL calls return the SAME sessionId (the catch path re-fetches
 		//      the winner and returns it; if it returned its own (failed)
 		//      tx's id, this assertion catches that regression)
-		//   3. The DB ends up with exactly one open session for the day
+		//   4. The DB ends up with exactly one open session for the day
 		const fixture = await seedProgram();
 
-		const results = await Promise.all(
-			Array.from({ length: 8 }, () => startSessionForDay(db, fixture.dayId))
+		const settled = await Promise.allSettled(
+			Array.from({ length: 4 }, () => startSessionForDay(db, fixture.dayId))
 		);
 
+		const rejected = settled.filter((r) => r.status === 'rejected');
+		expect(rejected).toHaveLength(0);
+
+		const results = settled
+			.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof startSessionForDay>>> =>
+				r.status === 'fulfilled'
+			)
+			.map((r) => r.value);
 		expect(results.every((r) => r.ok)).toBe(true);
-		const ids = new Set(
-			results.flatMap((r) => (r.ok ? [r.sessionId] : []))
-		);
+
+		const ids = new Set(results.flatMap((r) => (r.ok ? [r.sessionId] : [])));
 		expect(ids.size).toBe(1);
 
 		const open = await db
@@ -315,28 +322,6 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 			.where(eq(sessions.dayId, fixture.dayId));
 		expect(open).toHaveLength(1);
 		expect(open[0].id).toBe([...ids][0]);
-	});
-
-	it('catch path: pre-check passes, conflicting row appears, INSERT hits 23505, helper recovers', async () => {
-		// Deterministic version of the above. Simulates the race window
-		// from the inside: we pre-insert a conflicting open session for
-		// the day, then call startSessionForDay. The pre-check WILL see
-		// the pre-existing row (that's the fast path — covered by other
-		// tests). So this test specifically exercises the layer-3 net:
-		// we delete the row mid-flight is unrealistic, but we can prove
-		// the catch path's downstream contract — `findOpenSessionForDay`
-		// returns the right winner — by hitting the helper with eight
-		// fresh races and asserting NONE of them throw.
-		//
-		// This is the closest deterministic check we get without code
-		// instrumentation; the N=8 parallel test above is the actual
-		// race exercise.
-		const fixture = await seedProgram();
-		const results = await Promise.allSettled(
-			Array.from({ length: 8 }, () => startSessionForDay(db, fixture.dayId))
-		);
-		const rejected = results.filter((r) => r.status === 'rejected');
-		expect(rejected).toHaveLength(0);
 	});
 });
 

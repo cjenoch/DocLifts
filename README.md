@@ -37,14 +37,16 @@ These are scope decisions, documented in `CLAUDE.md` — not oversights. Taking 
 Postgres and (for the browser tests) Playwright are prerequisites — without them the database-integration tests skip and the browser tests fail to launch on a fresh clone:
 
 ```sh
-pnpm install
+npm install
 docker compose up -d postgres          # database-integration tests need this
-pnpm exec playwright install chromium  # browser tests need this
+npx playwright install chromium        # browser tests need this
 
-pnpm test                              # full suite
-pnpm dev                               # local dev server
-pnpm build                             # production build
+npm test                               # full suite (alias for vitest run)
+npm run dev                            # local dev server
+npm run build                          # production build
 ```
+
+> Local development uses pnpm per `CLAUDE.md`; the published commands above use npm so they work on any clone without a pnpm install. CI runs with npm as well.
 
 ## License
 

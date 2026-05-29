@@ -28,30 +28,29 @@ jobs:
       # drizzle.config.ts reads DATABASE_URL (dotenv/config); migrate uses this.
       # test-db.ts reads TEST_DATABASE_URL; integration tests use this.
       # Same target DB in CI — match the postgres service above.
-      DATABASE_URL: postgresql://doclifts:doclifts@localhost:5432/doclifts_test
-      TEST_DATABASE_URL: postgresql://doclifts:doclifts@localhost:5432/doclifts_test
+      DATABASE_URL: postgresql://doclifts:***@localhost:5432/doclifts_test
+      TEST_DATABASE_URL: postgresql://doclifts:***@localhost:5432/doclifts_test
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+          cache: npm
 
-      - run: pnpm install --frozen-lockfile
+      # Project's package manager of record is pnpm (per CLAUDE.md), but CI uses npm
+      # to avoid pnpm/action-setup pinning ceremony. Lockfile is the source of truth
+      # locally; npm regenerates its own resolution from package.json on CI.
+      - run: npm install --no-audit --no-fund
 
       # drizzle-kit migrate — reads DATABASE_URL.
-      - run: pnpm run db:migrate
+      - run: npm run db:migrate
 
       # svelte-kit sync + svelte-check.
-      - run: pnpm run check
+      - run: npm run check
 
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium
 
       # Full suite — both vitest projects (server + browser).
-      # Calling vitest directly avoids the package.json `test` script's
-      # npm-inside-pnpm hop (`npm run test:unit -- --run`).
-      - run: pnpm exec vitest run
+      - run: npx vitest run

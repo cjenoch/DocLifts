@@ -37,7 +37,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          # No `cache:` — repo has no package-lock.json (pnpm is the local PM).
+          # setup-node would fail trying to hash a non-existent lockfile.
 
       # Project's package manager of record is pnpm (per CLAUDE.md), but CI uses npm
       # to avoid pnpm/action-setup pinning ceremony. Lockfile is the source of truth

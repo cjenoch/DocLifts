@@ -15,6 +15,13 @@
       "when": 1779856297003,
       "tag": "0001_huge_the_twelve",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779907200000,
+      "tag": "0002_schema_hardening",
+      "breakpoints": true
     }
   ]
 }

@@ -86,6 +86,7 @@ export const days = pgTable(
       t.position,
     ),
     programIdIdx: index('days_program_id_idx').on(t.programId),
+    positionNonNeg: check('days_position_non_neg_check', sql`${t.position} >= 1`),
   }),
 );
 
@@ -94,12 +95,24 @@ export const days = pgTable(
 export const exercises = pgTable('exercises', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull().unique(),
-  // Free text for MVP. Used by `snapForEquipment()` to dispatch plate-snap math.
-  // Known values: 'barbell', 'barbell-ez', 'machine-plate', 'machine-stack',
-  // 'cable', 'dumbbell', 'smith', 'bodyweight', 'band'.
-  equipmentType: text('equipment_type'),
+  // NOT NULL since v3 — `snapForEquipment(load, null)` silently returns
+  // pass-through, so a NULL here would print wrong-by-bar-weight loads on
+  // what was supposed to be a barbell exercise. Failing fast at INSERT
+  // beats silent-wrong at the gym.
+  //
+  // Known values (CHECK below): 'barbell', 'barbell-ez', 'machine-plate',
+  // 'machine-stack', 'cable', 'dumbbell', 'smith', 'bodyweight', 'band'.
+  equipmentType: text('equipment_type').notNull(),
   notes: text('notes'),
-});
+}, (t) => ({
+  equipmentTypeCheck: check(
+    'exercises_equipment_type_check',
+    sql`${t.equipmentType} IN (
+      'barbell', 'barbell-ez', 'machine-plate', 'machine-stack',
+      'cable', 'dumbbell', 'smith', 'bodyweight', 'band'
+    )`,
+  ),
+}));
 
 // ---------- day_exercises ----------
 
@@ -129,6 +142,10 @@ export const dayExercises = pgTable(
     ),
     dayIdIdx: index('day_exercises_day_id_idx').on(t.dayId),
     exerciseIdIdx: index('day_exercises_exercise_id_idx').on(t.exerciseId),
+    positionNonNeg: check(
+      'day_exercises_position_non_neg_check',
+      sql`${t.position} >= 1`,
+    ),
   }),
 );
 
@@ -202,6 +219,10 @@ export const prescribedSets = pgTable(
       sql`${t.restSecondsMin} IS NULL OR ${t.restSecondsMax} IS NULL
           OR ${t.restSecondsMin} <= ${t.restSecondsMax}`,
     ),
+    positionNonNeg: check(
+      'prescribed_sets_position_non_neg_check',
+      sql`${t.position} >= 1`,
+    ),
   }),
 );
 
@@ -242,6 +263,13 @@ export const sessions = pgTable(
     oneOpenPerDay: uniqueIndex('sessions_one_open_per_day')
       .on(t.dayId)
       .where(sql`ended_at IS NULL`),
+    // History append-only invariant: a session can never have ended before
+    // it started. Clock skew on a multi-device write or a bad UPDATE would
+    // otherwise let bad rows in silently.
+    endedAfterStartedCheck: check(
+      'sessions_ended_after_started_check',
+      sql`${t.endedAt} IS NULL OR ${t.endedAt} >= ${t.startedAt}`,
+    ),
   }),
 );
 
@@ -341,6 +369,7 @@ export const sets = pgTable(
       sql`${t.prescribedRir} IS NULL
           OR (${t.prescribedRir} >= 0 AND ${t.prescribedRir} <= 10)`,
     ),
+    positionNonNeg: check('sets_position_non_neg_check', sql`${t.position} >= 1`),
   }),
 );
 

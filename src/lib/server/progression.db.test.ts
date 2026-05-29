@@ -52,10 +52,10 @@ beforeEach(async () => {
 		.returning();
 	dayId = day.id;
 
-	const [ex] = await db.insert(exercises).values({ name: 'Bench Press' }).returning();
+	const [ex] = await db.insert(exercises).values({ name: 'Bench Press', equipmentType: 'bodyweight' }).returning();
 	exerciseId = ex.id;
 
-	const [otherEx] = await db.insert(exercises).values({ name: 'Squat' }).returning();
+	const [otherEx] = await db.insert(exercises).values({ name: 'Squat', equipmentType: 'bodyweight' }).returning();
 	otherExerciseId = otherEx.id;
 
 	await db.insert(dayExercises).values({

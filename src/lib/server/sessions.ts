@@ -201,7 +201,7 @@ const updateSetSchema = z.object({
 			const t = v.trim();
 			return t === '' ? null : t;
 		},
-		z.string().nullable()
+		z.string().max(2000, { message: 'Notes must be 2000 characters or fewer' }).nullable()
 	)
 });
 
@@ -225,13 +225,12 @@ export type UpdateSetResult =
 /**
  * Validate + apply a one-row executed-set update.
  *
- * Returns 404 if the session does not exist, 409 if it has ended (the
- * stale-tab guard preserves history append-only semantics), 400 with
- * fieldErrors on validation failure, otherwise updates the row.
- *
- * The UPDATE is scoped by `(setId, sessionId)` — a hand-crafted POST that
- * names a setId from a different session silently no-ops (current behavior;
- * the helper returns ok because the session itself is valid).
+ * Returns 404 if the session does not exist OR if `setId` is not a row of
+ * `sessionId` (cross-session hand-crafted POSTs go in this bucket — the
+ * UPDATE returns 0 rows and we surface a 404 rather than silently lying
+ * about success). Returns 409 if the session has ended (the stale-tab
+ * guard preserves history append-only semantics), 400 with fieldErrors on
+ * validation failure, otherwise updates the row.
  */
 export async function updateSetInSession(
 	db: Database,
@@ -261,7 +260,7 @@ export async function updateSetInSession(
 		};
 	}
 
-	await db
+	const updated = await db
 		.update(sets)
 		.set({
 			executedLoad: parsed.data.executedLoad,
@@ -269,7 +268,15 @@ export async function updateSetInSession(
 			executedRir: parsed.data.executedRir,
 			notes: parsed.data.notes
 		})
-		.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)));
+		.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)))
+		.returning({ id: sets.id });
+
+	if (updated.length === 0) {
+		// setId does not belong to sessionId (or doesn't exist). Either way
+		// it's a 404 — same shape we return for an unknown session, so the
+		// caller never sees a silent success on a no-op UPDATE.
+		return { ok: false, setId, status: 404, message: 'Set not found in this session' };
+	}
 
 	return { ok: true, setId };
 }

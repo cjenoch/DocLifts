@@ -64,7 +64,7 @@ export async function setupTestDb(): Promise<{
 		await admin.end();
 	}
 
-	const client = postgres(testUrl, { max: 2, onnotice: () => {} });
+	const client = postgres(testUrl, { max: 8, onnotice: () => {} });
 	const db = drizzle(client, { schema });
 	await migrate(db, { migrationsFolder: './drizzle' });
 	return { db, client, end: () => client.end() };

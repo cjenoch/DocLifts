@@ -23,7 +23,7 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.5.4",
-		"@sveltejs/kit": "^2.57.0",
+		"@sveltejs/kit": "^2.61.1",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
 		"@tailwindcss/vite": "^4.2.2",
 		"@types/node": "^25.6.0",
@@ -34,7 +34,7 @@
 		"prettier": "^3.8.1",
 		"prettier-plugin-svelte": "^3.5.1",
 		"prettier-plugin-tailwindcss": "^0.7.2",
-		"svelte": "^5.55.2",
+		"svelte": "^5.55.10",
 		"svelte-check": "^4.4.6",
 		"tailwindcss": "^4.2.2",
 		"tsx": "^4.21.0",
@@ -46,7 +46,6 @@
 	"dependencies": {
 		"drizzle-orm": "^0.45.2",
 		"postgres": "^3.4.9",
-		"sveltekit-superforms": "^2.30.1",
 		"zod": "^4.4.3"
 	}
 }

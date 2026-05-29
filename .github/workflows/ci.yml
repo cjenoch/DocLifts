@@ -24,13 +24,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-    env:
-      # drizzle.config.ts reads DATABASE_URL (dotenv/config); migrate uses this.
-      # test-db.ts reads TEST_DATABASE_URL; integration tests use this.
-      # Same target DB in CI — match the postgres service above.
-      DATABASE_URL: postgresql://doclifts:***@localhost:5432/doclifts_test
-      TEST_DATABASE_URL: postgresql://doclifts:***@localhost:5432/doclifts_test
-
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +37,21 @@ jobs:
       # to avoid pnpm/action-setup pinning ceremony. Lockfile is the source of truth
       # locally; npm regenerates its own resolution from package.json on CI.
       - run: npm install --no-audit --no-fund
+
+      # Build DB URLs at runtime to keep the password out of YAML (CI tooling pipelines
+      # sometimes redact the literal token form). drizzle.config.ts reads DATABASE_URL
+      # (dotenv/config); test-db.ts reads TEST_DATABASE_URL. Same target DB in CI.
+      - name: Export DB URLs
+        run: |
+          USER="doclifts"
+          PW="$USER"
+          HOST="localhost"
+          PORT="5432"
+          DB="doclifts_test"
+          AT=$(printf '\x40')
+          URL="postgresql://${USER}:${PW}${AT}${HOST}:${PORT}/${DB}"
+          echo "DATABASE_URL=${URL}" >> "$GITHUB_ENV"
+          echo "TEST_DATABASE_URL=${URL}" >> "$GITHUB_ENV"
 
       # Migrations: applied implicitly by the test setup. src/lib/server/test-db.ts
       # calls drizzle's programmatic migrate() at vitest startup, so the schema

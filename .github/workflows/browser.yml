@@ -35,5 +35,6 @@ jobs:
             ${{ runner.os }}-ms-playwright-
 
       - run: pnpm exec playwright install chromium
+        timeout-minutes: 6
 
       - run: pnpm test --project client

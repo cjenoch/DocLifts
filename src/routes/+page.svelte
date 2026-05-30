@@ -5,7 +5,15 @@
 </script>
 
 <div class="mx-auto max-w-md px-4 py-6">
-  <h1 class="mb-5 text-2xl font-semibold tracking-tight">Programs</h1>
+  <div class="mb-5 flex items-center justify-between gap-2">
+    <h1 class="text-2xl font-semibold tracking-tight">Programs</h1>
+    <a
+      href="/reports"
+      class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-200 active:bg-zinc-800"
+    >
+      Reporting
+    </a>
+  </div>
 
   {#if data.programs.length === 0}
     <p class="text-zinc-500">No active programs.</p>

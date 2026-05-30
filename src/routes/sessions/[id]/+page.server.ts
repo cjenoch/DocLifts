@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import {
   db,
   dayExercises,
@@ -11,18 +11,16 @@ import {
 import { getLastCompletedSet, type HistoryRow } from '$lib/server/progression';
 import {
   endSession,
+  loadSession,
   nextSetIdInSession,
+  softDeleteEndedSession,
   updateSetInSession,
 } from '$lib/server/sessions';
 import { z } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, url }) => {
-  const [session] = await db
-    .select()
-    .from(sessions)
-    .where(and(eq(sessions.id, params.id), isNull(sessions.deletedAt)))
-    .limit(1);
+  const session = await loadSession(db, params.id, 'active');
   if (!session) {
     error(404, 'Session not found');
   }
@@ -193,19 +191,6 @@ export const actions: Actions = {
   },
 
   deleteSession: async ({ request, params }) => {
-    const [session] = await db
-      .select({ id: sessions.id, programId: sessions.programId, endedAt: sessions.endedAt })
-      .from(sessions)
-      .where(and(eq(sessions.id, params.id), isNull(sessions.deletedAt)))
-      .limit(1);
-
-    if (!session) {
-      return fail(404, { message: 'Session not found' });
-    }
-    if (!session.endedAt) {
-      return fail(409, { message: 'Only ended sessions can be deleted from this page' });
-    }
-
     const form = await request.formData();
     const parsed = deleteEndedSessionSchema.safeParse({
       confirmDelete: form.get('confirmDelete'),
@@ -214,10 +199,15 @@ export const actions: Actions = {
       return fail(400, { message: 'Press d in the delete box to confirm' });
     }
 
-    await db
-      .update(sessions)
-      .set({ deletedAt: new Date() })
-      .where(and(eq(sessions.id, session.id), isNull(sessions.deletedAt), isNotNull(sessions.endedAt)));
+    const result = await softDeleteEndedSession(db, params.id);
+    if (!result.ok) {
+      return fail(result.status, { message: result.message });
+    }
+
+    const session = await loadSession(db, params.id, 'any');
+    if (!session) {
+      return fail(404, { message: 'Session not found' });
+    }
 
     redirect(303, `/programs/${session.programId}`);
   },

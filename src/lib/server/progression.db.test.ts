@@ -7,7 +7,7 @@
  * naive `ORDER BY logged_at DESC LIMIT 1` queries. See planning v2.2 §3.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type postgres from 'postgres';
 import {
@@ -396,5 +396,40 @@ describe('computeConsecutiveBackwards: history filter', () => {
 		expect(
 			await computeConsecutiveBackwards(db, otherExerciseId, 'top', 1)
 		).toBe(0);
+	});
+});
+
+describe('consistency 14-day query semantics', () => {
+	it('excludes open/abandoned and soft-deleted sessions', async () => {
+		const ended = await addSession({ ended: true });
+		await addSet({ sessionId: ended, executedLoad: 100, executedReps: 5, loggedAt: new Date() });
+
+		const open = await addSession({ ended: false });
+		await addSet({ sessionId: open, executedLoad: null, executedReps: null, loggedAt: new Date() });
+
+		const deleted = await addSession({ ended: true });
+		await addSet({ sessionId: deleted, executedLoad: 120, executedReps: 5, loggedAt: new Date() });
+		await db
+			.update(sessions)
+			.set({ deletedAt: new Date() })
+			.where(eq(sessions.id, deleted));
+
+		const rows = await db
+			.select({
+				dateKey: sql<string>`to_char(${sessions.startedAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+				count: count(sessions.id),
+			})
+			.from(sessions)
+			.where(
+				and(
+					isNull(sessions.deletedAt),
+					isNotNull(sessions.endedAt),
+					sql`${sessions.startedAt} >= now() - interval '14 days'`
+				)
+			)
+			.groupBy(sql`to_char(${sessions.startedAt} at time zone 'UTC', 'YYYY-MM-DD')`);
+
+		const total = rows.reduce((acc, r) => acc + Number(r.count), 0);
+		expect(total).toBe(1);
 	});
 });

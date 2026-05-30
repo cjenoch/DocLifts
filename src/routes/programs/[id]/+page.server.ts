@@ -1,7 +1,14 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db, days, programs, sessions } from '$lib/server/db';
-import { startSessionForDay } from '$lib/server/sessions';
+import {
+	listDeletedSessionsForProgram,
+	restoreSoftDeletedSession,
+	softDeleteEndedSession,
+	startSessionForDay,
+	hardDeleteSession,
+	purgeDeletedSessionsForProgram,
+} from '$lib/server/sessions';
 import { z } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -42,6 +49,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			dayName: days.name,
 			startedAt: sessions.startedAt,
 			endedAt: sessions.endedAt,
+			deletedAt: sessions.deletedAt,
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
@@ -50,10 +58,13 @@ export const load: PageServerLoad = async ({ params }) => {
 		.limit(20);
 
 	const sessionsByDay = recentSessions.reduce<Record<string, number>>((acc, s) => {
+		if (!s.endedAt) return acc;
 		const key = new Date(s.startedAt).toISOString().slice(0, 10);
 		acc[key] = (acc[key] ?? 0) + 1;
 		return acc;
 	}, {});
+
+	const trashSessions = await listDeletedSessionsForProgram(db, program.id, 50);
 
 	return {
 		program,
@@ -63,11 +74,29 @@ export const load: PageServerLoad = async ({ params }) => {
 		})),
 		recentSessions,
 		sessionsByDay,
+		trashSessions,
 	};
 };
 
 const deleteSessionSchema = z.object({
 	sessionId: z.string().uuid(),
+});
+
+const restoreSessionSchema = z.object({
+	sessionId: z.string().uuid(),
+});
+
+const permanentDeleteSchema = z.object({
+	sessionId: z.string().uuid(),
+	confirmDelete: z.preprocess((v) => (typeof v === 'string' ? v.toLowerCase() : v), z.literal('d')),
+});
+
+const purgeTrashSchema = z.object({
+	confirmPurge: z.preprocess(
+		(v) => (typeof v === 'string' ? v.toUpperCase() : v),
+		z.literal('PURGE')
+	),
+	expectedCount: z.preprocess((v) => (typeof v === 'string' ? Number(v) : v), z.number().int().nonnegative()),
 });
 
 export const actions: Actions = {
@@ -105,10 +134,80 @@ export const actions: Actions = {
 			return fail(404, { message: 'Session not found for this program' });
 		}
 
-		await db
-			.update(sessions)
-			.set({ deletedAt: new Date() })
-			.where(and(eq(sessions.id, parsed.data.sessionId), isNull(sessions.deletedAt)));
+		const result = await softDeleteEndedSession(db, parsed.data.sessionId);
+		if (!result.ok) {
+			return fail(result.status, { message: result.message });
+		}
 		return { ok: true };
+	},
+
+	restoreSession: async ({ request, params }) => {
+		const form = await request.formData();
+		const parsed = restoreSessionSchema.safeParse({
+			sessionId: form.get('sessionId'),
+		});
+		if (!parsed.success) {
+			return fail(400, { message: 'Invalid session id' });
+		}
+
+		const [ownedSession] = await db
+			.select({ id: sessions.id })
+			.from(sessions)
+			.where(and(eq(sessions.id, parsed.data.sessionId), eq(sessions.programId, params.id)))
+			.limit(1);
+		if (!ownedSession) {
+			return fail(404, { message: 'Session not found for this program' });
+		}
+
+		const result = await restoreSoftDeletedSession(db, parsed.data.sessionId);
+		if (!result.ok) {
+			return fail(result.status, { message: result.message });
+		}
+		return { ok: true };
+	},
+
+	permanentDeleteSession: async ({ request, params }) => {
+		const form = await request.formData();
+		const parsed = permanentDeleteSchema.safeParse({
+			sessionId: form.get('sessionId'),
+			confirmDelete: form.get('confirmDelete'),
+		});
+		if (!parsed.success) {
+			return fail(400, { message: 'Press d in the permanent delete box to confirm' });
+		}
+
+		const [ownedSession] = await db
+			.select({ id: sessions.id })
+			.from(sessions)
+			.where(and(eq(sessions.id, parsed.data.sessionId), eq(sessions.programId, params.id)))
+			.limit(1);
+		if (!ownedSession) {
+			return fail(404, { message: 'Session not found for this program' });
+		}
+
+		const result = await hardDeleteSession(db, parsed.data.sessionId);
+		if (!result.ok) {
+			return fail(result.status, { message: result.message });
+		}
+		return { ok: true };
+	},
+
+	purgeTrash: async ({ request, params }) => {
+		const form = await request.formData();
+		const parsed = purgeTrashSchema.safeParse({
+			confirmPurge: form.get('confirmPurge'),
+			expectedCount: form.get('expectedCount'),
+		});
+		if (!parsed.success) {
+			return fail(400, { message: 'Type PURGE and confirm count to empty trash' });
+		}
+
+		const deleted = await listDeletedSessionsForProgram(db, params.id, 1000);
+		if (deleted.length !== parsed.data.expectedCount) {
+			return fail(409, { message: `Trash count changed. Expected ${parsed.data.expectedCount}, found ${deleted.length}.` });
+		}
+
+		const purged = await purgeDeletedSessionsForProgram(db, params.id);
+		return { ok: true, purged: purged.purged };
 	},
 };

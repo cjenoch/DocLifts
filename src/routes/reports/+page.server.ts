@@ -63,10 +63,23 @@ export const load: PageServerLoad = async () => {
 		consistency.push({ dateKey: d.toISOString().slice(0, 10), count: 0 });
 	}
 	const byDate = new Map(consistency.map((d) => [d.dateKey, d]));
-	for (const s of recentSessions) {
-		const key = new Date(s.startedAt).toISOString().slice(0, 10);
-		const bucket = byDate.get(key);
-		if (bucket) bucket.count += 1;
+	const consistencyRows = await db
+		.select({
+			dateKey: sql<string>`to_char(${sessions.startedAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+			count: count(sessions.id),
+		})
+		.from(sessions)
+		.where(
+			and(
+				isNull(sessions.deletedAt),
+				isNotNull(sessions.endedAt),
+				sql`${sessions.startedAt} >= now() - interval '14 days'`
+			)
+		)
+		.groupBy(sql`to_char(${sessions.startedAt} at time zone 'UTC', 'YYYY-MM-DD')`);
+	for (const row of consistencyRows) {
+		const bucket = byDate.get(row.dateKey);
+		if (bucket) bucket.count = Number(row.count);
 	}
 
 	const topExercises = await db

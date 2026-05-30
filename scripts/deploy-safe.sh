@@ -14,6 +14,11 @@ pnpm build
 echo "[2/5] Migrate"
 pnpm db:migrate
 
+if [[ "${DOCLIFTS_DEPLOY_FAIL_AFTER_MIGRATE:-0}" == "1" ]]; then
+	echo "Forced failure after migrate (DOCLIFTS_DEPLOY_FAIL_AFTER_MIGRATE=1)"
+	exit 91
+fi
+
 echo "[3/5] Restart service"
 sudo systemctl restart "$SERVICE"
 

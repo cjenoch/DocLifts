@@ -22,7 +22,12 @@ import {
 } from './db/schema';
 import {
 	endSession,
+	hardDeleteSession,
+	listDeletedSessionsForProgram,
 	nextSetIdInSession,
+	purgeDeletedSessionsForProgram,
+	restoreSoftDeletedSession,
+	softDeleteEndedSession,
 	startSessionForDay,
 	updateSetInSession
 } from './sessions';
@@ -1361,5 +1366,119 @@ describe('startSessionForDay: pairwise prescribedSetId and prescribedLoad correc
 		// All four prescriptions must be referenced (no doubled or missing pairings).
 		const referencedIds = sessionSets.map((s) => s.prescribedSetId).sort();
 		expect(referencedIds).toEqual([ps1a.id, ps1b.id, ps2a.id, ps2b.id].sort());
+	});
+});
+
+describe('soft-delete and hard-delete session guards', () => {
+	it('endSession returns updated=false for a soft-deleted session and does not stamp endedAt', async () => {
+		const fixture = await seedProgram();
+		const started = await startSessionForDay(db, fixture.dayId);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+
+		await db
+			.update(sessions)
+			.set({ deletedAt: new Date() })
+			.where(eq(sessions.id, started.sessionId));
+
+		const result = await endSession(db, started.sessionId);
+		expect(result.updated).toBe(false);
+
+		const [row] = await db
+			.select({ endedAt: sessions.endedAt })
+			.from(sessions)
+			.where(eq(sessions.id, started.sessionId));
+		expect(row.endedAt).toBeNull();
+	});
+
+	it('softDeleteEndedSession rejects open sessions and does not mutate deletedAt', async () => {
+		const fixture = await seedProgram();
+		const started = await startSessionForDay(db, fixture.dayId);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+
+		const result = await softDeleteEndedSession(db, started.sessionId);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.status).toBe(404);
+
+		const [row] = await db
+			.select({ deletedAt: sessions.deletedAt })
+			.from(sessions)
+			.where(eq(sessions.id, started.sessionId));
+		expect(row.deletedAt).toBeNull();
+	});
+
+	it('restoreSoftDeletedSession clears deletedAt and listDeletedSessionsForProgram reflects it', async () => {
+		const fixture = await seedProgram();
+		const started = await startSessionForDay(db, fixture.dayId);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+		await endSession(db, started.sessionId);
+		await softDeleteEndedSession(db, started.sessionId);
+
+		let trashed = await listDeletedSessionsForProgram(db, fixture.programId);
+		expect(trashed.map((s) => s.id)).toContain(started.sessionId);
+
+		const restored = await restoreSoftDeletedSession(db, started.sessionId);
+		expect(restored.ok).toBe(true);
+
+		trashed = await listDeletedSessionsForProgram(db, fixture.programId);
+		expect(trashed.map((s) => s.id)).not.toContain(started.sessionId);
+	});
+
+	it('hardDeleteSession removes session and cascades set rows', async () => {
+		const fixture = await seedProgram();
+		const started = await startSessionForDay(db, fixture.dayId);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+		await endSession(db, started.sessionId);
+		await softDeleteEndedSession(db, started.sessionId);
+
+		const beforeSets = await db
+			.select({ id: sets.id })
+			.from(sets)
+			.where(eq(sets.sessionId, started.sessionId));
+		expect(beforeSets.length).toBeGreaterThan(0);
+
+		const del = await hardDeleteSession(db, started.sessionId);
+		expect(del.ok).toBe(true);
+
+		const [sessionRow] = await db
+			.select({ id: sessions.id })
+			.from(sessions)
+			.where(eq(sessions.id, started.sessionId));
+		expect(sessionRow).toBeUndefined();
+
+		const afterSets = await db
+			.select({ id: sets.id })
+			.from(sets)
+			.where(eq(sets.sessionId, started.sessionId));
+		expect(afterSets).toHaveLength(0);
+	});
+
+	it('purgeDeletedSessionsForProgram removes only soft-deleted rows', async () => {
+		const fixture = await seedProgram();
+		const a = await startSessionForDay(db, fixture.dayId);
+		expect(a.ok).toBe(true);
+		if (!a.ok) return;
+		await endSession(db, a.sessionId);
+		await softDeleteEndedSession(db, a.sessionId);
+
+		const b = await startSessionForDay(db, fixture.dayId);
+		expect(b.ok).toBe(true);
+		if (!b.ok) return;
+		await endSession(db, b.sessionId);
+
+		const result = await purgeDeletedSessionsForProgram(db, fixture.programId);
+		expect(result.purged).toBe(1);
+
+		const all = await db
+			.select({ id: sessions.id, deletedAt: sessions.deletedAt })
+			.from(sessions)
+			.where(eq(sessions.programId, fixture.programId));
+
+		expect(all.map((r) => r.id)).toContain(b.sessionId);
+		expect(all.map((r) => r.id)).not.toContain(a.sessionId);
 	});
 });

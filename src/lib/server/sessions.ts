@@ -9,7 +9,7 @@
  * derived from the day row, never accepted as a parameter.
  */
 
-import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	dayExercises,
@@ -23,6 +23,18 @@ import { getLastCompletedSet, type Database } from './progression';
 export type StartSessionResult =
 	| { ok: true; sessionId: string }
 	| { ok: false; status: number; message: string };
+
+export type SessionAccessMode = 'active' | 'ended-active' | 'deleted-only' | 'any';
+
+export type SessionProjection = {
+	id: string;
+	programId: string;
+	dayId: string;
+	dayName?: string;
+	endedAt: Date | null;
+	deletedAt: Date | null;
+	startedAt: Date;
+};
 
 /**
  * Creates a new session for the given dayId, OR returns the existing open
@@ -156,6 +168,130 @@ function isUniqueViolation(err: unknown): boolean {
 	return isUniqueViolation((err as { cause?: unknown }).cause);
 }
 
+export async function loadSession(
+	db: Database,
+	sessionId: string,
+	mode: SessionAccessMode
+): Promise<SessionProjection | null> {
+	const base = db
+		.select({
+			id: sessions.id,
+			programId: sessions.programId,
+			dayId: sessions.dayId,
+			endedAt: sessions.endedAt,
+			deletedAt: sessions.deletedAt,
+			startedAt: sessions.startedAt,
+		})
+		.from(sessions);
+
+	if (mode === 'active') {
+		const [session] = await base.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt))).limit(1);
+		return session ?? null;
+	}
+
+	if (mode === 'ended-active') {
+		const [session] = await base
+			.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt), isNotNull(sessions.endedAt)))
+			.limit(1);
+		return session ?? null;
+	}
+
+	if (mode === 'deleted-only') {
+		const [session] = await base
+			.where(and(eq(sessions.id, sessionId), isNotNull(sessions.deletedAt)))
+			.limit(1);
+		return session ?? null;
+	}
+
+	const [session] = await base.where(eq(sessions.id, sessionId)).limit(1);
+	return session ?? null;
+}
+
+export async function listDeletedSessionsForProgram(
+	db: Database,
+	programId: string,
+	limit = 100
+): Promise<SessionProjection[]> {
+	return db
+		.select({
+			id: sessions.id,
+			programId: sessions.programId,
+			dayId: sessions.dayId,
+			dayName: days.name,
+			endedAt: sessions.endedAt,
+			deletedAt: sessions.deletedAt,
+			startedAt: sessions.startedAt,
+		})
+		.from(sessions)
+		.innerJoin(days, eq(days.id, sessions.dayId))
+		.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
+		.orderBy(desc(sessions.deletedAt))
+		.limit(limit);
+}
+
+export async function softDeleteEndedSession(
+	db: Database,
+	sessionId: string
+): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+	const session = await loadSession(db, sessionId, 'ended-active');
+	if (!session) {
+		return { ok: false, status: 404, message: 'Session not found' };
+	}
+
+	await db
+		.update(sessions)
+		.set({ deletedAt: new Date() })
+		.where(and(eq(sessions.id, session.id), isNull(sessions.deletedAt), isNotNull(sessions.endedAt)));
+	return { ok: true };
+}
+
+export async function restoreSoftDeletedSession(
+	db: Database,
+	sessionId: string
+): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+	const session = await loadSession(db, sessionId, 'deleted-only');
+	if (!session) {
+		return { ok: false, status: 404, message: 'Session not found in trash' };
+	}
+
+	await db
+		.update(sessions)
+		.set({ deletedAt: null })
+		.where(and(eq(sessions.id, session.id), isNotNull(sessions.deletedAt)));
+	return { ok: true };
+}
+
+export async function hardDeleteSession(
+	db: Database,
+	sessionId: string
+): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+	const session = await loadSession(db, sessionId, 'deleted-only');
+	if (!session) {
+		return { ok: false, status: 404, message: 'Session not found in trash' };
+	}
+
+	await db.transaction(async (tx) => {
+		await tx.delete(sessions).where(eq(sessions.id, session.id));
+	});
+	return { ok: true };
+}
+
+export async function purgeDeletedSessionsForProgram(
+	db: Database,
+	programId: string
+): Promise<{ purged: number }> {
+	const deleted = await listDeletedSessionsForProgram(db, programId, 1000);
+	if (deleted.length === 0) return { purged: 0 };
+
+	await db.transaction(async (tx) => {
+		await tx
+			.delete(sessions)
+			.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)));
+	});
+
+	return { purged: deleted.length };
+}
+
 /**
  * Stamps `endedAt` on the session if it is currently open. Idempotent:
  * calling on an already-ended or nonexistent session is a no-op.
@@ -166,10 +302,15 @@ export async function endSession(
 	db: Database,
 	sessionId: string
 ): Promise<{ updated: boolean }> {
+	const session = await loadSession(db, sessionId, 'active');
+	if (!session || session.endedAt) {
+		return { updated: false };
+	}
+
 	const result = await db
 		.update(sessions)
 		.set({ endedAt: new Date() })
-		.where(and(eq(sessions.id, sessionId), isNull(sessions.endedAt)))
+		.where(and(eq(sessions.id, session.id), isNull(sessions.endedAt), isNull(sessions.deletedAt)))
 		.returning({ id: sessions.id });
 	return { updated: result.length > 0 };
 }
@@ -243,11 +384,7 @@ export async function updateSetInSession(
 	input: UpdateSetInput,
 	options?: UpdateSetOptions
 ): Promise<UpdateSetResult> {
-	const [session] = await db
-		.select({ endedAt: sessions.endedAt })
-		.from(sessions)
-		.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt)))
-		.limit(1);
+	const session = await loadSession(db, sessionId, 'active');
 	if (!session) {
 		return { ok: false, setId, status: 404, message: 'Session not found' };
 	}

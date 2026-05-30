@@ -16,6 +16,38 @@
     <p class="mt-1 text-sm text-zinc-400">{data.program.description}</p>
   {/if}
 
+  <h2 class="mt-7 mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Recent Workouts</h2>
+
+  {#if data.recentSessions.length === 0}
+    <p class="text-zinc-500">No recent sessions yet.</p>
+  {:else}
+    <ul class="space-y-2">
+      {#each data.recentSessions as session (session.id)}
+        <li class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="font-medium text-zinc-100">{session.dayName}</div>
+              <div class="text-xs text-zinc-500">
+                {new Date(session.startedAt).toLocaleString()}
+                {#if session.endedAt}
+                  · ended
+                {:else}
+                  · open
+                {/if}
+              </div>
+            </div>
+            <a
+              href="/sessions/{session.id}{session.endedAt ? '?edit=1' : ''}"
+              class="rounded-md bg-zinc-800 px-2.5 py-1 text-xs font-semibold text-zinc-100 active:bg-zinc-700"
+            >
+              {session.endedAt ? 'Edit' : 'Resume'}
+            </a>
+          </div>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+
   <h2 class="mt-7 mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Days</h2>
 
   {#if data.days.length === 0}

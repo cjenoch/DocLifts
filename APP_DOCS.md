@@ -78,7 +78,7 @@ The `sets` table has a composite index `(exerciseId, setRole, position, loggedAt
 
 ### 1. History lookup → engine → plate snap → display
 
-This is the locked pipeline order for any "what should I do next" question. Today (MVP-A) only the history lookup step is wired into the runtime; the other two are implemented and tested but not yet called by the action.
+This is the locked pipeline order for any "what should I do next" question, and it is now wired in runtime session-start prefill: history lookup feeds progression suggestion, then plate snap adapts the load for equipment before display/storage in the session snapshot. The engine/snap modules remain independently tested as pure functions as well.
 
 **History lookup** (`getLastCompletedSet`, `progression.ts`): selects the most recent `sets` row matching `(exerciseId, setRole, position)`, **always** filtered by:
 

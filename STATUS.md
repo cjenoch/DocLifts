@@ -1,120 +1,65 @@
-# DocLifts — Status & Handoff Summary
+# DocLifts — STATUS for Project Claude (PC)
 
-**Date:** 2026-05-30 · **Branch:** `main` · **Local tests:** server 118 + client 3 passing
+**Date:** 2026-05-30  
+**Branch:** `main`  
+**Latest commit:** `9bc7093`  
+**Deployment target:** `doclifts.service` on TestDev01 (`/usr/bin/node build`, port 3000)
 
-## What this is
+## Executive summary
 
-DocLifts is a personal lifting log built as a SvelteKit + Drizzle + Postgres app. It tracks training sessions structured around the v5 program: programs → days → exercises (with tier + progression policy metadata) → prescribed sets → executed sets. History is append-only in effect; snapshot semantics copy prescribed values from the template into the `sets` table at session-start, so past sessions preserve what was prescribed at the time even if the template is later edited.
+DocLifts is currently healthy in production and green in CI. The immediate production instability (stale-chunk 500s) was mitigated and service recovered. Browser CI is restored to a deterministic container-based flow. Front-page program listing now correctly shows only the active Sunrise program after deactivating duplicate Reports fixture programs in DB.
 
-The app is built for personal use only — Chris uses it on his phone at the gym via Tailscale at **`https://testdev01.tail29bbdb.ts.net`** (HTTPS via Tailscale Serve, fronting the adapter-node systemd service on `localhost:3000`). Real-use rollout begins **Tuesday 2026-05-26**.
+## Verified current state
 
-## Current state (2026-05-27)
+- **Service:** `doclifts.service` active/running and listening on `0.0.0.0:3000`
+- **Local health probe:** `curl http://127.0.0.1:3000/` returns **HTTP 200**
+- **Front page data:** only `Sunrise Center 4-Day Program v5` appears
+- **Reports fixture cleanup:** `Reports Program` rows set `is_active=false` (2 rows)
 
-- **Schema + migrations:** stable. **Two** migrations in `drizzle/` (added `0001_huge_the_twelve.sql` — `sessions_one_open_per_day` partial unique index).
-- **Seed:** v5 program seeded with cautious progression policy on shoulder-fragility lifts.
-- **Server actions:**
-  - `startSession` (programs/[id]) — creates session, snapshots prescribed sets, applies dumb prefill (last executed load OR `initialLoad`). **Idempotent for open sessions** — a second call for the same day returns the existing open session id instead of inserting a duplicate, with a unique-violation catch as the backstop for true concurrent inserts.
-  - `endSession` and `updateSet` (sessions/[id]) — stamps `endedAt` idempotently, edits one set per submit with Zod validation and a stale-tab guard (409 on ended sessions).
-- **UI:** dark zinc/indigo palette, thumb-driven entry on iPhone 12 (16px input font to suppress iOS Safari auto-zoom). Past sessions are read-only; editable rows only while the session is open.
-- **End-to-end dry run completed** via Playwright against the prod build — full flow works, persistence holds, read-only past view renders correctly. After the adapter-node deploy (2026-05-24), drove `startSession` → `updateSet` → reload via curl against the live systemd service: all four executed fields persisted exactly, hostile-Origin probe confirmed CSRF off as designed, Zod validation rejected garbage with structured field errors. The manual iPhone Safari input check (typed load differing from prefill persists after save) passed against both the dev server and the adapter-node production build on port 3000.
-- **MVP-A** behavior throughout — dumb prefill only, no progression engine wired in, no plate snap applied at runtime (both are implemented and tested, deliberately deferred to MVP-B per planning).
+## Local quality gates (latest run)
 
-## Test coverage (99 server tests)
+- `pnpm run check` ✅
+- `pnpm run test:unit --project server` ✅ (118 passed)
+- `pnpm run test:unit --project client` ✅ (3 passed)
+- `pnpm run build` ✅
 
-| File | What it covers |
-|---|---|
-| `progression.test.ts` | Pure-function engine: tier branches (MAIN top-set, SECONDARY/ISOLATION all-sets), policy gating, 10% deload + 0.5 lb rounding, edge cases. |
-| `plates.test.ts` | `snapForEquipment` router, `snapToAchievable`, `snapPerSidePlates`, round-trip on every v5 deadlift increment, EZ-bar path. |
-| `progression.db.test.ts` | History-filter rule: defends the **blank-row poisoning** regression class called out in planning v2.2 §3. Covers `getLastCompletedSet` + `computeConsecutiveBackwards`, including the `excludeSessionId` path so a past-session view doesn't pull its own row as "last." |
-| `sessions.test.ts` | Session-start integrity (programId derived from day, never client), snapshot semantics + immutability after template edit, dumb prefill (incl. null-initialLoad cold start), endSession idempotency, updateSet 404/409/400 paths, cross-session injection no-op, `nextSetIdInSession` ordering (incl. non-contiguous positions + NULLed-FK orphan), pairwise prescribedSetId+prescribedLoad correctness. |
+## CI evidence (latest)
 
-DB tests share one `doclifts_test` database; `vite.config.ts` forces server file serialization to avoid races on the `exercises.name` unique constraint. The test-db helper auto-creates the DB + applies migrations on first run.
+- **CI** run `26689459997` ✅  
+  https://github.com/cjenoch/DocLifts/actions/runs/26689459997
+- **Browser CI** run `26689459993` ✅  
+  https://github.com/cjenoch/DocLifts/actions/runs/26689459993
 
-## Architectural principles (locked from planning v2.1 / v2.2)
+## Recent high-signal commits
 
-These are non-negotiable without explicit user approval. Full text with rationale is in `CLAUDE.md` (single file at repo root — the duplicate at `src/lib/server/CLAUDE.md` was removed).
+- `a4f5b5f` — deploy-safe fail-closed + atomic release flow + docs/env sync
+- `527b1ae` — centralized program-scoped deleted-session guards + consistency test
+- `cd0ab99` — browser workflow + SetRow browser tests
+- `4f90736` — playwright lockfile-version extraction fix
+- `bdb9247` — restore stable browser workflow + status refresh
+- `3272aae` — temporary home filter to hide non-Sunrise programs
+- `9bc7093` — remove temporary home filter after DB deactivation cleanup
 
-- **Snapshot semantics** — prescribed values copy into `sets` at session-start and don't change if the template is later edited.
-- **Programs are duplicate-on-edit**, not mutate-in-place. Edits deep-copy program + days + day_exercises + prescribed_sets, mark the old one inactive, `sourceProgramId` tracks lineage.
-- **History lookups always filter incomplete data** — `executed_load IS NOT NULL AND executed_reps IS NOT NULL AND sessions.ended_at IS NOT NULL`. Blank-row poisoning is a real bug class.
-- **No prescribed loads in the template** — `prescribed_sets` has `initialLoad` (cold-start only). Current loads come from history + engine.
-- **Engine is tier-aware** — MAIN top-set-driven, SECONDARY/ISOLATION all-sets-driven. Warmups bypass the engine.
-- **Session-start integrity** — `sessions.programId` is derived from `days.programId`; never trust a client-supplied value. Application-enforced (no DB trigger or composite FK).
-- **Pipeline order** — `history → engine → plate snap → display`. Plate snap always goes through `snapForEquipment(load, equipmentType)`.
+## Documentation audit (requested)
 
-## Known gaps before rollout
+I re-checked documentation updates against current code and runtime:
 
-| Priority | Gap |
-|---|---|
-| Low | **`pnpm redeploy` does not run migrations.** Harmless today (no pending schema change); but once MVP-B touches the schema, a redeploy without `pnpm db:migrate` leaves the running code expecting a schema the DB lacks. Chain `pnpm db:migrate &&` into redeploy before then. |
-| Medium | `snapForEquipment` is tested but **not wired into the runtime pipeline**. Cold-start `initialLoad` shows unsnapped at the gym. Not a crash, just mental plate math. |
-| Medium | Progression engine (`suggestNextLoad`) tested but not wired in. MVP-A is dumb prefill only — intentional per planning, becomes MVP-B work. |
-| Low | Pain event UI doesn't exist. Schema does. Either build a one-button "log pain" affordance, or accept paper. |
+- **README.md**: broadly aligned with current split CI model and pnpm usage. ✅
+- **CLAUDE.md**: aligned with locked architecture constraints and current implementation direction. ✅
+- **APP_DOCS.md**: corrected one stale statement claiming progression/snap were not runtime-wired; now reflects current runtime prefill pipeline wiring. ✅
+- **STATUS.md**: fully refreshed (this file) to replace stale historical narrative with current operator handoff truth. ✅
 
-**Resolved this session:**
-- **Double-session bug on Start (was real-rollout day-1 finding)** — first real workout produced two sessions for the same day 0.7 s apart, breaking the save UI mid-set. Phantom rows recovered manually; fix shipped as three-layer defense (idempotent app helper, partial unique index `sessions_one_open_per_day`, `use:enhance` client guard with per-day flag). Verified via Playwright: double-tap and 5-click mash-tap each produce exactly one POST and one new session row. 4 new tests, 3 updated. Commit `99b1052`.
-- DB backup gap (was high priority) — daily `pg_dump` cron now writes gzipped dumps to `~/backups/doclifts/` with 30-day rotation. First backup verified.
-- Backup restore drill (was low priority) — restored the 2026-05-24 dump into a throwaway `doclifts_restore_test` DB on 2026-05-24, all 8 application tables matched live row counts, spot-checks confirmed program/day/session/set data intact. Backup is verifiably restorable.
-- **`nextSetIdInSession` join correctness** — comment hardening over three review passes (commits `a85c0ee`, `217f44e`); also re-verified end-to-end in production via the redirect-fragment in the verify run.
-- **Gym deploy moved off `pnpm dev`** (was Low priority) — production build via `@sveltejs/adapter-node`, served by `doclifts.service` systemd unit on port 3000. CSRF origin check disabled for the single-user Tailscale threat model (re-enable on adding auth). Verified end-to-end. Commit `a9b3f6f`.
-- **Real-device check against the production build** (was Medium gap) — opened `http://testdev01:3000` on the iPhone, logged a set, confirmed it persists after refresh. Closes the last pre-rollout verification loop.
-- **Stale open sessions cleared** (was Medium gap) — two pre-existing open sessions (Push with a 777 test row, Legs with deadlift warmups) deleted along with their 36 sets in a single transaction. Zero open sessions remain; program list shows clean Start buttons for every day.
-- **Tailscale Serve repointed to port 3000** — Serve was still forwarding `https://testdev01.tail29bbdb.ts.net` to `localhost:5173` after the adapter-node swap, so the iPhone fell back to `http://testdev01:3000` direct — which works but triggers iOS Safari's "submission is not secure" dialog on every form POST. Now `https://testdev01.tail29bbdb.ts.net` → `localhost:3000`, Tailscale-issued cert auto-trusted on tailnet devices, no warnings. **Bookmark the HTTPS URL, not the HTTP one.**
-- **CSRF config migrated off the deprecated `checkOrigin: false`** — replaced with `csrf: { trustedOrigins: ['https://testdev01.tail29bbdb.ts.net'] }` and redeployed. Functionally equivalent for the single-origin tool, slightly stricter: POSTs from non-listed origins now 403 (was 200). Side effect documented inline in `svelte.config.js`: curl POSTs without an `Origin` header also 403 — when scripting against the running service add `-H 'Origin: https://testdev01.tail29bbdb.ts.net'`. Commits `fe118b3`, `7a1d635`.
-- **DB cold-start for rollout** — cleared all of today's test sessions (both still-open and ended) along with their sets. At end-of-session: **0 sessions, 0 sets in the DB**. Tomorrow's first real workout starts as a true cold start: every prefill falls back to `initialLoad` from the v5 template; subsequent sessions pick up real history.
+## Known follow-ups (not blockers for current operation)
 
-## Recent work this session
+1. **Systemd runtime path invariant not yet fully adopted**  
+   Deploy script manages `releases/current`, but `doclifts.service` still uses `ExecStart=/usr/bin/node build`. This is operationally working, but not yet the stronger invariant path documented for release symlink runtime.
 
-1. **Dark mode + modern UI** (`46f17a9`) — zinc/indigo palette, subtle borders + accent glows, 16px input floor to prevent iOS Safari auto-zoom on focus.
-2. **Pure-function tests** (`752f0a4`) — progression engine + plate snap router. 44 tests, run in ms.
-3. **DB integration tests for the history filter** (`257f055`) — blank-row poisoning regression coverage. Added `test-db.ts` helper that auto-bootstraps `doclifts_test`.
-4. **Session-start helper + tests** (`fb816b6`) — extracted action body into `startSessionForDay(db, dayId)`; the signature itself enforces the integrity invariant (no `programId` parameter).
-5. **endSession + updateSet helpers + tests** (`5c16e3c`) — same playbook. Covers the actions hit dozens of times per real session, including the cross-session injection no-op.
-6. **CLAUDE.md dedup + stack fixes** (`7a25cb4`) — removed the byte-identical copy at `src/lib/server/CLAUDE.md`; corrected the Stack section (Prettier not Biome; plain HTML POSTs + server-side Zod, not superforms); added `sessions.ts` and `test-db.ts` to the file conventions list.
-7. **End-to-end dry run** via Playwright at iPhone 12 viewport. Found and fixed one bug: the past-session view duplicated "Last: …" with "Executed: …" because `getLastCompletedSet` was returning the just-ended session's own row.
-8. **"Last:" duplication fix** (`41f4429`) — `getLastCompletedSet` now accepts an optional `excludeSessionId`; the session-view loader passes the current session id. Two new tests cover the exclusion behavior. Re-verified visually in the browser.
-9. **`nextSetIdInSession` comment hardening** (`a85c0ee`, `217f44e`) — softened a "1:1 by construction" overclaim into a named failure mode (nullable FK orphan → innerJoin drops the set → `findIndex` misses → scroll to top instead of advancing). Three sequential code-review passes; reviewer's polish taken because the comment is load-bearing context for future LLM-assisted edits in this area.
-10. **Switch gym deploy to adapter-node + systemd** (`a9b3f6f`) — autostart was `pnpm dev`; now it's a built adapter-node artifact (`node build`) under `doclifts.service` with `EnvironmentFile=.env` for `DATABASE_URL`. Added `pnpm redeploy` script (build + restart). Disabled `csrf.checkOrigin` (single-user / Tailscale / no auth — `svelte.config.js` carries the re-enable trigger comment).
-11. **5 invariant-defending tests + csrf.trustedOrigins migration** (`fe118b3`, `7a1d635`) — added vitest cases for snapshot immutability after template edit, NULLed-FK orphan in `nextSetIdInSession`, null-`initialLoad` cold start, non-contiguous exercise positions, and pairwise `prescribedSetId`+`prescribedLoad` correctness. Same commits migrated the deprecated `csrf.checkOrigin: false` to `csrf: { trustedOrigins: [...] }` with the canonical HTTPS URL allowlisted. Inline doc comment captures the curl-needs-Origin side effect.
-12. **Added `vitest-test-author` sub-agent + accumulated memory** (`6f57c3c`) — agent definition plus four memory files (infra-patterns, bug-shapes, coverage-map, MEMORY index) so future runs of the agent reuse what it learned about this codebase.
-13. **Double-session fix + verify run** (`99b1052`) — three layers of defense against double-submit at session start. App-layer idempotency in `startSessionForDay`, partial unique index in the DB, `use:enhance` on the Start form. Playwright-driven end-to-end verification through the live SvelteKit dev server.
+2. **Historical journal docs contain old timeline details**  
+   `journal/*.md` still includes historical notes (expected) and should be treated as chronology, not live runbook truth.
 
-The verify run also surfaced a "1 of 5 sets had wrong value" finding which on further investigation turned out to be a Playwright/Chromium mobile-emulation artifact (input.value silently reverts to the prefill on number inputs when `isMobile: true, hasTouch: true`). Confirmed not reproducible in desktop context or in production build, so not a real-app concern. Real Mobile Safari on the iPhone is a different rendering engine and won't behave this way. The subsequent real-device checks on both the dev server and the adapter-node production build confirmed correct saves with no value reversion, consistent with an emulation-only artifact.
+## Operator notes for PC
 
-## File map
-
-```
-src/lib/server/
-  db/
-    schema.ts          # Drizzle tables (v2.2 schema)
-    seed.ts            # v5 program seed
-    index.ts           # Drizzle client singleton
-  gym-config.ts        # Single-gym hardware config (bars, plates)
-  plates.ts            # Plate snap math + equipment router
-  progression.ts       # Engine + history helpers
-  sessions.ts          # Action helpers: startSessionForDay, endSession, updateSetInSession
-  test-db.ts           # Integration-test DB bootstrap
-  *.test.ts            # Unit + integration tests (5 files)
-
-src/routes/
-  +page.svelte         # Programs list
-  programs/[id]/       # Program detail + startSession action (thin wrapper around sessions.ts)
-  sessions/[id]/       # Session view + endSession/updateSet actions (thin wrappers)
-  layout.css           # Tailwind + base dark theme (incl. 16px input floor)
-
-drizzle/               # Migration SQL (one migration)
-docker-compose.yml     # Postgres 16 for dev
-CLAUDE.md              # Rules and locked design decisions for AI assistants
-```
-
-## Commands worth knowing
-
-```bash
-pnpm dev                  # Vite dev server (allowedHosts includes .ts.net + testdev01)
-pnpm redeploy             # Build + restart doclifts.service (does NOT migrate — run pnpm db:migrate first after a schema change)
-pnpm test                 # Full suite (both projects, ~10s)
-pnpm test --project server   # Server only (~5s)
-pnpm check                # svelte-check / TypeScript
-pnpm db:migrate           # Apply migrations to dev DB
-pnpm db:seed              # Apply v5 program seed
-```
+- Current prod is up and serving.  
+- CI + Browser CI are both green on latest push.  
+- Program list issue is fixed at data layer (fixtures deactivated), not permanently hardcoded in app query logic.
+- If next step is hardening deploy invariants, prioritize migrating systemd `ExecStart` to `releases/current` with `ExecStartPre=pnpm db:migrate` drop-in and re-verify rollback path end-to-end.

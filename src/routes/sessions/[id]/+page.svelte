@@ -67,18 +67,22 @@
 </div>
 
 {#if !data.session.endedAt}
-  <form
-    method="POST"
-    action="?/endSession"
-    class="sticky bottom-0 border-t border-zinc-800 bg-zinc-950/90 p-4 backdrop-blur"
-  >
-    <div class="mx-auto max-w-md">
-      <button
-        type="submit"
-        class="w-full rounded-lg bg-emerald-500 px-4 py-3 text-base font-semibold text-zinc-950 shadow-sm shadow-emerald-500/20 transition active:scale-[0.99] active:bg-emerald-600"
+  <div class="sticky bottom-0 border-t border-zinc-800 bg-zinc-950/90 p-4 backdrop-blur">
+    <div class="mx-auto grid max-w-md grid-cols-2 gap-2">
+      <a
+        href="/programs/{data.session.programId}"
+        class="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-center text-sm font-semibold text-zinc-200 transition active:scale-[0.99] active:bg-zinc-800"
       >
-        End Session
-      </button>
+        Pause Session
+      </a>
+      <form method="POST" action="?/endSession">
+        <button
+          type="submit"
+          class="w-full rounded-lg bg-emerald-500 px-4 py-3 text-base font-semibold text-zinc-950 shadow-sm shadow-emerald-500/20 transition active:scale-[0.99] active:bg-emerald-600"
+        >
+          End Session
+        </button>
+      </form>
     </div>
-  </form>
+  </div>
 {/if}

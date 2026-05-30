@@ -7,6 +7,7 @@
  * naive `ORDER BY logged_at DESC LIMIT 1` queries. See planning v2.2 §3.
  */
 
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type postgres from 'postgres';
 import {
@@ -137,6 +138,18 @@ describe('getLastCompletedSet: history filter', () => {
 	it('returns null when only open sessions exist (endedAt IS NULL)', async () => {
 		const sId = await addSession({ ended: false });
 		await addSet({ sessionId: sId, executedLoad: 100, executedReps: 5 });
+		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		expect(result).toBeNull();
+	});
+
+	it('returns null when session is soft-deleted', async () => {
+		const sId = await addSession({ ended: true });
+		await addSet({ sessionId: sId, executedLoad: 100, executedReps: 5 });
+		await db
+			.update(sessions)
+			.set({ deletedAt: new Date() })
+			.where(eq(sessions.id, sId));
+
 		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
 		expect(result).toBeNull();
 	});

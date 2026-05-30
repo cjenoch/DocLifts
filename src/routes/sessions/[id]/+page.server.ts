@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import {
   db,
   dayExercises,
@@ -21,7 +21,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
   const [session] = await db
     .select()
     .from(sessions)
-    .where(eq(sessions.id, params.id))
+    .where(and(eq(sessions.id, params.id), isNull(sessions.deletedAt)))
     .limit(1);
   if (!session) {
     error(404, 'Session not found');

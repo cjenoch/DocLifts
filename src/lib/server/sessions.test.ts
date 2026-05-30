@@ -262,6 +262,29 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 		expect(second.sessionId).not.toBe(first.sessionId);
 	});
 
+	it('creates a new session when previous open session is soft-deleted', async () => {
+		const fixture = await seedProgram();
+		const first = await startSessionForDay(db, fixture.dayId);
+		expect(first.ok).toBe(true);
+		if (!first.ok) return;
+
+		await db
+			.update(sessions)
+			.set({ deletedAt: new Date() })
+			.where(eq(sessions.id, first.sessionId));
+
+		const second = await startSessionForDay(db, fixture.dayId);
+		expect(second.ok).toBe(true);
+		if (!second.ok) return;
+		expect(second.sessionId).not.toBe(first.sessionId);
+
+		const allSessions = await db
+			.select({ id: sessions.id })
+			.from(sessions)
+			.where(eq(sessions.dayId, fixture.dayId));
+		expect(allSessions).toHaveLength(2);
+	});
+
 	it('the DB rejects a hand-crafted insert that bypasses the helper', async () => {
 		// Layer 2 (partial unique index) check. If app code somehow tries to
 		// INSERT a second open session for the same day directly — bypassing the

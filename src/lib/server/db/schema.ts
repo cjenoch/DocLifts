@@ -249,6 +249,7 @@ export const sessions = pgTable(
       .references(() => programs.id),
     startedAt: timestamp('started_at').notNull().defaultNow(),
     endedAt: timestamp('ended_at'),
+    deletedAt: timestamp('deleted_at'),
     notes: text('notes'),
   },
   (t) => ({
@@ -262,7 +263,7 @@ export const sessions = pgTable(
     // covers the common case; this catches true concurrent inserts).
     oneOpenPerDay: uniqueIndex('sessions_one_open_per_day')
       .on(t.dayId)
-      .where(sql`ended_at IS NULL`),
+      .where(sql`ended_at IS NULL AND deleted_at IS NULL`),
     // History append-only invariant: a session can never have ended before
     // it started. Clock skew on a multi-device write or a bad UPDATE would
     // otherwise let bad rows in silently.

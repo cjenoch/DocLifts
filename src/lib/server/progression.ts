@@ -15,7 +15,7 @@
  * (via `snapForEquipment`).
  */
 
-import { and, desc, eq, isNotNull, ne } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, ne } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './db/schema';
 import { sessions, sets } from './db/schema';
@@ -222,6 +222,7 @@ export async function computeConsecutiveBackwards(
         isNotNull(sets.executedLoad),
         isNotNull(sets.executedReps),
         isNotNull(sessions.endedAt),
+        isNull(sessions.deletedAt),
       ),
     )
     .orderBy(desc(sets.loggedAt))
@@ -293,6 +294,7 @@ export async function getLastCompletedSet(
         isNotNull(sets.executedLoad),
         isNotNull(sets.executedReps),
         isNotNull(sessions.endedAt),
+        isNull(sessions.deletedAt),
         // drizzle drops `undefined` operands inside and(...), so this is a no-op when no session is being excluded.
         excludeSessionId ? ne(sessions.id, excludeSessionId) : undefined,
       ),

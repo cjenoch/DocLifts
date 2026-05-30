@@ -29,7 +29,9 @@ export const load: PageServerLoad = async ({ params }) => {
 		? await db
 				.select({ id: sessions.id, dayId: sessions.dayId })
 				.from(sessions)
-				.where(and(inArray(sessions.dayId, dayIds), isNull(sessions.endedAt)))
+				.where(
+					and(inArray(sessions.dayId, dayIds), isNull(sessions.endedAt), isNull(sessions.deletedAt))
+				)
 		: [];
 	const openByDay = new Map(openSessions.map((s) => [s.dayId, s.id]));
 
@@ -43,7 +45,7 @@ export const load: PageServerLoad = async ({ params }) => {
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
-		.where(eq(sessions.programId, program.id))
+		.where(and(eq(sessions.programId, program.id), isNull(sessions.deletedAt)))
 		.orderBy(desc(sessions.startedAt))
 		.limit(20);
 
@@ -103,7 +105,10 @@ export const actions: Actions = {
 			return fail(404, { message: 'Session not found for this program' });
 		}
 
-		await db.delete(sessions).where(eq(sessions.id, parsed.data.sessionId));
+		await db
+			.update(sessions)
+			.set({ deletedAt: new Date() })
+			.where(and(eq(sessions.id, parsed.data.sessionId), isNull(sessions.deletedAt)));
 		return { ok: true };
 	},
 };

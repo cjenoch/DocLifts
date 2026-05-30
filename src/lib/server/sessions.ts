@@ -143,7 +143,7 @@ async function findOpenSessionForDay(
 	const [row] = await db
 		.select({ id: sessions.id })
 		.from(sessions)
-		.where(and(eq(sessions.dayId, dayId), isNull(sessions.endedAt)))
+		.where(and(eq(sessions.dayId, dayId), isNull(sessions.endedAt), isNull(sessions.deletedAt)))
 		.limit(1);
 	return row?.id ?? null;
 }

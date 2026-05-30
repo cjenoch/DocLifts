@@ -8,6 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -61,7 +62,7 @@ jobs:
       # svelte-kit sync + svelte-check.
       - run: pnpm run check
 
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install chromium
 
       # Full suite — both vitest projects (server + browser).
       - run: pnpm test

@@ -27,6 +27,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Cache Playwright browsers
+        id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -34,7 +35,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ms-playwright-
 
-      - run: pnpm exec playwright install chromium
-        timeout-minutes: 6
+      - name: Install Playwright browser (cache miss only)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+        timeout-minutes: 12
 
       - run: pnpm test --project client

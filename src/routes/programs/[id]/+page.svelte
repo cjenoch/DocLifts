@@ -174,20 +174,6 @@
 									>
 										{session.endedAt ? 'Edit' : 'Resume'}
 									</a>
-									<form method="POST" action="?/deleteSession">
-										<input type="hidden" name="sessionId" value={session.id} />
-										<button
-											type="submit"
-											class="rounded-md bg-rose-500/15 px-2.5 py-1 text-xs font-semibold text-rose-300 active:bg-rose-500/25"
-											onclick={(e) => {
-												if (!confirm('Delete this workout and all logged sets? This cannot be undone.')) {
-													e.preventDefault();
-												}
-											}}
-										>
-											Delete
-										</button>
-									</form>
 								</div>
 							</div>
 						</li>

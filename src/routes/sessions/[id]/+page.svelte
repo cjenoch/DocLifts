@@ -16,8 +16,24 @@
   <h1 class="mt-2 text-xl font-semibold tracking-tight">{data.day.name}</h1>
   <p class="text-xs text-zinc-500">
     Started {new Date(data.session.startedAt).toLocaleString()}
-    {#if data.session.endedAt}· ended{/if}
+    {#if data.session.endedAt}
+      · ended {new Date(data.session.endedAt).toLocaleString()}
+    {/if}
   </p>
+
+  {#if data.session.endedAt}
+    <div class="mt-2 flex items-center gap-2 text-xs">
+      {#if data.allowEndedSessionEdit}
+        <span class="rounded bg-amber-500/20 px-2 py-1 text-amber-300">Editing ended session</span>
+        <a href="/sessions/{data.session.id}" class="text-indigo-400 active:underline">Done editing</a>
+      {:else}
+        <span class="text-zinc-400">This session is read-only.</span>
+        <a href="/sessions/{data.session.id}?edit=1" class="text-indigo-400 active:underline">
+          Edit this workout
+        </a>
+      {/if}
+    </div>
+  {/if}
 
   {#each data.groups as group (group.exerciseId)}
     <section class="mt-7">
@@ -40,6 +56,7 @@
           <SetRow
             {set}
             sessionEnded={data.session.endedAt != null}
+            allowEndedSessionEdit={data.allowEndedSessionEdit}
             rowError={form?.setId === set.id ? (form.fieldErrors ?? null) : null}
             rowMessage={form?.setId === set.id && 'message' in form ? (form.message ?? null) : null}
           />

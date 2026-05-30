@@ -694,6 +694,31 @@ describe('updateSetInSession', () => {
 		expect(s.notes).toBeNull();
 	});
 
+	it('allows editing an ended session when explicitly opted-in', async () => {
+		const { sessionId, setId } = await setupOpenSet();
+		await endSession(db, sessionId);
+
+		const result = await updateSetInSession(
+			db,
+			sessionId,
+			setId,
+			{
+				executedLoad: '210',
+				executedReps: '8',
+				executedRir: '2',
+				notes: 'retro edit'
+			},
+			{ allowEndedSession: true }
+		);
+		expect(result).toEqual({ ok: true, setId });
+
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.executedLoad).toBe(210);
+		expect(s.executedReps).toBe(8);
+		expect(s.executedRir).toBe(2);
+		expect(s.notes).toBe('retro edit');
+	});
+
 	it('returns 400 with fieldErrors on invalid input and does not mutate', async () => {
 		const { sessionId, setId } = await setupOpenSet();
 		const result = await updateSetInSession(db, sessionId, setId, {

@@ -212,6 +212,10 @@ export type UpdateSetInput = {
 	notes: unknown;
 };
 
+export type UpdateSetOptions = {
+	allowEndedSession?: boolean;
+};
+
 export type UpdateSetResult =
 	| { ok: true; setId: string }
 	| {
@@ -236,7 +240,8 @@ export async function updateSetInSession(
 	db: Database,
 	sessionId: string,
 	setId: string,
-	input: UpdateSetInput
+	input: UpdateSetInput,
+	options?: UpdateSetOptions
 ): Promise<UpdateSetResult> {
 	const [session] = await db
 		.select({ endedAt: sessions.endedAt })
@@ -246,7 +251,7 @@ export async function updateSetInSession(
 	if (!session) {
 		return { ok: false, setId, status: 404, message: 'Session not found' };
 	}
-	if (session.endedAt) {
+	if (session.endedAt && !options?.allowEndedSession) {
 		return { ok: false, setId, status: 409, message: 'Session has ended' };
 	}
 

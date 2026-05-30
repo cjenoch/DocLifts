@@ -14,9 +14,10 @@ import {
   nextSetIdInSession,
   updateSetInSession,
 } from '$lib/server/sessions';
+import { z } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, url }) => {
   const [session] = await db
     .select()
     .from(sessions)
@@ -124,8 +125,15 @@ export const load: PageServerLoad = async ({ params }) => {
   );
   for (const g of groups) g.sets.sort((a, b) => a.position - b.position);
 
-  return { session, day, groups };
+  const allowEndedSessionEdit =
+    session.endedAt != null && url.searchParams.get('edit') === '1';
+
+  return { session, day, groups, allowEndedSessionEdit };
 };
+
+const reopenEndedSessionSchema = z.object({
+  allowEndedSessionEdit: z.literal('1'),
+});
 
 export const actions: Actions = {
   endSession: async ({ params }) => {
@@ -140,12 +148,23 @@ export const actions: Actions = {
       return fail(400, { setId: null, message: 'Missing setId' });
     }
 
-    const result = await updateSetInSession(db, params.id, setId, {
-      executedLoad: form.get('executedLoad'),
-      executedReps: form.get('executedReps'),
-      executedRir: form.get('executedRir'),
-      notes: form.get('notes'),
-    });
+    const allowEndedSessionEditRaw = form.get('allowEndedSessionEdit');
+    const allowEndedSessionEdit = reopenEndedSessionSchema.safeParse({
+      allowEndedSessionEdit: allowEndedSessionEditRaw,
+    }).success;
+
+    const result = await updateSetInSession(
+      db,
+      params.id,
+      setId,
+      {
+        executedLoad: form.get('executedLoad'),
+        executedReps: form.get('executedReps'),
+        executedRir: form.get('executedRir'),
+        notes: form.get('notes'),
+      },
+      { allowEndedSession: allowEndedSessionEdit }
+    );
 
     if (!result.ok) {
       return fail(result.status, {

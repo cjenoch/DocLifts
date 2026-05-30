@@ -10,11 +10,13 @@
   let {
     set,
     sessionEnded,
+    allowEndedSessionEdit,
     rowError,
     rowMessage,
   }: {
     set: SetRow;
     sessionEnded: boolean;
+    allowEndedSessionEdit: boolean;
     rowError: Record<string, string[] | undefined> | null;
     rowMessage: string | null;
   } = $props();
@@ -110,8 +112,11 @@
     <div class="pl-9 text-xs text-zinc-500">Last: {hist}</div>
   {/if}
 
-  {#if !sessionEnded}
+  {#if !sessionEnded || allowEndedSessionEdit}
     <form method="POST" action="?/updateSet" use:enhance class="mt-2 flex flex-wrap items-center gap-1.5">
+      {#if allowEndedSessionEdit}
+        <input type="hidden" name="allowEndedSessionEdit" value="1" />
+      {/if}
       <input type="hidden" name="setId" value={set.id} />
       <label class="flex items-center gap-1">
         <span class="text-[10px] uppercase tracking-wide text-zinc-500">load</span>

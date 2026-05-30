@@ -160,8 +160,8 @@ pnpm db:seed                      # Load v5 program
 
 # Daily
 pnpm dev                          # Vite dev for local development
-pnpm redeploy                     # Build + restart the doclifts.service on the VM
-                                  # (push code changes through to the gym app)
+pnpm redeploy                     # Build release + migrate + atomic symlink swap + restart + verify
+                                  # (fails closed; auto-rolls back to previous release on failed restart/health)
 pnpm test                         # Full suite, ~10s
 pnpm test --project server        # Server tests only, ~5s
 pnpm check                        # Type check
@@ -178,7 +178,9 @@ pnpm db:migrate                   # Apply to dev DB
 
 Generated migration files in `drizzle/` are committed to the repo.
 
-`pnpm redeploy` now runs the guarded deploy script (`scripts/deploy-safe.sh`): build → migrate → restart service → readiness verification. If migrate fails, deploy fails before restart.
+`pnpm redeploy` now runs the guarded deploy script (`scripts/deploy-safe.sh`): build to `build/` → copy to a versioned release directory (`releases/<timestamp>/build`) → migrate → atomic `releases/current` symlink swap → restart service → readiness verification. If restart/readiness fails, the script automatically rolls back `releases/current` to the previous release and re-restarts.
+
+For a stronger ops invariant independent of operator behavior, run `scripts/apply-doclifts-systemd-override.sh` (sudo) once on the host. It installs a systemd drop-in with `ExecStartPre=pnpm db:migrate` and `ExecStart=/usr/bin/node /home/chris/code/DocLifts/releases/current`.
 
 ---
 
@@ -203,7 +205,7 @@ DB code lives **only** under `src/lib/server`. Importing DB code from a client c
 
 Per the locked design decisions, none of the following will be added without explicit user approval:
 
-- Authentication or login (note: `csrf.checkOrigin` in `svelte.config.js` is currently disabled because there are no sessions to protect — if auth is ever added, it must be re-enabled)
+- Authentication or login (note: CSRF is currently enabled via `csrf: { trustedOrigins: [...] }` for the single-origin Tailscale deployment. If auth is ever added and deployment topology changes, re-review `trustedOrigins` plus adapter-node proxy header settings.)
 - Cloud deployment
 - AI/LLM integration in the app
 - Mobile or PWA shells
@@ -221,4 +223,4 @@ The "personal tool, not product" framing is locked.
 
 ## When in doubt
 
-`planning_v2_1.md` and `planning_v2_2.md` in the repo root are the source of truth for design decisions. `CLAUDE.md` (single file at the repo root) encodes the same rules in a form aimed at AI coding assistants. If documentation and code disagree, fix the documentation — except for the locked architectural principles, which are intentionally non-negotiable.
+`CLAUDE.md` in the repo root is the source of truth for locked architectural principles and AI-assistant operating rules. If documentation and code disagree, fix the documentation so it reflects the current implementation and dated design decisions.

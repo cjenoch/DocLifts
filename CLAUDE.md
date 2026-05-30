@@ -8,7 +8,7 @@ This file is read by Claude, Cursor, and other AI coding tools when working in t
 - **Runtime:** Node 24 LTS
 - **Database:** PostgreSQL 16, self-hosted in Docker for dev
 - **ORM:** Drizzle (TypeScript-native, SQL-shaped)
-- **Forms:** plain HTML POSTs to SvelteKit server actions, Zod-validated server-side. (`sveltekit-superforms` is installed but not currently used.)
+- **Forms:** plain HTML POSTs to SvelteKit server actions, Zod-validated server-side.
 - **Styling:** Tailwind CSS
 - **Formatter:** Prettier (with `prettier-plugin-svelte` and `prettier-plugin-tailwindcss`). Config in `.prettierrc`: tabs, single quotes, no trailing commas, 100-char print width.
 - **Testing:** Vitest
@@ -133,7 +133,7 @@ Never call `snapToAchievable` directly from the pipeline. Always go through the 
 - AI/LLM integration in the app itself
 - Mobile or PWA
 - Sync between devices
-- Charts or trend visualizations
+- Advanced charting dashboards beyond the current Reporting v1 (consistency + trend bars already shipped)
 - Rest timers (UI; rest **targets** in schema are fine)
 - Multi-gym support
 - Wave loading state machine
@@ -158,4 +158,4 @@ If the user asks for any of these, confirm before building. The "personal tool, 
 
 ## When in doubt
 
-Re-read `planning_v2_1.md` and `planning_v2_2.md` in the repo root. The decisions there are the source of truth, not your training data.
+Re-read this `CLAUDE.md` file in the repo root. It is the source of truth for locked decisions and assistant operating constraints in this codebase.

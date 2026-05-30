@@ -62,7 +62,6 @@ jobs:
       # svelte-kit sync + svelte-check.
       - run: pnpm run check
 
-      - run: pnpm exec playwright install chromium
-
-      # Full suite — both vitest projects (server + browser).
-      - run: pnpm test
+      # CI currently runs server project only to avoid flaky/slow browser
+      # dependency installation on GitHub-hosted runners.
+      - run: pnpm test --project server

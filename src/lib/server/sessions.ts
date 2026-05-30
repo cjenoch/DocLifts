@@ -59,7 +59,9 @@ export type SessionProjection = {
  * work and a unique-violation round-trip in the common case.
  *
  * Snapshots all prescribed sets into the session's `sets` rows (per snapshot
- * semantics rule). Dumb prefill per row: history.executedLoad ?? initialLoad.
+ * semantics rule). Runtime prefill pipeline is: history lookup (with completion
+ * filters) → progression suggestion (when history exists) → equipment-aware
+ * snap. Cold start with no history uses snapped `initialLoad`.
  *
  * Reads are intentionally outside the transaction; the tx only wraps writes so
  * a mid-loop failure can't orphan a session.

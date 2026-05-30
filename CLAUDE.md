@@ -48,7 +48,7 @@ WHERE executed_load IS NOT NULL
   AND sessions.ended_at IS NOT NULL
 ```
 
-The blank-row poisoning bug is real: pre-created session rows with null executed values can be returned as "history" by naive `ORDER BY logged_at DESC LIMIT 1` queries. Don't reintroduce it. (See planning v2.2 §3.)
+The blank-row poisoning bug is real: pre-created session rows with null executed values can be returned as "history" by naive `ORDER BY logged_at DESC LIMIT 1` queries. Don't reintroduce it. (See `planning_v2_2.md` §3.)
 
 ### No prescribed loads in the program template
 
@@ -110,7 +110,7 @@ The pipeline calls **`snapForEquipment(load, equipmentType)`**, not `snapToAchie
 | `band`              | Pass-through                                                   |
 | (anything else)     | Pass-through                                                   |
 
-Never call `snapToAchievable` directly from the pipeline. Always go through the router. (See planning v2.2 artifact-review patches.)
+Never call `snapToAchievable` directly from the pipeline. Always go through the router. (See `planning_v2_2.md` patch notes.)
 
 ### Engine output is suggestion, never auto-applied
 

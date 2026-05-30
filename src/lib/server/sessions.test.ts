@@ -460,7 +460,7 @@ describe('startSessionForDay: snapshot semantics', () => {
 	});
 });
 
-describe('startSessionForDay: dumb prefill', () => {
+describe('startSessionForDay: prefill pipeline', () => {
 	it('prefills prescribedLoad from initialLoad when no history exists', async () => {
 		const fixture = await seedProgram({ initialLoad: 95, equipmentType: 'bodyweight' });
 		const result = await startSessionForDay(db, fixture.dayId);
@@ -474,11 +474,13 @@ describe('startSessionForDay: dumb prefill', () => {
 		expect(s.prescribedLoad).toBe(95);
 	});
 
-	it('prefills prescribedLoad from history.executedLoad when available', async () => {
+	it('prefills prescribedLoad from progressed + snapped history path when available', async () => {
 		const fixture = await seedProgram({ initialLoad: 100, equipmentType: 'bodyweight' });
 
 		// Seed a prior completed session at 110 lb for the same
-		// (exerciseId, setRole, position).
+		// (exerciseId, setRole, position). For default MAIN/standard policy with
+		// targetRepsMax=5, targetRir=1 and prior (5 reps @ RIR 1), engine suggests
+		// +5 then snap keeps 115 for bodyweight equipment.
 		const priorStartedAt = new Date(Date.now() - 60_000);
 		const priorEndedAt = new Date(Date.now() - 30_000);
 		const [priorSession] = await db
@@ -1187,6 +1189,56 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 			.where(eq(sets.sessionId, secondResult.sessionId));
 
 		expect(secondSet.prescribedLoad).toBe(140);
+	});
+
+	it('uses progression + plate snap wiring for barbell history path', async () => {
+		const fixture = await seedProgram({
+			exerciseName: 'Deadlift wired-history',
+			equipmentType: 'barbell',
+			initialLoad: 100,
+			tier: 'main',
+			progressionPolicy: 'standard'
+		});
+
+		const priorStartedAt = new Date(Date.now() - 90_000);
+		const priorEndedAt = new Date(Date.now() - 60_000);
+		const [priorSession] = await db
+			.insert(sessions)
+			.values({
+				dayId: fixture.dayId,
+				programId: fixture.programId,
+				startedAt: priorStartedAt,
+				endedAt: priorEndedAt
+			})
+			.returning();
+
+		// For deadlift naming, increment is +10. Engine should propose 296 from
+		// prior 286 (hit target at rir=1), then barbell snap rounds to 294.
+		// This proves pipeline wiring is engine output -> snap output, not raw
+		// history copy.
+		await db.insert(sets).values({
+			sessionId: priorSession.id,
+			exerciseId: fixture.exerciseId,
+			position: 1,
+			setRole: 'top',
+			targetMetric: 'reps',
+			executedLoad: 286,
+			executedReps: 5,
+			executedRir: 1,
+			prescribedRepsMax: 5,
+			prescribedRir: 1
+		});
+
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [s] = await db
+			.select({ prescribedLoad: sets.prescribedLoad })
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+
+		expect(s.prescribedLoad).toBe(294);
 	});
 });
 

@@ -11,6 +11,8 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
 
     steps:
       - uses: actions/checkout@v6
@@ -35,9 +37,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ms-playwright-
 
-      - name: Install Playwright browser (cache miss only)
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install chromium
-        timeout-minutes: 12
+      # Browser binaries are preinstalled in the Playwright container.
 
       - run: pnpm test --project client

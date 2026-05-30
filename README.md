@@ -12,7 +12,7 @@ This repository is the reference build behind a case study on multi-tool, AI-ass
   - a partial unique index in the database — `sessions_one_open_per_day ON sessions(day_id) WHERE ended_at IS NULL` (migration `0001`)
   - an idempotent server-side helper, `startSessionForDay`
   - a client-side guard on the Start control
-- **A test suite, not decoration.** Vitest across unit, component, and database-integration paths, plus browser tests. The day-one race is regression-locked so it can't come back silently. CI runs the full suite against a real Postgres on every push (badge above) — the test story is auditable, not "trust me."
+- **A test suite, not decoration.** Vitest across unit, component, and database-integration paths, plus browser tests. The day-one race is regression-locked so it can't come back silently. On every push, CI runs the server/data suite against a real Postgres; browser tests run in a dedicated Browser CI workflow (push + nightly). The test story is auditable, not "trust me."
 - **Backups that are restore-tested, not just configured.** Daily `pg_dump`, with the restore path actually exercised. "Configured" is never treated as "working."
 - **Written invariants over memory.** `CLAUDE.md` holds the operating rules that kept several AI tools coherent across the build; the design decisions live in version-controlled docs, not in any one tool's session memory.
 
@@ -37,16 +37,16 @@ These are scope decisions, documented in `CLAUDE.md` — not oversights. Taking 
 Postgres and (for the browser tests) Playwright are prerequisites — without them the database-integration tests skip and the browser tests fail to launch on a fresh clone:
 
 ```sh
-npm install
+pnpm install --frozen-lockfile
 docker compose up -d postgres          # database-integration tests need this
-npx playwright install chromium        # browser tests need this
+pnpm exec playwright install chromium  # browser tests need this
 
-npm test                               # full suite (alias for vitest run)
-npm run dev                            # local dev server
-npm run build                          # production build
+pnpm test                              # full suite (client + server)
+pnpm run dev                           # local dev server
+pnpm run build                         # production build
 ```
 
-> Local development uses pnpm per `CLAUDE.md`; the published commands above use npm so they work on any clone without a pnpm install. CI runs with npm as well.
+> Local development and CI both use pnpm (`--frozen-lockfile`) per `CLAUDE.md`.
 
 ## License
 

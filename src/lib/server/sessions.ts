@@ -14,17 +14,25 @@ import { z } from 'zod';
 import {
 	dayExercises,
 	days,
+	exercises,
 	prescribedSets,
 	sessions,
 	sets
 } from './db/schema';
-import { getLastCompletedSet, type Database } from './progression';
+import {
+	computeConsecutiveBackwards,
+	defaultIncrement,
+	getLastCompletedSet,
+	suggestNextLoad,
+	type Database
+} from './progression';
+import { snapForEquipment } from './plates';
 
 export type StartSessionResult =
 	| { ok: true; sessionId: string }
 	| { ok: false; status: number; message: string };
 
-export type SessionAccessMode = 'active' | 'ended-active' | 'deleted-only' | 'any';
+export type SessionAccessMode = 'active' | 'ended-active' | 'deleted-only';
 
 export type SessionProjection = {
 	id: string;
@@ -85,23 +93,52 @@ export async function startSessionForDay(
 			targetRir: prescribedSets.targetRir,
 			initialLoad: prescribedSets.initialLoad,
 			exerciseId: dayExercises.exerciseId,
-			exercisePosition: dayExercises.position
+			exercisePosition: dayExercises.position,
+			tier: dayExercises.tier,
+			progressionPolicy: dayExercises.progressionPolicy,
+			equipmentType: exercises.equipmentType,
+			exerciseName: exercises.name
 		})
 		.from(prescribedSets)
 		.innerJoin(dayExercises, eq(prescribedSets.dayExerciseId, dayExercises.id))
+		.innerJoin(exercises, eq(dayExercises.exerciseId, exercises.id))
 		.where(eq(dayExercises.dayId, day.id))
 		.orderBy(asc(dayExercises.position), asc(prescribedSets.position));
 
 	// N+1 by design — single-user localhost Postgres, see handoff notes.
 	const prefilledLoads = await Promise.all(
 		prescribed.map(async (p) => {
-			const history = await getLastCompletedSet(
-				db,
-				p.exerciseId,
-				p.setRole,
-				p.setPosition
+			const history = await getLastCompletedSet(db, p.exerciseId, p.setRole, p.setPosition);
+			if (!history || history.executedLoad == null) {
+				if (p.initialLoad == null) return null;
+				return snapForEquipment(p.initialLoad, p.equipmentType).achievable;
+			}
+
+			const targetRepsMax = p.targetRepsMax ?? history.prescribedRepsMax ?? p.targetRepsMin ?? 0;
+			const targetRir = p.targetRir ?? history.prescribedRir ?? 0;
+			const lowerBodyByName = /(deadlift|rdl|squat|leg\s*press|hack\s*squat|lunge|hip\s*thrust|glute|calf|hamstring|quad)/i.test(
+				p.exerciseName
 			);
-			return history?.executedLoad ?? p.initialLoad;
+			const increment = defaultIncrement(lowerBodyByName);
+			const relevantSets = [
+				{
+					position: p.setPosition,
+					load: history.executedLoad,
+					reps: history.executedReps ?? targetRepsMax,
+					rir: history.executedRir ?? targetRir
+				}
+			];
+			const consecutiveBackwards = await computeConsecutiveBackwards(db, p.exerciseId, p.setRole, p.setPosition);
+			const suggested = suggestNextLoad({
+				tier: p.tier,
+				policy: p.progressionPolicy,
+				relevantSets,
+				targetRepsMax,
+				targetRir,
+				increment,
+				consecutiveBackwards
+			});
+			return snapForEquipment(suggested.load, p.equipmentType).achievable;
 		})
 	);
 
@@ -203,8 +240,60 @@ export async function loadSession(
 		return session ?? null;
 	}
 
-	const [session] = await base.where(eq(sessions.id, sessionId)).limit(1);
-	return session ?? null;
+	// Exhaustive by SessionAccessMode union.
+	return null;
+}
+
+export async function loadProgramOwnedSession(
+	db: Database,
+	sessionId: string,
+	programId: string,
+	mode: SessionAccessMode
+): Promise<SessionProjection | null> {
+	const projection = {
+		id: sessions.id,
+		programId: sessions.programId,
+		dayId: sessions.dayId,
+		endedAt: sessions.endedAt,
+		deletedAt: sessions.deletedAt,
+		startedAt: sessions.startedAt,
+	};
+
+	if (mode === 'active') {
+		const [session] = await db
+			.select(projection)
+			.from(sessions)
+			.where(and(eq(sessions.id, sessionId), eq(sessions.programId, programId), isNull(sessions.deletedAt)))
+			.limit(1);
+		return session ?? null;
+	}
+
+	if (mode === 'ended-active') {
+		const [session] = await db
+			.select(projection)
+			.from(sessions)
+			.where(
+				and(
+					eq(sessions.id, sessionId),
+					eq(sessions.programId, programId),
+					isNull(sessions.deletedAt),
+					isNotNull(sessions.endedAt)
+				)
+			)
+			.limit(1);
+		return session ?? null;
+	}
+
+	if (mode === 'deleted-only') {
+		const [session] = await db
+			.select(projection)
+			.from(sessions)
+			.where(and(eq(sessions.id, sessionId), eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
+			.limit(1);
+		return session ?? null;
+	}
+
+	return null;
 }
 
 export async function listDeletedSessionsForProgram(
@@ -280,16 +369,15 @@ export async function purgeDeletedSessionsForProgram(
 	db: Database,
 	programId: string
 ): Promise<{ purged: number }> {
-	const deleted = await listDeletedSessionsForProgram(db, programId, 1000);
-	if (deleted.length === 0) return { purged: 0 };
-
-	await db.transaction(async (tx) => {
-		await tx
+	const purged = await db.transaction(async (tx) => {
+		const deleted = await tx
 			.delete(sessions)
-			.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)));
+			.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
+			.returning({ id: sessions.id });
+		return deleted.length;
 	});
 
-	return { purged: deleted.length };
+	return { purged };
 }
 
 /**

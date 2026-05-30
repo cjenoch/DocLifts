@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db, days, programs, sessions } from '$lib/server/db';
 import {
 	listDeletedSessionsForProgram,
+	loadProgramOwnedSession,
 	restoreSoftDeletedSession,
 	softDeleteEndedSession,
 	startSessionForDay,
@@ -124,12 +125,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Invalid session id' });
 		}
 
-		const [ownedSession] = await db
-			.select({ id: sessions.id })
-			.from(sessions)
-			.where(and(eq(sessions.id, parsed.data.sessionId), eq(sessions.programId, params.id)))
-			.limit(1);
-
+		const ownedSession = await loadProgramOwnedSession(db, parsed.data.sessionId, params.id, 'ended-active');
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });
 		}
@@ -150,11 +146,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Invalid session id' });
 		}
 
-		const [ownedSession] = await db
-			.select({ id: sessions.id })
-			.from(sessions)
-			.where(and(eq(sessions.id, parsed.data.sessionId), eq(sessions.programId, params.id)))
-			.limit(1);
+		const ownedSession = await loadProgramOwnedSession(db, parsed.data.sessionId, params.id, 'deleted-only');
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });
 		}
@@ -176,11 +168,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Press d in the permanent delete box to confirm' });
 		}
 
-		const [ownedSession] = await db
-			.select({ id: sessions.id })
-			.from(sessions)
-			.where(and(eq(sessions.id, parsed.data.sessionId), eq(sessions.programId, params.id)))
-			.limit(1);
+		const ownedSession = await loadProgramOwnedSession(db, parsed.data.sessionId, params.id, 'deleted-only');
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });
 		}

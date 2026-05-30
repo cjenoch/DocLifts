@@ -15,6 +15,7 @@ import {
 	dayExercises,
 	days,
 	exercises,
+	painEvents,
 	prescribedSets,
 	programs,
 	sessions,
@@ -24,6 +25,7 @@ import {
 	endSession,
 	hardDeleteSession,
 	listDeletedSessionsForProgram,
+	loadProgramOwnedSession,
 	nextSetIdInSession,
 	purgeDeletedSessionsForProgram,
 	restoreSoftDeletedSession,
@@ -69,8 +71,10 @@ type ProgramFixture = {
 async function seedProgram(opts: {
 	programName?: string;
 	exerciseName?: string;
+	equipmentType?: 'barbell' | 'barbell-ez' | 'dumbbell' | 'machine' | 'cable' | 'bodyweight';
 	initialLoad?: number | null;
 	tier?: 'main' | 'secondary' | 'isolation';
+	progressionPolicy?: 'standard' | 'cautious' | 'hold';
 } = {}): Promise<ProgramFixture> {
 	const [prog] = await db
 		.insert(programs)
@@ -84,7 +88,10 @@ async function seedProgram(opts: {
 
 	const [ex] = await db
 		.insert(exercises)
-		.values({ name: opts.exerciseName ?? 'Bench Press', equipmentType: 'bodyweight' })
+		.values({
+			name: opts.exerciseName ?? 'Bench Press',
+			equipmentType: opts.equipmentType ?? 'bodyweight'
+		})
 		.returning();
 
 	const [dx] = await db
@@ -93,7 +100,8 @@ async function seedProgram(opts: {
 			dayId: day.id,
 			exerciseId: ex.id,
 			position: 1,
-			tier: opts.tier ?? 'main'
+			tier: opts.tier ?? 'main',
+			progressionPolicy: opts.progressionPolicy ?? 'standard'
 		})
 		.returning();
 
@@ -454,7 +462,7 @@ describe('startSessionForDay: snapshot semantics', () => {
 
 describe('startSessionForDay: dumb prefill', () => {
 	it('prefills prescribedLoad from initialLoad when no history exists', async () => {
-		const fixture = await seedProgram({ initialLoad: 95 });
+		const fixture = await seedProgram({ initialLoad: 95, equipmentType: 'bodyweight' });
 		const result = await startSessionForDay(db, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
@@ -467,7 +475,7 @@ describe('startSessionForDay: dumb prefill', () => {
 	});
 
 	it('prefills prescribedLoad from history.executedLoad when available', async () => {
-		const fixture = await seedProgram({ initialLoad: 100 });
+		const fixture = await seedProgram({ initialLoad: 100, equipmentType: 'bodyweight' });
 
 		// Seed a prior completed session at 110 lb for the same
 		// (exerciseId, setRole, position).
@@ -501,7 +509,7 @@ describe('startSessionForDay: dumb prefill', () => {
 			.select({ prescribedLoad: sets.prescribedLoad })
 			.from(sets)
 			.where(eq(sets.sessionId, result.sessionId));
-		expect(s.prescribedLoad).toBe(110);
+		expect(s.prescribedLoad).toBe(115);
 	});
 
 	it('falls back to initialLoad when prior session is unfinished (blank-row safe)', async () => {
@@ -511,7 +519,7 @@ describe('startSessionForDay: dumb prefill', () => {
 		// The poisoned open session lives on a SEPARATE day (different program +
 		// day, same exerciseId) — the new one-open-per-day cap would otherwise
 		// short-circuit startSessionForDay before prefill even runs.
-		const fixture = await seedProgram({ initialLoad: 100 });
+		const fixture = await seedProgram({ initialLoad: 100, equipmentType: 'bodyweight' });
 
 		const [otherProgram] = await db
 			.insert(programs)
@@ -1122,6 +1130,25 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		expect(s.prescribedLoad).toBeNull();
 	});
 
+	it('cold-start snaps initialLoad for barbell equipment when no history exists', async () => {
+		const fixture = await seedProgram({
+			exerciseName: 'Deadlift',
+			equipmentType: 'barbell',
+			initialLoad: 113
+		});
+
+		const result = await startSessionForDay(db, fixture.dayId);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [s] = await db
+			.select({ prescribedLoad: sets.prescribedLoad })
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+
+		expect(s.prescribedLoad).toBe(109);
+	});
+
 	it('uses executedLoad from prior completed session as prefill, not null, when history exists', async () => {
 		// Bonus: after one completed session at a real load, the next session's
 		// prescribedLoad should reflect the executed load — even though initialLoad
@@ -1159,7 +1186,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 			.from(sets)
 			.where(eq(sets.sessionId, secondResult.sessionId));
 
-		expect(secondSet.prescribedLoad).toBe(135);
+		expect(secondSet.prescribedLoad).toBe(140);
 	});
 });
 
@@ -1370,6 +1397,58 @@ describe('startSessionForDay: pairwise prescribedSetId and prescribedLoad correc
 });
 
 describe('soft-delete and hard-delete session guards', () => {
+	it('restoreSoftDeletedSession returns 404 for a deleted session owned by another program', async () => {
+		const owner = await seedProgram({
+			programName: 'Owner Program',
+			exerciseName: `Bench Press Owner ${crypto.randomUUID().slice(0, 6)}`
+		});
+		const other = await seedProgram({
+			programName: 'Other Program',
+			exerciseName: `Bench Press Other ${crypto.randomUUID().slice(0, 6)}`
+		});
+
+		const started = await startSessionForDay(db, owner.dayId);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+		await endSession(db, started.sessionId);
+		await softDeleteEndedSession(db, started.sessionId);
+
+		const scoped = await loadProgramOwnedSession(db, started.sessionId, other.programId, 'deleted-only');
+		expect(scoped).toBeNull();
+
+		const [stillDeleted] = await db
+			.select({ deletedAt: sessions.deletedAt })
+			.from(sessions)
+			.where(eq(sessions.id, started.sessionId));
+		expect(stillDeleted.deletedAt).not.toBeNull();
+	});
+
+	it('hardDeleteSession returns 404 for a deleted session owned by another program scope helper', async () => {
+		const owner = await seedProgram({
+			programName: 'Delete Owner Program',
+			exerciseName: `Bench Press DelOwner ${crypto.randomUUID().slice(0, 6)}`
+		});
+		const other = await seedProgram({
+			programName: 'Delete Other Program',
+			exerciseName: `Bench Press DelOther ${crypto.randomUUID().slice(0, 6)}`
+		});
+
+		const started = await startSessionForDay(db, owner.dayId);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+		await endSession(db, started.sessionId);
+		await softDeleteEndedSession(db, started.sessionId);
+
+		const scoped = await loadProgramOwnedSession(db, started.sessionId, other.programId, 'deleted-only');
+		expect(scoped).toBeNull();
+
+		const [sessionRow] = await db
+			.select({ id: sessions.id })
+			.from(sessions)
+			.where(eq(sessions.id, started.sessionId));
+		expect(sessionRow).toBeDefined();
+	});
+
 	it('endSession returns updated=false for a soft-deleted session and does not stamp endedAt', async () => {
 		const fixture = await seedProgram();
 		const started = await startSessionForDay(db, fixture.dayId);
@@ -1427,7 +1506,7 @@ describe('soft-delete and hard-delete session guards', () => {
 		expect(trashed.map((s) => s.id)).not.toContain(started.sessionId);
 	});
 
-	it('hardDeleteSession removes session and cascades set rows', async () => {
+	it('hardDeleteSession removes session and cascades set/painEvent rows', async () => {
 		const fixture = await seedProgram();
 		const started = await startSessionForDay(db, fixture.dayId);
 		expect(started.ok).toBe(true);
@@ -1435,11 +1514,37 @@ describe('soft-delete and hard-delete session guards', () => {
 		await endSession(db, started.sessionId);
 		await softDeleteEndedSession(db, started.sessionId);
 
+		const [seededSet] = await db
+			.select({ id: sets.id })
+			.from(sets)
+			.where(eq(sets.sessionId, started.sessionId))
+			.limit(1);
+		expect(seededSet).toBeDefined();
+		if (!seededSet) return;
+
+		const [pain] = await db
+			.insert(painEvents)
+			.values({
+				sessionId: started.sessionId,
+				setId: seededSet.id,
+				exerciseId: fixture.exerciseId,
+				location: 'knee',
+				severity: 4,
+				notes: 'test cascade'
+			})
+			.returning({ id: painEvents.id });
+
 		const beforeSets = await db
 			.select({ id: sets.id })
 			.from(sets)
 			.where(eq(sets.sessionId, started.sessionId));
 		expect(beforeSets.length).toBeGreaterThan(0);
+
+		const beforePain = await db
+			.select({ id: painEvents.id })
+			.from(painEvents)
+			.where(eq(painEvents.id, pain.id));
+		expect(beforePain).toHaveLength(1);
 
 		const del = await hardDeleteSession(db, started.sessionId);
 		expect(del.ok).toBe(true);
@@ -1455,6 +1560,12 @@ describe('soft-delete and hard-delete session guards', () => {
 			.from(sets)
 			.where(eq(sets.sessionId, started.sessionId));
 		expect(afterSets).toHaveLength(0);
+
+		const afterPain = await db
+			.select({ id: painEvents.id })
+			.from(painEvents)
+			.where(eq(painEvents.id, pain.id));
+		expect(afterPain).toHaveLength(0);
 	});
 
 	it('purgeDeletedSessionsForProgram removes only soft-deleted rows', async () => {

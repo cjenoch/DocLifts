@@ -1,6 +1,6 @@
 # DocLifts — Status & Handoff Summary
 
-**Date:** 2026-05-27 · **Branch:** `main` · **Tests:** 104 passing
+**Date:** 2026-05-30 · **Branch:** `main` · **Local tests:** server 118 + client 3 passing
 
 ## What this is
 
@@ -104,8 +104,7 @@ src/routes/
 
 drizzle/               # Migration SQL (one migration)
 docker-compose.yml     # Postgres 16 for dev
-CLAUDE.md              # Rules for AI assistants (single file at repo root)
-planning_v2_*.md       # Source of truth for design decisions
+CLAUDE.md              # Rules and locked design decisions for AI assistants
 ```
 
 ## Commands worth knowing

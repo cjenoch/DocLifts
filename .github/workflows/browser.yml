@@ -11,6 +11,8 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
 
     steps:
       - uses: actions/checkout@v6
@@ -24,21 +26,7 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.3.0 --activate
 
-      - name: Derive Playwright version from lockfile
-        id: pw
-        run: |
-          PW_VER=$(node -e "const fs=require('fs'); const y=fs.readFileSync('pnpm-lock.yaml','utf8'); const m=[...y.matchAll(/\splaywright@([0-9]+\.[0-9]+\.[0-9]+)/g)][0]; if(!m){process.exit(1)}; console.log(m[1]);")
-          echo "version=$PW_VER" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Playwright browser binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
-
       - run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install chromium
-
+      # Browser binaries are preinstalled in the Playwright container.
       - run: pnpm run test:unit --project client

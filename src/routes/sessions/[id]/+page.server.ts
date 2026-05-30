@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
 import {
   db,
   dayExercises,
@@ -135,6 +135,13 @@ const reopenEndedSessionSchema = z.object({
   allowEndedSessionEdit: z.literal('1'),
 });
 
+const deleteEndedSessionSchema = z.object({
+  confirmDelete: z.preprocess(
+    (v) => (typeof v === 'string' ? v.toLowerCase() : v),
+    z.literal('d')
+  ),
+});
+
 export const actions: Actions = {
   endSession: async ({ params }) => {
     await endSession(db, params.id);
@@ -183,5 +190,35 @@ export const actions: Actions = {
     // anchor; no client JS required.
     const nextId = await nextSetIdInSession(db, params.id, result.setId);
     redirect(303, `/sessions/${params.id}#set-${nextId ?? result.setId}`);
+  },
+
+  deleteSession: async ({ request, params }) => {
+    const [session] = await db
+      .select({ id: sessions.id, programId: sessions.programId, endedAt: sessions.endedAt })
+      .from(sessions)
+      .where(and(eq(sessions.id, params.id), isNull(sessions.deletedAt)))
+      .limit(1);
+
+    if (!session) {
+      return fail(404, { message: 'Session not found' });
+    }
+    if (!session.endedAt) {
+      return fail(409, { message: 'Only ended sessions can be deleted from this page' });
+    }
+
+    const form = await request.formData();
+    const parsed = deleteEndedSessionSchema.safeParse({
+      confirmDelete: form.get('confirmDelete'),
+    });
+    if (!parsed.success) {
+      return fail(400, { message: 'Press d in the delete box to confirm' });
+    }
+
+    await db
+      .update(sessions)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(sessions.id, session.id), isNull(sessions.deletedAt), isNotNull(sessions.endedAt)));
+
+    redirect(303, `/programs/${session.programId}`);
   },
 };

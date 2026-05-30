@@ -32,6 +32,43 @@
       {#if data.allowEndedSessionEdit}
         <span class="rounded bg-amber-500/20 px-2 py-1 text-amber-300">Editing ended session</span>
         <a href="/sessions/{data.session.id}" class="text-indigo-400 active:underline">Done editing</a>
+        <form
+          method="POST"
+          action="?/deleteSession"
+          class="ml-auto flex items-center gap-1.5"
+          onsubmit={(event) => {
+            const input = event.currentTarget.querySelector('input[name="confirmDelete"]') as
+              | HTMLInputElement
+              | null;
+            const value = input?.value.trim().toLowerCase() ?? '';
+            if (value !== 'd') {
+              event.preventDefault();
+              return;
+            }
+            if (!confirm('Delete this ended workout? Press OK to confirm (2/3).')) {
+              event.preventDefault();
+              return;
+            }
+            if (!confirm('Final confirm (3/3): permanently delete this workout?')) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <input
+            type="text"
+            name="confirmDelete"
+            maxlength="1"
+            placeholder="d"
+            autocomplete="off"
+            class="w-10 rounded border border-rose-900 bg-zinc-950 px-2 py-1 text-center text-[11px] text-zinc-100"
+          />
+          <button
+            type="submit"
+            class="rounded bg-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-300 active:bg-rose-500/30"
+          >
+            Delete Workout
+          </button>
+        </form>
       {:else}
         <span class="text-zinc-400">This session is read-only.</span>
         <a href="/sessions/{data.session.id}?edit=1" class="text-indigo-400 active:underline">

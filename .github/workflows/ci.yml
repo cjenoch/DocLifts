@@ -62,6 +62,5 @@ jobs:
       # svelte-kit sync + svelte-check.
       - run: pnpm run check
 
-      # CI currently runs server project only to avoid flaky/slow browser
-      # dependency installation on GitHub-hosted runners.
-      - run: pnpm test --project server
+      # CI currently runs server project only (browser project has dedicated Browser CI workflow).
+      - run: pnpm run test:unit --project server

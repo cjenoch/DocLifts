@@ -39,4 +39,4 @@ jobs:
 
       # Browser binaries are preinstalled in the Playwright container.
 
-      - run: pnpm test --project client
+      - run: pnpm run test:unit --project client

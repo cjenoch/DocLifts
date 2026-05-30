@@ -9,7 +9,7 @@
  * derived from the day row, never accepted as a parameter.
  */
 
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	dayExercises,
@@ -246,7 +246,7 @@ export async function updateSetInSession(
 	const [session] = await db
 		.select({ endedAt: sessions.endedAt })
 		.from(sessions)
-		.where(eq(sessions.id, sessionId))
+		.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt)))
 		.limit(1);
 	if (!session) {
 		return { ok: false, setId, status: 404, message: 'Session not found' };

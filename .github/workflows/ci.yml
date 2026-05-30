@@ -32,10 +32,11 @@ jobs:
           # No `cache:` — repo has no package-lock.json (pnpm is the local PM).
           # setup-node would fail trying to hash a non-existent lockfile.
 
-      # Project's package manager of record is pnpm (per CLAUDE.md), but CI uses npm
-      # to avoid pnpm/action-setup pinning ceremony. Lockfile is the source of truth
-      # locally; npm regenerates its own resolution from package.json on CI.
-      - run: npm install --no-audit --no-fund
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+
+      - run: pnpm install --frozen-lockfile
 
       # Build DB URLs at runtime to keep the password out of YAML (CI tooling pipelines
       # sometimes redact the literal token form). drizzle.config.ts reads DATABASE_URL
@@ -57,9 +58,9 @@ jobs:
       # exists before any test runs. No separate migrate step needed.
 
       # svelte-kit sync + svelte-check.
-      - run: npm run check
+      - run: pnpm run check
 
-      - run: npx playwright install --with-deps chromium
+      - run: pnpm exec playwright install --with-deps chromium
 
       # Full suite — both vitest projects (server + browser).
-      - run: npx vitest run
+      - run: pnpm test

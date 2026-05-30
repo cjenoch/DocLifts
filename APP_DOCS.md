@@ -178,7 +178,7 @@ pnpm db:migrate                   # Apply to dev DB
 
 Generated migration files in `drizzle/` are committed to the repo.
 
-`pnpm redeploy` builds and restarts the gym service but does **not** run migrations. After any schema change, apply `pnpm db:migrate` to the gym database as part of the deploy.
+`pnpm redeploy` now runs the guarded deploy script (`scripts/deploy-safe.sh`): build → migrate → restart service → readiness verification. If migrate fails, deploy fails before restart.
 
 ---
 

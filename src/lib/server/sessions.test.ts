@@ -9,7 +9,7 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import type postgres from 'postgres';
 import {
 	dayExercises,
@@ -740,6 +740,35 @@ describe('updateSetInSession', () => {
 		expect(s.executedReps).toBe(8);
 		expect(s.executedRir).toBe(2);
 		expect(s.notes).toBe('retro edit');
+	});
+
+	it('returns 404 when attempting to edit a soft-deleted ended session even with allowEndedSession', async () => {
+		const { sessionId, setId } = await setupOpenSet();
+		await endSession(db, sessionId);
+		await db
+			.update(sessions)
+			.set({ deletedAt: new Date() })
+			.where(eq(sessions.id, sessionId));
+
+		const result = await updateSetInSession(
+			db,
+			sessionId,
+			setId,
+			{
+				executedLoad: '210',
+				executedReps: '8',
+				executedRir: '2',
+				notes: 'should not save'
+			},
+			{ allowEndedSession: true }
+		);
+		expect(result).toMatchObject({ ok: false, status: 404, message: 'Session not found' });
+
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.executedLoad).toBeNull();
+		expect(s.executedReps).toBeNull();
+		expect(s.executedRir).toBeNull();
+		expect(s.notes).toBeNull();
 	});
 
 	it('returns 400 with fieldErrors on invalid input and does not mutate', async () => {

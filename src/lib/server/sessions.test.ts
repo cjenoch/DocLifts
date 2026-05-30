@@ -443,12 +443,15 @@ describe('startSessionForDay: dumb prefill', () => {
 
 		// Seed a prior completed session at 110 lb for the same
 		// (exerciseId, setRole, position).
+		const priorStartedAt = new Date(Date.now() - 60_000);
+		const priorEndedAt = new Date(Date.now() - 30_000);
 		const [priorSession] = await db
 			.insert(sessions)
 			.values({
 				dayId: fixture.dayId,
 				programId: fixture.programId,
-				endedAt: new Date()
+				startedAt: priorStartedAt,
+				endedAt: priorEndedAt
 			})
 			.returning();
 		await db.insert(sets).values({

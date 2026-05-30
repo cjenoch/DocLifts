@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import { db, programs } from '$lib/server/db';
 import type { PageServerLoad } from './$types';
 
@@ -10,7 +10,7 @@ export const load: PageServerLoad = async () => {
       description: programs.description,
     })
     .from(programs)
-    .where(eq(programs.isActive, true))
+    .where(and(eq(programs.isActive, true), like(programs.name, 'Sunrise Center%')))
     .orderBy(programs.name);
 
   return { programs: activePrograms };

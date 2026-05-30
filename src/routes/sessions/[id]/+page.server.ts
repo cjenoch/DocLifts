@@ -199,16 +199,16 @@ export const actions: Actions = {
       return fail(400, { message: 'Press d in the delete box to confirm' });
     }
 
+    const activeSession = await loadSession(db, params.id, 'ended-active');
+    if (!activeSession) {
+      return fail(404, { message: 'Session not found' });
+    }
+
     const result = await softDeleteEndedSession(db, params.id);
     if (!result.ok) {
       return fail(result.status, { message: result.message });
     }
 
-    const session = await loadSession(db, params.id, 'any');
-    if (!session) {
-      return fail(404, { message: 'Session not found' });
-    }
-
-    redirect(303, `/programs/${session.programId}`);
+    redirect(303, `/programs/${activeSession.programId}`);
   },
 };

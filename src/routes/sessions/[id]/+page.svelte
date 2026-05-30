@@ -3,6 +3,12 @@
   import SetRow from './SetRow.svelte';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
+
+  const unloggedSetCount = $derived.by(() => {
+    return data.groups
+      .flatMap((group) => group.sets)
+      .filter((set) => set.executedLoad == null || set.executedReps == null).length;
+  });
 </script>
 
 <div class="mx-auto max-w-md px-4 py-6 pb-28">
@@ -79,6 +85,13 @@
         <button
           type="submit"
           class="w-full rounded-lg bg-emerald-500 px-4 py-3 text-base font-semibold text-zinc-950 shadow-sm shadow-emerald-500/20 transition active:scale-[0.99] active:bg-emerald-600"
+          onclick={(event) => {
+            if (unloggedSetCount <= 0) return;
+            const noun = unloggedSetCount === 1 ? 'set' : 'sets';
+            if (!confirm(`${unloggedSetCount} ${noun} are still unlogged. End session anyway?`)) {
+              event.preventDefault();
+            }
+          }}
         >
           End Session
         </button>

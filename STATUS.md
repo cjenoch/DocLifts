@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-31  
 **Branch:** `main`  
-**Latest commit:** `10028c4`  
+**Latest commit:** `HEAD` (resolve at read time: `git rev-parse --short HEAD`)  
 **Deployment target:** `doclifts.service` on TestDev01 (`releases/current` runtime via `/usr/bin/node .`, port 3000)
 
 ## Executive summary

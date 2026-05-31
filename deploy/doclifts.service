@@ -1,0 +1,27 @@
+[Unit]
+Description=DocLifts production server (adapter-node release symlink runtime)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=chris
+Group=chris
+# Execute the build currently pointed at by releases/current.
+WorkingDirectory=/home/chris/code/DocLifts/releases/current
+EnvironmentFile=/home/chris/code/DocLifts/.env
+Environment=HOME=/home/chris
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=3000
+# Deliberately leave ORIGIN unset; adapter-node infers host per request.
+ExecStart=/usr/bin/node .
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

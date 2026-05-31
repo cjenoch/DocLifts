@@ -2,8 +2,8 @@
 
 **Date:** 2026-05-31  
 **Branch:** `main`  
-**Latest commit:** `7685a34`  
-**Deployment target:** `doclifts.service` on TestDev01 (`/usr/bin/node build`, port 3000)
+**Latest commit:** `5217735`  
+**Deployment target:** `doclifts.service` on TestDev01 (`releases/current` runtime via `/usr/bin/node .`, port 3000)
 
 ## Executive summary
 
@@ -63,18 +63,26 @@ The hot-path progression wiring bug is fixed: SECONDARY/ISOLATION now gate progr
 
 ## Recent commits (highest signal)
 
+- `5217735` — fix: poll listening check inside verify wait loop (rollback readiness race)
+- `650c6ce` — docs: mark canonical systemd unit and remove superseded override script
+- `b465f11` — ops: harden deploy rollback (pre-migrate pg_dump + pg_restore) and codify release-symlink unit
 - `7685a34` — CI: make lint non-blocking signal until baseline formatting cleanup
 - `0770b34` — progression wiring fix + reasoning snapshot + UUID hardening + schema/migration
-- `db6961d` — restore planning docs and close drift findings
 
 ## Current operational state
 
 - App build and tests are green locally.
 - CI + Browser CI are green on latest commit.
-- Known deploy invariant gap remains: service still executes `node build` directly rather than `releases/current` + `ExecStartPre` migrate path.
+- Deploy converged: `doclifts.service` runs from `releases/current` (committed `deploy/doclifts.service` matches the installed host unit; superseded override script removed).
+- Rollback drilled end-to-end on the host (`DOCLIFTS_DEPLOY_FAIL_AFTER_MIGRATE=1`): forced post-migrate failure restored the pre-migrate `pg_dump`, repointed `current` to the prior release, restarted, and passed readiness (`exit 91`). Session data round-tripped intact (14 → 14). Two issues surfaced and fixed during the drill: a missing NOPASSWD sudoers entry for `systemctl` (host config, see below), and a readiness-check race where the listening probe fired before the swap loop — fixed in `scripts/verify-doclifts-up.sh` (commit `5217735`).
+- Migrations run only inside `deploy-safe.sh` (the live unit has no `ExecStartPre` migrate), so every migration is preceded by the pre-migrate dump. A bare `systemctl restart` never migrates.
+
+**Host-config dependency (not in repo):** rollback requires a NOPASSWD sudoers entry for `systemctl restart/is-active doclifts.service` at `/etc/sudoers.d/doclifts`. Without it the rollback fails closed at the restart step. Required on any rebuilt host.
 
 ## Remaining follow-up (outside this delta patch set)
 
 1. Promote CI lint from signal to blocking after repo-wide formatting baseline cleanup.
-2. Finish deploy invariant convergence (`releases/current` runtime + `ExecStartPre=pnpm db:migrate`) and re-verify rollback end-to-end.
-3. Optional: add explicit route-level tests for malformed UUID params returning 400.
+2. Optional: add explicit route-level tests for malformed UUID params returning 400.
+3. Low/latent (unchanged from audit): M2 program-delete FK semantics (decide before a program-edit/delete flow ships); L2 DB CHECK constraints on enum-ish text columns; L3 `programs.updatedAt` $onUpdate; L4 post-23505 retry.
+
+Note: item 2 from the prior list (deploy convergence + rollback re-verify) is DONE — see Current operational state.

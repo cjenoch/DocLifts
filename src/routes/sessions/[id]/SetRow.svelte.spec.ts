@@ -14,6 +14,7 @@ const baseSet = {
 	prescribedRepsMin: 3,
 	prescribedRepsMax: 5,
 	prescribedRir: 1,
+	suggestionReasoning: '+5: top set hit 5 reps at RIR 1',
 	executedLoad: null,
 	executedReps: null,
 	executedRir: null,
@@ -42,8 +43,11 @@ describe('SetRow component', () => {
 			rowMessage: null
 		});
 
-		await expect.element(page.getByText('TOP')).toBeInTheDocument();
+		await expect.element(page.getByText('TOP', { exact: true })).toBeInTheDocument();
 		await expect.element(page.getByText('Last: 95 × 5 @ RIR 1')).toBeInTheDocument();
+		await expect
+			.element(page.getByText('Suggested: +5: top set hit 5 reps at RIR 1'))
+			.toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: 'Save' })).toBeInTheDocument();
 	});
 

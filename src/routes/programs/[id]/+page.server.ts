@@ -13,8 +13,19 @@ import {
 import { z } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
 
+const uuidParamSchema = z.string().uuid();
+
 export const load: PageServerLoad = async ({ params }) => {
-	const [program] = await db.select().from(programs).where(eq(programs.id, params.id)).limit(1);
+	const parsedProgramId = uuidParamSchema.safeParse(params.id);
+	if (!parsedProgramId.success) {
+		error(400, 'Invalid program id');
+	}
+
+	const [program] = await db
+		.select()
+		.from(programs)
+		.where(eq(programs.id, parsedProgramId.data))
+		.limit(1);
 
 	if (!program) {
 		error(404, 'Program not found');
@@ -107,8 +118,12 @@ export const actions: Actions = {
 		if (typeof dayId !== 'string' || dayId.length === 0) {
 			return fail(400, { message: 'Missing dayId' });
 		}
+		const parsedDayId = uuidParamSchema.safeParse(dayId);
+		if (!parsedDayId.success) {
+			return fail(400, { message: 'Invalid dayId' });
+		}
 
-		const result = await startSessionForDay(db, dayId);
+		const result = await startSessionForDay(db, parsedDayId.data);
 		if (!result.ok) {
 			return fail(result.status, { message: result.message });
 		}

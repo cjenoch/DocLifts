@@ -99,6 +99,7 @@ export async function startSessionForDay(
 			tier: dayExercises.tier,
 			progressionPolicy: dayExercises.progressionPolicy,
 			equipmentType: exercises.equipmentType,
+			isLowerBody: exercises.isLowerBody,
 			exerciseName: exercises.name
 		})
 		.from(prescribedSets)
@@ -108,20 +109,113 @@ export async function startSessionForDay(
 		.orderBy(asc(dayExercises.position), asc(prescribedSets.position));
 
 	// N+1 by design — single-user localhost Postgres, see handoff notes.
-	const prefilledLoads = await Promise.all(
-		prescribed.map(async (p) => {
-			const history = await getLastCompletedSet(db, p.exerciseId, p.setRole, p.setPosition);
+	const histories = await Promise.all(
+		prescribed.map((p) => getLastCompletedSet(db, p.exerciseId, p.setRole, p.setPosition))
+	);
+
+	type Decision =
+		| { kind: 'hold'; reasoning: string }
+		| { kind: 'advance'; delta: number; reasoning: string }
+		| { kind: 'deload'; reasoning: string };
+	type Prefill = { load: number | null; reasoning: string | null };
+
+	const exerciseDecision = new Map<string, Decision>();
+
+	for (const exerciseId of new Set(prescribed.map((p) => p.exerciseId))) {
+		const rows = prescribed
+			.map((p, i) => ({ p, history: histories[i] }))
+			.filter((row) => row.p.exerciseId === exerciseId)
+			.filter((row) => row.p.tier !== 'main' && row.p.setRole === 'working');
+		if (!rows.length) continue;
+		if (rows.some((row) => row.history?.executedLoad == null)) continue;
+
+		const sorted = rows.sort((a, b) => a.p.setPosition - b.p.setPosition);
+		const first = sorted[0];
+		const firstHistory = first.history;
+		if (!firstHistory || firstHistory.executedLoad == null) continue;
+
+		const targetRepsMax =
+			first.p.targetRepsMax ?? firstHistory.prescribedRepsMax ?? first.p.targetRepsMin ?? 0;
+		const targetRir = first.p.targetRir ?? firstHistory.prescribedRir ?? 0;
+		const increment = defaultIncrement(first.p.isLowerBody);
+		const relevantSets = sorted.map((row) => ({
+			position: row.p.setPosition,
+			load: row.history?.executedLoad ?? 0,
+			reps: row.history?.executedReps ?? targetRepsMax,
+			rir: row.history?.executedRir ?? targetRir
+		}));
+		const consecutiveBackwards = await computeConsecutiveBackwards(
+			db,
+			first.p.exerciseId,
+			'working',
+			first.p.setPosition
+		);
+		const suggested = suggestNextLoad({
+			tier: first.p.tier,
+			policy: first.p.progressionPolicy,
+			relevantSets,
+			targetRepsMax,
+			targetRir,
+			increment,
+			consecutiveBackwards
+		});
+
+		const baseline = relevantSets[0].load;
+		const deload = Math.round(baseline * 0.9 * 2) / 2;
+		if (Math.abs(suggested.load - deload) < 1e-9) {
+			exerciseDecision.set(exerciseId, { kind: 'deload', reasoning: suggested.reasoning });
+		} else if (suggested.load > baseline) {
+			exerciseDecision.set(exerciseId, {
+				kind: 'advance',
+				delta: suggested.load - baseline,
+				reasoning: suggested.reasoning
+			});
+		} else {
+			exerciseDecision.set(exerciseId, { kind: 'hold', reasoning: suggested.reasoning });
+		}
+	}
+
+	const prefilled = await Promise.all(
+		prescribed.map(async (p, i): Promise<Prefill> => {
+			const history = histories[i];
+
+			if (p.setRole === 'warmup') {
+				const source = history?.executedLoad ?? p.initialLoad;
+				if (source == null) return { load: null, reasoning: null };
+				return {
+					load: snapForEquipment(source, p.equipmentType).achievable,
+					reasoning: null
+				};
+			}
+
 			if (!history || history.executedLoad == null) {
-				if (p.initialLoad == null) return null;
-				return snapForEquipment(p.initialLoad, p.equipmentType).achievable;
+				if (p.initialLoad == null) return { load: null, reasoning: null };
+				return {
+					load: snapForEquipment(p.initialLoad, p.equipmentType).achievable,
+					reasoning: null
+				};
+			}
+
+			if (p.tier !== 'main' && p.setRole === 'working') {
+				const decision = exerciseDecision.get(p.exerciseId);
+				if (decision) {
+					const baseline = history.executedLoad;
+					const raw =
+						decision.kind === 'advance'
+							? baseline + decision.delta
+							: decision.kind === 'deload'
+								? Math.round(baseline * 0.9 * 2) / 2
+								: baseline;
+					return {
+						load: snapForEquipment(raw, p.equipmentType).achievable,
+						reasoning: decision.reasoning
+					};
+				}
 			}
 
 			const targetRepsMax = p.targetRepsMax ?? history.prescribedRepsMax ?? p.targetRepsMin ?? 0;
 			const targetRir = p.targetRir ?? history.prescribedRir ?? 0;
-			const lowerBodyByName = /(deadlift|rdl|squat|leg\s*press|hack\s*squat|lunge|hip\s*thrust|glute|calf|hamstring|quad)/i.test(
-				p.exerciseName
-			);
-			const increment = defaultIncrement(lowerBodyByName);
+			const increment = defaultIncrement(p.isLowerBody);
 			const relevantSets = [
 				{
 					position: p.setPosition,
@@ -130,7 +224,12 @@ export async function startSessionForDay(
 					rir: history.executedRir ?? targetRir
 				}
 			];
-			const consecutiveBackwards = await computeConsecutiveBackwards(db, p.exerciseId, p.setRole, p.setPosition);
+			const consecutiveBackwards = await computeConsecutiveBackwards(
+				db,
+				p.exerciseId,
+				p.setRole,
+				p.setPosition
+			);
 			const suggested = suggestNextLoad({
 				tier: p.tier,
 				policy: p.progressionPolicy,
@@ -140,7 +239,10 @@ export async function startSessionForDay(
 				increment,
 				consecutiveBackwards
 			});
-			return snapForEquipment(suggested.load, p.equipmentType).achievable;
+			return {
+				load: snapForEquipment(suggested.load, p.equipmentType).achievable,
+				reasoning: suggested.reasoning
+			};
 		})
 	);
 
@@ -163,7 +265,8 @@ export async function startSessionForDay(
 					position: p.setPosition,
 					setRole: p.setRole,
 					targetMetric: p.targetMetric,
-					prescribedLoad: prefilledLoads[i],
+					prescribedLoad: prefilled[i].load,
+					suggestionReasoning: prefilled[i].reasoning,
 					prescribedRepsMin: p.targetRepsMin,
 					prescribedRepsMax: p.targetRepsMax,
 					prescribedRir: p.targetRir

@@ -195,41 +195,43 @@ function twoWorkingSets(
 
 // ---------- Equipment map ----------
 
-const equipment: Record<string, string> = {
-  'Nautilus Leverage Plate Press': 'machine-plate',
-  'Inspiration Chest Press': 'machine-stack',
-  'Pec Deck': 'machine-stack',
-  'Inspiration Shoulder Press': 'machine-stack',
-  'DB Lateral Raise': 'dumbbell',
-  'Nautilus Triceps Extension': 'machine-stack',
-  'Cable Face Pulls': 'cable',
-  'Leverage Incline Lever Row': 'machine-plate',
-  'Cable Seated Row - close grip': 'cable',
-  'Cable Lat Pulldown - wide grip': 'cable',
-  'Pec Fly / Rear Delt': 'machine-stack',
-  'Inspiration Bicep Curl': 'machine-stack',
-  'Preacher Curls (EZ bar)': 'barbell-ez',
-  'Hanging Leg Raises': 'bodyweight',
-  Deadlift: 'barbell',
-  'Plate Loaded Leg Press': 'machine-plate',
-  'Inspiration Leg Curl': 'machine-stack',
-  'Inspiration Leg Extension': 'machine-stack',
-  'Nautilus Glute Drive': 'machine-plate',
-  'Smith Machine Calf Raise': 'smith',
-  'Cable Crunch': 'cable',
-  'Romanian Deadlift': 'barbell',
-  'Hack Squat': 'machine-plate',
-  'Leverage Lat Pulldown': 'machine-plate',
-  'Cable Lat Pulldown - close grip': 'cable',
-  'Cable Straight-Arm Pulldown': 'cable',
-  'Cable Seated Row - wide grip': 'cable',
-  'DB Hammer Curl': 'dumbbell',
-  'Rotary Torso': 'machine-stack',
-  'Band External Rotations': 'band',
-  'Band Pull-Aparts': 'band',
-  'DB Standing Calf Raise (1-leg)': 'dumbbell',
-  'DB Wrist Curl + Reverse': 'dumbbell',
-  'Plank / Side Plank': 'bodyweight',
+type ExerciseMeta = { equipmentType: string; isLowerBody: boolean };
+
+const exerciseMeta: Record<string, ExerciseMeta> = {
+  'Nautilus Leverage Plate Press': { equipmentType: 'machine-plate', isLowerBody: false },
+  'Inspiration Chest Press': { equipmentType: 'machine-stack', isLowerBody: false },
+  'Pec Deck': { equipmentType: 'machine-stack', isLowerBody: false },
+  'Inspiration Shoulder Press': { equipmentType: 'machine-stack', isLowerBody: false },
+  'DB Lateral Raise': { equipmentType: 'dumbbell', isLowerBody: false },
+  'Nautilus Triceps Extension': { equipmentType: 'machine-stack', isLowerBody: false },
+  'Cable Face Pulls': { equipmentType: 'cable', isLowerBody: false },
+  'Leverage Incline Lever Row': { equipmentType: 'machine-plate', isLowerBody: false },
+  'Cable Seated Row - close grip': { equipmentType: 'cable', isLowerBody: false },
+  'Cable Lat Pulldown - wide grip': { equipmentType: 'cable', isLowerBody: false },
+  'Pec Fly / Rear Delt': { equipmentType: 'machine-stack', isLowerBody: false },
+  'Inspiration Bicep Curl': { equipmentType: 'machine-stack', isLowerBody: false },
+  'Preacher Curls (EZ bar)': { equipmentType: 'barbell-ez', isLowerBody: false },
+  'Hanging Leg Raises': { equipmentType: 'bodyweight', isLowerBody: false },
+  Deadlift: { equipmentType: 'barbell', isLowerBody: true },
+  'Plate Loaded Leg Press': { equipmentType: 'machine-plate', isLowerBody: true },
+  'Inspiration Leg Curl': { equipmentType: 'machine-stack', isLowerBody: true },
+  'Inspiration Leg Extension': { equipmentType: 'machine-stack', isLowerBody: true },
+  'Nautilus Glute Drive': { equipmentType: 'machine-plate', isLowerBody: true },
+  'Smith Machine Calf Raise': { equipmentType: 'smith', isLowerBody: true },
+  'Cable Crunch': { equipmentType: 'cable', isLowerBody: false },
+  'Romanian Deadlift': { equipmentType: 'barbell', isLowerBody: true },
+  'Hack Squat': { equipmentType: 'machine-plate', isLowerBody: true },
+  'Leverage Lat Pulldown': { equipmentType: 'machine-plate', isLowerBody: false },
+  'Cable Lat Pulldown - close grip': { equipmentType: 'cable', isLowerBody: false },
+  'Cable Straight-Arm Pulldown': { equipmentType: 'cable', isLowerBody: false },
+  'Cable Seated Row - wide grip': { equipmentType: 'cable', isLowerBody: false },
+  'DB Hammer Curl': { equipmentType: 'dumbbell', isLowerBody: false },
+  'Rotary Torso': { equipmentType: 'machine-stack', isLowerBody: false },
+  'Band External Rotations': { equipmentType: 'band', isLowerBody: false },
+  'Band Pull-Aparts': { equipmentType: 'band', isLowerBody: false },
+  'DB Standing Calf Raise (1-leg)': { equipmentType: 'dumbbell', isLowerBody: true },
+  'DB Wrist Curl + Reverse': { equipmentType: 'dumbbell', isLowerBody: false },
+  'Plank / Side Plank': { equipmentType: 'bodyweight', isLowerBody: false },
 };
 
 // ---------- Program data ----------
@@ -838,16 +840,16 @@ async function seed() {
       // via snapForEquipment(); a silent ?? null fallback would route a
       // typo'd or new exercise through the pass-through branch and quietly
       // produce wrong loads on barbell/machine-plate exercises.
-      const equipmentType = equipment[name];
-      if (!equipmentType) {
+      const meta = exerciseMeta[name];
+      if (!meta) {
         throw new Error(
-          `Missing equipment mapping for exercise: "${name}". ` +
-            `Add it to the equipment map at the top of seed.ts.`,
+          `Missing exercise metadata for exercise: "${name}". ` +
+            `Add it to the exerciseMeta map at the top of seed.ts.`,
         );
       }
       const [exercise] = await tx
         .insert(schema.exercises)
-        .values({ name, equipmentType })
+        .values({ name, equipmentType: meta.equipmentType, isLowerBody: meta.isLowerBody })
         .returning();
       exerciseMap.set(name, exercise.id);
     }

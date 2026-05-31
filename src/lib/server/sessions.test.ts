@@ -72,6 +72,7 @@ async function seedProgram(opts: {
 	programName?: string;
 	exerciseName?: string;
 	equipmentType?: 'barbell' | 'barbell-ez' | 'dumbbell' | 'machine' | 'cable' | 'bodyweight';
+	isLowerBody?: boolean;
 	initialLoad?: number | null;
 	tier?: 'main' | 'secondary' | 'isolation';
 	progressionPolicy?: 'standard' | 'cautious' | 'hold';
@@ -90,7 +91,8 @@ async function seedProgram(opts: {
 		.insert(exercises)
 		.values({
 			name: opts.exerciseName ?? 'Bench Press',
-			equipmentType: opts.equipmentType ?? 'bodyweight'
+			equipmentType: opts.equipmentType ?? 'bodyweight',
+			isLowerBody: opts.isLowerBody ?? false
 		})
 		.returning();
 
@@ -468,10 +470,11 @@ describe('startSessionForDay: prefill pipeline', () => {
 		if (!result.ok) return;
 
 		const [s] = await db
-			.select({ prescribedLoad: sets.prescribedLoad })
+			.select({ prescribedLoad: sets.prescribedLoad, suggestionReasoning: sets.suggestionReasoning })
 			.from(sets)
 			.where(eq(sets.sessionId, result.sessionId));
 		expect(s.prescribedLoad).toBe(95);
+		expect(s.suggestionReasoning).toBeNull();
 	});
 
 	it('prefills prescribedLoad from progressed + snapped history path when available', async () => {
@@ -508,10 +511,11 @@ describe('startSessionForDay: prefill pipeline', () => {
 		if (!result.ok) return;
 
 		const [s] = await db
-			.select({ prescribedLoad: sets.prescribedLoad })
+			.select({ prescribedLoad: sets.prescribedLoad, suggestionReasoning: sets.suggestionReasoning })
 			.from(sets)
 			.where(eq(sets.sessionId, result.sessionId));
 		expect(s.prescribedLoad).toBe(115);
+		expect(s.suggestionReasoning).toContain('+5');
 	});
 
 	it('falls back to initialLoad when prior session is unfinished (blank-row safe)', async () => {
@@ -558,6 +562,282 @@ describe('startSessionForDay: prefill pipeline', () => {
 			.from(sets)
 			.where(eq(sets.sessionId, result.sessionId));
 		expect(s.prescribedLoad).toBe(100);
+	});
+
+	it('holds SECONDARY progression when only one working set clears (all-working-set gate)', async () => {
+		const [prog] = await db.insert(programs).values({ name: 'secondary gate' }).returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day 1', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'Cable Row', equipmentType: 'cable' })
+			.returning();
+		const [dx] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex.id,
+				position: 1,
+				tier: 'secondary',
+				progressionPolicy: 'standard'
+			})
+			.returning();
+		await db.insert(prescribedSets).values([
+			{
+				dayExerciseId: dx.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 100
+			},
+			{
+				dayExerciseId: dx.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 90
+			}
+		]);
+
+		// Prior completed session: set 1 clears, set 2 does NOT clear.
+		const [priorSession] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(Date.now() - 120_000),
+				endedAt: new Date(Date.now() - 90_000)
+			})
+			.returning();
+		await db.insert(sets).values([
+			{
+				sessionId: priorSession.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 100,
+				executedReps: 10,
+				executedRir: 1,
+				prescribedRepsMax: 10,
+				prescribedRir: 1
+			},
+			{
+				sessionId: priorSession.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 90,
+				executedReps: 8,
+				executedRir: 3,
+				prescribedRepsMax: 10,
+				prescribedRir: 1
+			}
+		]);
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const rows = await db
+			.select({
+				position: sets.position,
+				prescribedLoad: sets.prescribedLoad,
+				suggestionReasoning: sets.suggestionReasoning
+			})
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.position));
+
+		expect(rows).toEqual([
+			{
+				position: 1,
+				prescribedLoad: 100,
+				suggestionReasoning: 'held: not all working sets cleared top of range'
+			},
+			{
+				position: 2,
+				prescribedLoad: 90,
+				suggestionReasoning: 'held: not all working sets cleared top of range'
+			}
+		]);
+	});
+
+	it('advances SECONDARY progression when all working sets clear', async () => {
+		const [prog] = await db.insert(programs).values({ name: 'secondary advance' }).returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day 1', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'Cable Pulldown', equipmentType: 'cable' })
+			.returning();
+		const [dx] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex.id,
+				position: 1,
+				tier: 'secondary',
+				progressionPolicy: 'standard'
+			})
+			.returning();
+		await db.insert(prescribedSets).values([
+			{
+				dayExerciseId: dx.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 100
+			},
+			{
+				dayExerciseId: dx.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 90
+			}
+		]);
+
+		const [priorSession] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(Date.now() - 120_000),
+				endedAt: new Date(Date.now() - 90_000)
+			})
+			.returning();
+		await db.insert(sets).values([
+			{
+				sessionId: priorSession.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 100,
+				executedReps: 10,
+				executedRir: 1,
+				prescribedRepsMax: 10,
+				prescribedRir: 1
+			},
+			{
+				sessionId: priorSession.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 90,
+				executedReps: 10,
+				executedRir: 1,
+				prescribedRepsMax: 10,
+				prescribedRir: 1
+			}
+		]);
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const rows = await db
+			.select({
+				position: sets.position,
+				prescribedLoad: sets.prescribedLoad,
+				suggestionReasoning: sets.suggestionReasoning
+			})
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.position));
+
+		expect(rows).toEqual([
+			{
+				position: 1,
+				prescribedLoad: 105,
+				suggestionReasoning: '+5: all working sets at top of range, RIR ≤ 1'
+			},
+			{
+				position: 2,
+				prescribedLoad: 95,
+				suggestionReasoning: '+5: all working sets at top of range, RIR ≤ 1'
+			}
+		]);
+	});
+
+	it('warmup rows bypass engine even when warmup history exists', async () => {
+		const [prog] = await db.insert(programs).values({ name: 'warmup bypass' }).returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day 1', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'Bench Warmup Test', equipmentType: 'dumbbell' })
+			.returning();
+		const [dx] = await db
+			.insert(dayExercises)
+			.values({ dayId: day.id, exerciseId: ex.id, position: 1, tier: 'main', progressionPolicy: 'standard' })
+			.returning();
+		await db.insert(prescribedSets).values({
+			dayExerciseId: dx.id,
+			position: 1,
+			setRole: 'warmup',
+			targetMetric: 'reps',
+			targetRepsMin: 10,
+			targetRepsMax: 12,
+			targetRir: 1,
+			initialLoad: 90
+		});
+
+		// If engine were wrongly applied to warmups, this would bump to 105.
+		const [priorSession] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(Date.now() - 120_000),
+				endedAt: new Date(Date.now() - 90_000)
+			})
+			.returning();
+		await db.insert(sets).values({
+			sessionId: priorSession.id,
+			exerciseId: ex.id,
+			position: 1,
+			setRole: 'warmup',
+			targetMetric: 'reps',
+			executedLoad: 100,
+			executedReps: 12,
+			executedRir: 1,
+			prescribedRepsMax: 12,
+			prescribedRir: 1
+		});
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const [row] = await db
+			.select({ prescribedLoad: sets.prescribedLoad, suggestionReasoning: sets.suggestionReasoning })
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId));
+
+		expect(row.prescribedLoad).toBe(100);
+		expect(row.suggestionReasoning).toBeNull();
 	});
 });
 
@@ -1136,6 +1416,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		const fixture = await seedProgram({
 			exerciseName: 'Deadlift',
 			equipmentType: 'barbell',
+			isLowerBody: true,
 			initialLoad: 113
 		});
 
@@ -1195,6 +1476,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		const fixture = await seedProgram({
 			exerciseName: 'Deadlift wired-history',
 			equipmentType: 'barbell',
+			isLowerBody: true,
 			initialLoad: 100,
 			tier: 'main',
 			progressionPolicy: 'standard'
@@ -1234,11 +1516,12 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		if (!result.ok) return;
 
 		const [s] = await db
-			.select({ prescribedLoad: sets.prescribedLoad })
+			.select({ prescribedLoad: sets.prescribedLoad, suggestionReasoning: sets.suggestionReasoning })
 			.from(sets)
 			.where(eq(sets.sessionId, result.sessionId));
 
 		expect(s.prescribedLoad).toBe(294);
+		expect(s.suggestionReasoning).toContain('+10');
 	});
 });
 

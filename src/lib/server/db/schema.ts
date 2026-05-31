@@ -103,6 +103,9 @@ export const exercises = pgTable('exercises', {
   // Known values (CHECK below): 'barbell', 'barbell-ez', 'machine-plate',
   // 'machine-stack', 'cable', 'dumbbell', 'smith', 'bodyweight', 'band'.
   equipmentType: text('equipment_type').notNull(),
+  // Progression increment source of truth (N3): false=+5, true=+10.
+  // Avoids brittle name-regex classification in runtime prefill logic.
+  isLowerBody: boolean('is_lower_body').notNull().default(false),
   notes: text('notes'),
 }, (t) => ({
   equipmentTypeCheck: check(
@@ -305,6 +308,9 @@ export const sets = pgTable(
       scale: 2,
       mode: 'number',
     }),
+    // Snapshot of engine rationale at session-start. Nullable for warmup and
+    // cold-start rows that bypass progression.
+    suggestionReasoning: text('suggestion_reasoning'),
     prescribedRepsMin: integer('prescribed_reps_min'),
     prescribedRepsMax: integer('prescribed_reps_max'),
     prescribedRir: integer('prescribed_rir'),

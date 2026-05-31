@@ -29,6 +29,13 @@
       "when": 1779919000000,
       "tag": "0003_soft_delete_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780209151147,
+      "tag": "0004_bouncy_ezekiel_stane",
+      "breakpoints": true
     }
   ]
 }

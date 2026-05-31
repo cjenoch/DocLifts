@@ -59,8 +59,16 @@ jobs:
       # calls drizzle's programmatic migrate() at vitest startup, so the schema
       # exists before any test runs. No separate migrate step needed.
 
+      - run: pnpm run lint
+
       # svelte-kit sync + svelte-check.
       - run: pnpm run check
 
       # CI currently runs server project only (browser project has dedicated Browser CI workflow).
       - run: pnpm run test:unit --project server
+
+      - run: pnpm run build
+
+      # Signal only for now; can be promoted to blocking once baseline is clean.
+      - name: Production dependency audit (signal)
+        run: pnpm audit --prod || true

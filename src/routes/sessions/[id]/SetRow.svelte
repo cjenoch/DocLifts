@@ -111,6 +111,9 @@
   {#if hist}
     <div class="pl-9 text-xs text-zinc-500">Last: {hist}</div>
   {/if}
+  {#if set.suggestionReasoning}
+    <div class="pl-9 text-xs text-indigo-300">Suggested: {set.suggestionReasoning}</div>
+  {/if}
 
   {#if !sessionEnded || allowEndedSessionEdit}
     <form method="POST" action="?/updateSet" use:enhance class="mt-2 flex flex-wrap items-center gap-1.5">

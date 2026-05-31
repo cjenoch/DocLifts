@@ -19,8 +19,15 @@ import {
 import { z } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
 
+const uuidParamSchema = z.string().uuid();
+
 export const load: PageServerLoad = async ({ params, url }) => {
-  const session = await loadSession(db, params.id, 'active');
+  const parsedSessionId = uuidParamSchema.safeParse(params.id);
+  if (!parsedSessionId.success) {
+    error(400, 'Invalid session id');
+  }
+
+  const session = await loadSession(db, parsedSessionId.data, 'active');
   if (!session) {
     error(404, 'Session not found');
   }
@@ -70,6 +77,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
       prescribedRepsMin: sets.prescribedRepsMin,
       prescribedRepsMax: sets.prescribedRepsMax,
       prescribedRir: sets.prescribedRir,
+      suggestionReasoning: sets.suggestionReasoning,
       executedLoad: sets.executedLoad,
       executedReps: sets.executedReps,
       executedRir: sets.executedRir,
@@ -142,11 +150,20 @@ const deleteEndedSessionSchema = z.object({
 
 export const actions: Actions = {
   endSession: async ({ params }) => {
-    await endSession(db, params.id);
+    const parsedSessionId = uuidParamSchema.safeParse(params.id);
+    if (!parsedSessionId.success) {
+      return fail(400, { message: 'Invalid session id' });
+    }
+    await endSession(db, parsedSessionId.data);
     redirect(303, '/');
   },
 
   updateSet: async ({ request, params }) => {
+    const parsedSessionId = uuidParamSchema.safeParse(params.id);
+    if (!parsedSessionId.success) {
+      return fail(400, { setId: null, message: 'Invalid session id' });
+    }
+
     const form = await request.formData();
     const setId = form.get('setId');
     if (typeof setId !== 'string' || setId.length === 0) {
@@ -160,7 +177,7 @@ export const actions: Actions = {
 
     const result = await updateSetInSession(
       db,
-      params.id,
+      parsedSessionId.data,
       setId,
       {
         executedLoad: form.get('executedLoad'),
@@ -186,11 +203,16 @@ export const actions: Actions = {
     // of resetting to top. Falls back to the just-saved row when there's
     // no next set (last row of the session). Browser-native scroll-to-
     // anchor; no client JS required.
-    const nextId = await nextSetIdInSession(db, params.id, result.setId);
-    redirect(303, `/sessions/${params.id}#set-${nextId ?? result.setId}`);
+    const nextId = await nextSetIdInSession(db, parsedSessionId.data, result.setId);
+    redirect(303, `/sessions/${parsedSessionId.data}#set-${nextId ?? result.setId}`);
   },
 
   deleteSession: async ({ request, params }) => {
+    const parsedSessionId = uuidParamSchema.safeParse(params.id);
+    if (!parsedSessionId.success) {
+      return fail(400, { message: 'Invalid session id' });
+    }
+
     const form = await request.formData();
     const parsed = deleteEndedSessionSchema.safeParse({
       confirmDelete: form.get('confirmDelete'),
@@ -199,12 +221,12 @@ export const actions: Actions = {
       return fail(400, { message: 'Press d in the delete box to confirm' });
     }
 
-    const activeSession = await loadSession(db, params.id, 'ended-active');
+    const activeSession = await loadSession(db, parsedSessionId.data, 'ended-active');
     if (!activeSession) {
       return fail(404, { message: 'Session not found' });
     }
 
-    const result = await softDeleteEndedSession(db, params.id);
+    const result = await softDeleteEndedSession(db, parsedSessionId.data);
     if (!result.ok) {
       return fail(result.status, { message: result.message });
     }

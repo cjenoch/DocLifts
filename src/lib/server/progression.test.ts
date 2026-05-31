@@ -53,8 +53,17 @@ describe('suggestNextLoad: policy gating', () => {
 describe('suggestNextLoad: deload trigger', () => {
 	it('deloads 10% after 2 consecutive backwards (standard policy)', () => {
 		const r = suggestNextLoad(makeInput({ consecutiveBackwards: 2 }));
+		expect(r.kind).toBe('deload');
 		expect(r.load).toBe(90);
 		expect(r.reasoning).toMatch(/deload/i);
+	});
+
+	it('deload decision kind and reasoning stay in sync', () => {
+		const r = suggestNextLoad(
+			makeInput({ consecutiveBackwards: 2, relevantSets: [{ position: 1, load: 105, reps: 4, rir: 3 }] })
+		);
+		expect(r.kind).toBe('deload');
+		expect(r.reasoning).toBe('10% deload after 2 consecutive backwards sessions');
 	});
 
 	it('does not deload at 1 consecutive backwards', () => {

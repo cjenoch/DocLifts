@@ -839,6 +839,368 @@ describe('startSessionForDay: prefill pipeline', () => {
 		expect(row.prescribedLoad).toBe(100);
 		expect(row.suggestionReasoning).toBeNull();
 	});
+
+	it('non-MAIN deload checks all working positions (position-1-only no longer forces deload)', async () => {
+		const [prog] = await db.insert(programs).values({ name: 'secondary deload aggregate' }).returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day 1', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'Cable Row Aggregate Deload', equipmentType: 'cable' })
+			.returning();
+		const [dx] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex.id,
+				position: 1,
+				tier: 'secondary',
+				progressionPolicy: 'standard'
+			})
+			.returning();
+		await db.insert(prescribedSets).values([
+			{
+				dayExerciseId: dx.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 100
+			},
+			{
+				dayExerciseId: dx.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 90
+			}
+		]);
+
+		const base = Date.now() - 600_000;
+		const [s1] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(base),
+				endedAt: new Date(base + 30_000)
+			})
+			.returning();
+		const [s2] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(base + 120_000),
+				endedAt: new Date(base + 150_000)
+			})
+			.returning();
+		const [s3] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(base + 240_000),
+				endedAt: new Date(base + 270_000)
+			})
+			.returning();
+
+		await db.insert(sets).values([
+			{
+				sessionId: s1.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 110,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 20_000)
+			},
+			{
+				sessionId: s1.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 80,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 20_000)
+			},
+			{
+				sessionId: s2.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 100,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 140_000)
+			},
+			{
+				sessionId: s2.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 85,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 140_000)
+			},
+			{
+				sessionId: s3.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 90,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 260_000)
+			},
+			{
+				sessionId: s3.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 90,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 260_000)
+			}
+		]);
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const rows = await db
+			.select({
+				position: sets.position,
+				prescribedLoad: sets.prescribedLoad,
+				suggestionReasoning: sets.suggestionReasoning
+			})
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.position));
+
+		expect(rows).toEqual([
+			{
+				position: 1,
+				prescribedLoad: 90,
+				suggestionReasoning: 'held: not all working sets cleared top of range'
+			},
+			{
+				position: 2,
+				prescribedLoad: 90,
+				suggestionReasoning: 'held: not all working sets cleared top of range'
+			}
+		]);
+	});
+
+	it('non-MAIN deload triggers when all working positions are backwards twice', async () => {
+		const [prog] = await db.insert(programs).values({ name: 'secondary deload all positions' }).returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day 1', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'Cable Row Deload Trigger', equipmentType: 'cable' })
+			.returning();
+		const [dx] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex.id,
+				position: 1,
+				tier: 'secondary',
+				progressionPolicy: 'standard'
+			})
+			.returning();
+		await db.insert(prescribedSets).values([
+			{
+				dayExerciseId: dx.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 100
+			},
+			{
+				dayExerciseId: dx.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 90
+			}
+		]);
+
+		const base = Date.now() - 600_000;
+		const [s1] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(base),
+				endedAt: new Date(base + 30_000)
+			})
+			.returning();
+		const [s2] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(base + 120_000),
+				endedAt: new Date(base + 150_000)
+			})
+			.returning();
+		const [s3] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(base + 240_000),
+				endedAt: new Date(base + 270_000)
+			})
+			.returning();
+
+		await db.insert(sets).values([
+			{
+				sessionId: s1.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 110,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 20_000)
+			},
+			{
+				sessionId: s1.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 95,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 20_000)
+			},
+			{
+				sessionId: s2.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 100,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 140_000)
+			},
+			{
+				sessionId: s2.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 92,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 140_000)
+			},
+			{
+				sessionId: s3.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 90,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 260_000)
+			},
+			{
+				sessionId: s3.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 90,
+				executedReps: 8,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1,
+				loggedAt: new Date(base + 260_000)
+			}
+		]);
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const rows = await db
+			.select({
+				position: sets.position,
+				prescribedLoad: sets.prescribedLoad,
+				suggestionReasoning: sets.suggestionReasoning
+			})
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.position));
+
+		expect(rows).toEqual([
+			{
+				position: 1,
+				prescribedLoad: 81,
+				suggestionReasoning: '10% deload after 2 consecutive backwards sessions'
+			},
+			{
+				position: 2,
+				prescribedLoad: 81,
+				suggestionReasoning: '10% deload after 2 consecutive backwards sessions'
+			}
+		]);
+	});
 });
 
 // ---------- endSession ----------

@@ -116,7 +116,7 @@ export async function startSessionForDay(
 	type Decision =
 		| { kind: 'hold'; reasoning: string }
 		| { kind: 'advance'; delta: number; reasoning: string }
-		| { kind: 'deload'; reasoning: string };
+		| { kind: 'deload'; loadScale: number; reasoning: string };
 	type Prefill = { load: number | null; reasoning: string | null };
 
 	const exerciseDecision = new Map<string, Decision>();
@@ -144,12 +144,16 @@ export async function startSessionForDay(
 			reps: row.history?.executedReps ?? targetRepsMax,
 			rir: row.history?.executedRir ?? targetRir
 		}));
-		const consecutiveBackwards = await computeConsecutiveBackwards(
-			db,
-			first.p.exerciseId,
-			'working',
-			first.p.setPosition
+		const backwardsPerPosition = await Promise.all(
+			sorted.map((row) =>
+				computeConsecutiveBackwards(db, first.p.exerciseId, 'working', row.p.setPosition)
+			)
 		);
+		// Exercise-level backwards symmetry: just like all-working-set "clear" requires
+		// every position, a backwards streak only counts when every working position is
+		// backwards for that session. Minimum across positions is the conservative
+		// aggregate that enforces that rule.
+		const consecutiveBackwards = Math.min(...backwardsPerPosition);
 		const suggested = suggestNextLoad({
 			tier: first.p.tier,
 			policy: first.p.progressionPolicy,
@@ -161,13 +165,16 @@ export async function startSessionForDay(
 		});
 
 		const baseline = relevantSets[0].load;
-		const deload = Math.round(baseline * 0.9 * 2) / 2;
-		if (Math.abs(suggested.load - deload) < 1e-9) {
-			exerciseDecision.set(exerciseId, { kind: 'deload', reasoning: suggested.reasoning });
-		} else if (suggested.load > baseline) {
+		if (suggested.kind === 'advance') {
 			exerciseDecision.set(exerciseId, {
 				kind: 'advance',
 				delta: suggested.load - baseline,
+				reasoning: suggested.reasoning
+			});
+		} else if (suggested.kind === 'deload') {
+			exerciseDecision.set(exerciseId, {
+				kind: 'deload',
+				loadScale: baseline === 0 ? 0 : suggested.load / baseline,
 				reasoning: suggested.reasoning
 			});
 		} else {
@@ -204,7 +211,7 @@ export async function startSessionForDay(
 						decision.kind === 'advance'
 							? baseline + decision.delta
 							: decision.kind === 'deload'
-								? Math.round(baseline * 0.9 * 2) / 2
+								? baseline * decision.loadScale
 								: baseline;
 					return {
 						load: snapForEquipment(raw, p.equipmentType).achievable,

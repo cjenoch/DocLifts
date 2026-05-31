@@ -57,6 +57,8 @@ export type ProgressionInput = {
 };
 
 export type ProgressionResult = {
+  /** Decision branch for callers that need robust classification. */
+  kind: 'advance' | 'hold' | 'deload';
   /** Suggested raw load (pre-plate-snap). Pass through plates.ts before display. */
   load: number;
   /** Human-readable explanation for UI provenance. */
@@ -81,6 +83,7 @@ export function suggestNextLoad(input: ProgressionInput): ProgressionResult {
   // Cautious / hold policy bypasses progression
   if (input.policy === 'cautious' || input.policy === 'hold') {
     return {
+      kind: 'hold',
       load: baseline,
       reasoning:
         input.policy === 'hold'
@@ -92,6 +95,7 @@ export function suggestNextLoad(input: ProgressionInput): ProgressionResult {
   // Reset rule: 2 consecutive backwards → 10% deload
   if (input.consecutiveBackwards >= 2) {
     return {
+      kind: 'deload',
       load: round(baseline * 0.9),
       reasoning: '10% deload after 2 consecutive backwards sessions',
     };
@@ -110,6 +114,7 @@ function mainTierLogic(input: ProgressionInput): ProgressionResult {
   // Missed target reps → hold
   if (top.reps < targetRepsMax) {
     return {
+      kind: 'hold',
       load: top.load,
       reasoning: `held: top set ${top.reps} reps below target ${targetRepsMax}`,
     };
@@ -118,6 +123,7 @@ function mainTierLogic(input: ProgressionInput): ProgressionResult {
   // Crushed (RIR much lower than target, hit max reps) → bigger jump
   if (top.rir <= targetRir - 2) {
     return {
+      kind: 'advance',
       load: top.load + increment * 2,
       reasoning: `+${increment * 2}: top set crushed at RIR ${top.rir} (target ${targetRir})`,
     };
@@ -126,6 +132,7 @@ function mainTierLogic(input: ProgressionInput): ProgressionResult {
   // Hit target reps with RIR at or below target → standard bump
   if (top.rir <= targetRir) {
     return {
+      kind: 'advance',
       load: top.load + increment,
       reasoning: `+${increment}: top set hit ${top.reps} reps at RIR ${top.rir}`,
     };
@@ -133,6 +140,7 @@ function mainTierLogic(input: ProgressionInput): ProgressionResult {
 
   // Hit reps but didn't push hard enough → hold
   return {
+    kind: 'hold',
     load: top.load,
     reasoning: `held: top set RIR ${top.rir} above target ${targetRir}`,
   };
@@ -148,12 +156,14 @@ function allSetsLogic(input: ProgressionInput): ProgressionResult {
 
   if (allClearTop) {
     return {
+      kind: 'advance',
       load: baseline + increment,
       reasoning: `+${increment}: all working sets at top of range, RIR ≤ ${targetRir}`,
     };
   }
 
   return {
+    kind: 'hold',
     load: baseline,
     reasoning: 'held: not all working sets cleared top of range',
   };

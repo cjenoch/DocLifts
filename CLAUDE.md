@@ -40,7 +40,7 @@ These are locked from planning v2.1/v2.2 and reflect substantive design decision
 
 ### History lookups always filter incomplete data
 
-**All** history lookups — dumb prefill in MVP-A, smart prefill in MVP-B, `consecutiveBackwards` calculation, history views — use these filters:
+**All** history lookups — the live MVP-B prefill, `consecutiveBackwards` calculation, history views — use these filters:
 
 ```sql
 WHERE executed_load IS NOT NULL
@@ -63,15 +63,21 @@ The blank-row poisoning bug is real: pre-created session rows with null executed
 
 ### Progression engine is tier-aware
 
-- **MAIN**: top-set-driven. Pass only the top set to `suggestNextLoad`.
-- **SECONDARY / ISOLATION**: all-sets-driven. Pass all working sets. The rule requires ALL sets to clear top of range before advancing.
-- **Warmups DO NOT use the progression engine.** Warmups always use `initialLoad` from the template.
+The engine is **wired into the runtime prefill** (`startSessionForDay`) as of MVP-B — it is not dormant. Don't "wire it in"; it's already on the hot path.
+
+- **MAIN**: top-set-driven. The caller passes only the top set to `suggestNextLoad`.
+- **SECONDARY / ISOLATION**: all-sets-driven. The caller gathers all working positions for the exercise and calls the engine once with the full set array. The rule requires ALL working sets to clear top of range before advancing; a single clearing position must NOT advance the exercise.
+- **Warmups DO NOT use the progression engine.** Warmups bypass `suggestNextLoad` entirely. Their prefill uses the last completed `executed_load` for the slot (filtered per the history-filter rule), falling back to `initialLoad` when no history exists — the same source as working-set dumb prefill, without the engine on top. The invariant that matters is *no engine progression on warmups*, not the source of the number. (Earlier revisions said warmups "always use `initialLoad`"; tightened so warmup prefill tracks the actual last warmup load instead of resetting to cold-start each session.)
+
+### Engine returns a typed decision; callers read it, never re-derive it
+
+suggestNextLoad returns `{ kind: 'advance' | 'hold' | 'deload', load, reasoning }`. Callers branch on `kind` and use `load`/`reasoning` directly. Do NOT infer the decision by comparing the returned load against a recomputed baseline or by reimplementing the deload math in the caller — that reintroduces a drift trap where the caller's arithmetic and the engine's can diverge. A test asserts `kind` and `reasoning` stay in sync; keep it.
 
 ### `consecutiveBackwards` is computed from executed outcomes
 
 - NOT from prior suggestions. User overrides are first-class; suggestion history doesn't reflect what actually happened.
 - MVP simplification: load-only check (no reps/RIR clearance inspection). See `progression.ts` `computeConsecutiveBackwards()` comment for tightening path.
-- **MVP-A does NOT wire this function in.** MVP-A prefill is dumb: last completed `executed_load` (filtered per the history-filter rule above) or `initial_load` if no history exists. `computeConsecutiveBackwards` and the full progression engine are MVP-B work.
+- **MVP-B wires this in.** `computeConsecutiveBackwards` and `suggestNextLoad` are live in `startSessionForDay`'s prefill. (MVP-A was dumb prefill only — last completed `executed_load` filtered per the history rule, or `initialLoad` on cold start — with the engine implemented but not called. That phase is past; the engine now drives the prefilled load.) For non-MAIN tiers, `consecutiveBackwards` is computed per working position and aggregated with `Math.min` across positions — the exercise only counts a session as backwards if every working position regressed.
 
 ### Session-start integrity: `programId` from day, never from client
 
@@ -115,7 +121,7 @@ Never call `snapToAchievable` directly from the pipeline. Always go through the 
 ### Engine output is suggestion, never auto-applied
 
 - The user override path is one tap. Never bake a load into the prescribed field without giving the user an editable surface.
-- Show provenance on every suggested load: "Suggested 290 lb (last: 284 × 3, RIR 1, +5 hit target)."
+- Show provenance on every suggested load. Rendered in SetRow as `Suggested: …` under the load field, persisted via `sets.suggestion_reasoning` (snapshotted at session-start like the rest of the prescription).
 - Provenance goes near or under the load field, NOT in a tooltip. Tooltips are for things you don't need to see; provenance you need every session.
 
 ## Schema discipline

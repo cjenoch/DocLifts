@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-31  
 **Branch:** `main`  
-**Latest commit:** `5217735`  
+**Latest commit:** `10028c4`  
 **Deployment target:** `doclifts.service` on TestDev01 (`releases/current` runtime via `/usr/bin/node .`, port 3000)
 
 ## Executive summary

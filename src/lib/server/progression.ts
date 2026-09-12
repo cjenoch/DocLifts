@@ -27,6 +27,23 @@ import { sessions, sets } from './db/schema';
  */
 export type Database = PostgresJsDatabase<typeof schema>;
 
+export type PerformanceIdentity = {
+	gymEquipmentId: string | null;
+	loadConvention: typeof sets.$inferSelect.loadConvention;
+};
+export const legacyIdentity: PerformanceIdentity = {
+	gymEquipmentId: null,
+	loadConvention: 'legacy'
+};
+export function identityFilter(identity: PerformanceIdentity = legacyIdentity) {
+	return and(
+		identity.gymEquipmentId
+			? eq(sets.gymEquipmentId, identity.gymEquipmentId)
+			: isNull(sets.gymEquipmentId),
+		eq(sets.loadConvention, identity.loadConvention)
+	);
+}
+
 // ---------- Types ----------
 
 export type Tier = 'main' | 'secondary' | 'isolation';
@@ -34,35 +51,35 @@ export type SetRole = 'warmup' | 'working' | 'top' | 'backoff';
 export type ProgressionPolicy = 'standard' | 'cautious' | 'hold';
 
 export type ExecutedSet = {
-  position: number;
-  load: number;
-  reps: number;
-  rir: number;
+	position: number;
+	load: number;
+	reps: number;
+	rir: number;
 };
 
 export type ProgressionInput = {
-  tier: Tier;
-  policy: ProgressionPolicy;
-  /**
-   * For 'main' tier: pass [topSet] (single-element array).
-   * For 'secondary' / 'isolation': pass all working sets in position order.
-   */
-  relevantSets: ExecutedSet[];
-  targetRepsMax: number;
-  targetRir: number;
-  /** 5 lb for upper body, 10 lb for lower body. Caller decides based on exercise. */
-  increment: number;
-  /** Computed by `computeConsecutiveBackwards()` (or 0 if insufficient history). */
-  consecutiveBackwards: number;
+	tier: Tier;
+	policy: ProgressionPolicy;
+	/**
+	 * For 'main' tier: pass [topSet] (single-element array).
+	 * For 'secondary' / 'isolation': pass all working sets in position order.
+	 */
+	relevantSets: ExecutedSet[];
+	targetRepsMax: number;
+	targetRir: number;
+	/** 5 lb for upper body, 10 lb for lower body. Caller decides based on exercise. */
+	increment: number;
+	/** Computed by `computeConsecutiveBackwards()` (or 0 if insufficient history). */
+	consecutiveBackwards: number;
 };
 
 export type ProgressionResult = {
-  /** Decision branch for callers that need robust classification. */
-  kind: 'advance' | 'hold' | 'deload';
-  /** Suggested raw load (pre-plate-snap). Pass through plates.ts before display. */
-  load: number;
-  /** Human-readable explanation for UI provenance. */
-  reasoning: string;
+	/** Decision branch for callers that need robust classification. */
+	kind: 'advance' | 'hold' | 'deload';
+	/** Suggested raw load (pre-plate-snap). Pass through plates.ts before display. */
+	load: number;
+	/** Human-readable explanation for UI provenance. */
+	reasoning: string;
 };
 
 // ---------- Engine (pure function, no DB access) ----------
@@ -74,99 +91,99 @@ export type ProgressionResult = {
  * via `computeConsecutiveBackwards()`.
  */
 export function suggestNextLoad(input: ProgressionInput): ProgressionResult {
-  if (input.relevantSets.length === 0) {
-    throw new Error('suggestNextLoad: relevantSets must not be empty');
-  }
+	if (input.relevantSets.length === 0) {
+		throw new Error('suggestNextLoad: relevantSets must not be empty');
+	}
 
-  const baseline = input.relevantSets[0].load;
+	const baseline = input.relevantSets[0].load;
 
-  // Cautious / hold policy bypasses progression
-  if (input.policy === 'cautious' || input.policy === 'hold') {
-    return {
-      kind: 'hold',
-      load: baseline,
-      reasoning:
-        input.policy === 'hold'
-          ? 'held: explicit hold policy'
-          : 'held: cautious policy — manual advance only',
-    };
-  }
+	// Cautious / hold policy bypasses progression
+	if (input.policy === 'cautious' || input.policy === 'hold') {
+		return {
+			kind: 'hold',
+			load: baseline,
+			reasoning:
+				input.policy === 'hold'
+					? 'held: explicit hold policy'
+					: 'held: cautious policy — manual advance only'
+		};
+	}
 
-  // Reset rule: 2 consecutive backwards → 10% deload
-  if (input.consecutiveBackwards >= 2) {
-    return {
-      kind: 'deload',
-      load: round(baseline * 0.9),
-      reasoning: '10% deload after 2 consecutive backwards sessions',
-    };
-  }
+	// Reset rule: 2 consecutive backwards → 10% deload
+	if (input.consecutiveBackwards >= 2) {
+		return {
+			kind: 'deload',
+			load: round(baseline * 0.9),
+			reasoning: '10% deload after 2 consecutive backwards sessions'
+		};
+	}
 
-  if (input.tier === 'main') {
-    return mainTierLogic(input);
-  }
-  return allSetsLogic(input);
+	if (input.tier === 'main') {
+		return mainTierLogic(input);
+	}
+	return allSetsLogic(input);
 }
 
 function mainTierLogic(input: ProgressionInput): ProgressionResult {
-  const top = input.relevantSets[0];
-  const { increment, targetRepsMax, targetRir } = input;
+	const top = input.relevantSets[0];
+	const { increment, targetRepsMax, targetRir } = input;
 
-  // Missed target reps → hold
-  if (top.reps < targetRepsMax) {
-    return {
-      kind: 'hold',
-      load: top.load,
-      reasoning: `held: top set ${top.reps} reps below target ${targetRepsMax}`,
-    };
-  }
+	// Missed target reps → hold
+	if (top.reps < targetRepsMax) {
+		return {
+			kind: 'hold',
+			load: top.load,
+			reasoning: `held: top set ${top.reps} reps below target ${targetRepsMax}`
+		};
+	}
 
-  // Crushed (RIR much lower than target, hit max reps) → bigger jump
-  if (top.rir <= targetRir - 2) {
-    return {
-      kind: 'advance',
-      load: top.load + increment * 2,
-      reasoning: `+${increment * 2}: top set crushed at RIR ${top.rir} (target ${targetRir})`,
-    };
-  }
+	// Crushed (RIR much lower than target, hit max reps) → bigger jump
+	if (top.rir <= targetRir - 2) {
+		return {
+			kind: 'advance',
+			load: top.load + increment * 2,
+			reasoning: `+${increment * 2}: top set crushed at RIR ${top.rir} (target ${targetRir})`
+		};
+	}
 
-  // Hit target reps with RIR at or below target → standard bump
-  if (top.rir <= targetRir) {
-    return {
-      kind: 'advance',
-      load: top.load + increment,
-      reasoning: `+${increment}: top set hit ${top.reps} reps at RIR ${top.rir}`,
-    };
-  }
+	// Hit target reps with RIR at or below target → standard bump
+	if (top.rir <= targetRir) {
+		return {
+			kind: 'advance',
+			load: top.load + increment,
+			reasoning: `+${increment}: top set hit ${top.reps} reps at RIR ${top.rir}`
+		};
+	}
 
-  // Hit reps but didn't push hard enough → hold
-  return {
-    kind: 'hold',
-    load: top.load,
-    reasoning: `held: top set RIR ${top.rir} above target ${targetRir}`,
-  };
+	// Hit reps but didn't push hard enough → hold
+	return {
+		kind: 'hold',
+		load: top.load,
+		reasoning: `held: top set RIR ${top.rir} above target ${targetRir}`
+	};
 }
 
 function allSetsLogic(input: ProgressionInput): ProgressionResult {
-  const baseline = input.relevantSets[0].load;
-  const { increment, targetRepsMax, targetRir } = input;
+	const baseline = input.relevantSets[0].load;
+	const { increment, targetRepsMax, targetRir } = input;
 
-  const allClearTop = input.relevantSets.every(
-    (s) => s.reps >= targetRepsMax && s.rir <= targetRir,
-  );
+	const allClearTop = input.relevantSets.every(
+		(s) => s.reps >= targetRepsMax && s.rir <= targetRir
+	);
 
-  if (allClearTop) {
-    return {
-      kind: 'advance',
-      load: baseline + increment,
-      reasoning: `+${increment}: all working sets at top of range, RIR ≤ ${targetRir}`,
-    };
-  }
+	if (allClearTop) {
+		return {
+			kind: 'advance',
+			load: baseline + increment,
+			reasoning: `+${increment}: all working sets at top of range, RIR ≤ ${targetRir}`
+		};
+	}
 
-  return {
-    kind: 'hold',
-    load: baseline,
-    reasoning: 'held: not all working sets cleared top of range',
-  };
+	return {
+		kind: 'hold',
+		load: baseline,
+		reasoning: 'held: not all working sets cleared top of range'
+	};
 }
 
 // ---------- Helpers ----------
@@ -175,12 +192,12 @@ function allSetsLogic(input: ProgressionInput): ProgressionResult {
  * Rounds a load to 0.5 lb precision. Final plate-snap happens in plates.ts.
  */
 function round(load: number): number {
-  return Math.round(load * 2) / 2;
+	return Math.round(load * 2) / 2;
 }
 
 /** 5 lb for upper-body exercises, 10 lb for lower-body exercises. */
 export function defaultIncrement(isLowerBody: boolean): number {
-  return isLowerBody ? 10 : 5;
+	return isLowerBody ? 10 : 5;
 }
 
 // ---------- consecutiveBackwards computation (DB-touching) ----------
@@ -211,58 +228,68 @@ export function defaultIncrement(isLowerBody: boolean): number {
  * Returns 0 if fewer than 2 completed sessions exist.
  */
 export async function computeConsecutiveBackwards(
-  db: Database,
-  exerciseId: string,
-  setRole: SetRole,
-  position: number,
-  lookback = 10,
+	db: Database,
+	exerciseId: string,
+	setRole: SetRole,
+	position: number,
+	lookback = 10,
+	identity: PerformanceIdentity = legacyIdentity
 ): Promise<number> {
-  const rows = await db
-    .select({
-      executedLoad: sets.executedLoad,
-      loggedAt: sets.loggedAt,
-    })
-    .from(sets)
-    .innerJoin(sessions, eq(sets.sessionId, sessions.id))
-    .where(
-      and(
-        eq(sets.exerciseId, exerciseId),
-        eq(sets.setRole, setRole),
-        eq(sets.position, position),
-        isNotNull(sets.executedLoad),
-        isNotNull(sets.executedReps),
-        isNotNull(sessions.endedAt),
-        isNull(sessions.deletedAt),
-      ),
-    )
-    .orderBy(desc(sets.loggedAt))
-    .limit(lookback);
+	const perSession = db
+		.selectDistinctOn([sets.sessionId], {
+			executedLoad: sets.executedLoad,
+			loggedAt: sets.loggedAt,
+			sessionId: sets.sessionId
+		})
+		.from(sets)
+		.innerJoin(sessions, eq(sets.sessionId, sessions.id))
+		.where(
+			and(
+				eq(sets.exerciseId, exerciseId),
+				identityFilter(identity),
+				eq(sets.setRole, setRole),
+				eq(sets.position, position),
+				isNotNull(sets.executedLoad),
+				isNotNull(sets.executedReps),
+				isNotNull(sessions.endedAt),
+				isNull(sessions.deletedAt)
+			)
+		)
+		.orderBy(sets.sessionId, desc(sets.loggedAt), desc(sets.id))
+		.as('per_session');
 
-  if (rows.length < 2) return 0;
+	// One outcome per completed workout, even when quick-add repeats a slot.
+	const rows = await db
+		.select()
+		.from(perSession)
+		.orderBy(desc(perSession.loggedAt))
+		.limit(lookback);
 
-  let count = 0;
-  for (let i = 0; i < rows.length - 1; i++) {
-    const newer = rows[i].executedLoad;
-    const older = rows[i + 1].executedLoad;
-    if (newer === null || older === null) break;
-    if (older >= newer) {
-      count++;
-    } else {
-      break; // first "advanced" pair stops the count
-    }
-  }
-  return count;
+	if (rows.length < 2) return 0;
+
+	let count = 0;
+	for (let i = 0; i < rows.length - 1; i++) {
+		const newer = rows[i].executedLoad;
+		const older = rows[i + 1].executedLoad;
+		if (newer === null || older === null) break;
+		if (older >= newer) {
+			count++;
+		} else {
+			break; // first "advanced" pair stops the count
+		}
+	}
+	return count;
 }
 
 // ---------- History lookup helper (the prefill query from §11) ----------
 
 export type HistoryRow = {
-  executedLoad: number | null;
-  executedReps: number | null;
-  executedRir: number | null;
-  prescribedRepsMin: number | null;
-  prescribedRepsMax: number | null;
-  prescribedRir: number | null;
+	executedLoad: number | null;
+	executedReps: number | null;
+	executedRir: number | null;
+	prescribedRepsMin: number | null;
+	prescribedRepsMax: number | null;
+	prescribedRir: number | null;
 };
 
 /**
@@ -279,38 +306,40 @@ export type HistoryRow = {
  * value shown right above it.
  */
 export async function getLastCompletedSet(
-  db: Database,
-  exerciseId: string,
-  setRole: SetRole,
-  position: number,
-  excludeSessionId?: string,
+	db: Database,
+	exerciseId: string,
+	setRole: SetRole,
+	position: number,
+	excludeSessionId?: string,
+	identity: PerformanceIdentity = legacyIdentity
 ): Promise<HistoryRow | null> {
-  const rows = await db
-    .select({
-      executedLoad: sets.executedLoad,
-      executedReps: sets.executedReps,
-      executedRir: sets.executedRir,
-      prescribedRepsMin: sets.prescribedRepsMin,
-      prescribedRepsMax: sets.prescribedRepsMax,
-      prescribedRir: sets.prescribedRir,
-    })
-    .from(sets)
-    .innerJoin(sessions, eq(sets.sessionId, sessions.id))
-    .where(
-      and(
-        eq(sets.exerciseId, exerciseId),
-        eq(sets.setRole, setRole),
-        eq(sets.position, position),
-        isNotNull(sets.executedLoad),
-        isNotNull(sets.executedReps),
-        isNotNull(sessions.endedAt),
-        isNull(sessions.deletedAt),
-        // drizzle drops `undefined` operands inside and(...), so this is a no-op when no session is being excluded.
-        excludeSessionId ? ne(sessions.id, excludeSessionId) : undefined,
-      ),
-    )
-    .orderBy(desc(sets.loggedAt))
-    .limit(1);
+	const rows = await db
+		.select({
+			executedLoad: sets.executedLoad,
+			executedReps: sets.executedReps,
+			executedRir: sets.executedRir,
+			prescribedRepsMin: sets.prescribedRepsMin,
+			prescribedRepsMax: sets.prescribedRepsMax,
+			prescribedRir: sets.prescribedRir
+		})
+		.from(sets)
+		.innerJoin(sessions, eq(sets.sessionId, sessions.id))
+		.where(
+			and(
+				eq(sets.exerciseId, exerciseId),
+				identityFilter(identity),
+				eq(sets.setRole, setRole),
+				eq(sets.position, position),
+				isNotNull(sets.executedLoad),
+				isNotNull(sets.executedReps),
+				isNotNull(sessions.endedAt),
+				isNull(sessions.deletedAt),
+				// drizzle drops `undefined` operands inside and(...), so this is a no-op when no session is being excluded.
+				excludeSessionId ? ne(sessions.id, excludeSessionId) : undefined
+			)
+		)
+		.orderBy(desc(sets.loggedAt))
+		.limit(1);
 
-  return rows[0] ?? null;
+	return rows[0] ?? null;
 }

@@ -9,7 +9,7 @@
  * derived from the day row, never accepted as a parameter.
  */
 
-import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	dayExercises,
@@ -17,6 +17,7 @@ import {
 	exercises,
 	prescribedSets,
 	sessions,
+	sessionExercises,
 	sets
 } from './db/schema';
 import {
@@ -66,10 +67,7 @@ export type SessionProjection = {
  * Reads are intentionally outside the transaction; the tx only wraps writes so
  * a mid-loop failure can't orphan a session.
  */
-export async function startSessionForDay(
-	db: Database,
-	dayId: string
-): Promise<StartSessionResult> {
+export async function startSessionForDay(db: Database, dayId: string): Promise<StartSessionResult> {
 	const [day] = await db
 		.select({ id: days.id, programId: days.programId })
 		.from(days)
@@ -95,6 +93,7 @@ export async function startSessionForDay(
 			targetRir: prescribedSets.targetRir,
 			initialLoad: prescribedSets.initialLoad,
 			exerciseId: dayExercises.exerciseId,
+			dayExerciseId: dayExercises.id,
 			exercisePosition: dayExercises.position,
 			tier: dayExercises.tier,
 			progressionPolicy: dayExercises.progressionPolicy,
@@ -263,10 +262,28 @@ export async function startSessionForDay(
 				})
 				.returning({ id: sessions.id });
 
+			const occurrences = new Map<string, string>();
+			for (const p of prescribed) {
+				if (occurrences.has(p.dayExerciseId)) continue;
+				const [occurrence] = await tx
+					.insert(sessionExercises)
+					.values({
+						sessionId: session.id,
+						exerciseId: p.exerciseId,
+						position: p.exercisePosition,
+						exerciseName: p.exerciseName,
+						equipmentType: p.equipmentType,
+						tier: p.tier,
+						progressionPolicy: p.progressionPolicy
+					})
+					.returning();
+				occurrences.set(p.dayExerciseId, occurrence.id);
+			}
 			for (let i = 0; i < prescribed.length; i++) {
 				const p = prescribed[i];
 				await tx.insert(sets).values({
 					sessionId: session.id,
+					sessionExerciseId: occurrences.get(p.dayExerciseId),
 					exerciseId: p.exerciseId,
 					prescribedSetId: p.prescribedSetId,
 					position: p.setPosition,
@@ -297,10 +314,7 @@ export async function startSessionForDay(
 	}
 }
 
-async function findOpenSessionForDay(
-	db: Database,
-	dayId: string
-): Promise<string | null> {
+async function findOpenSessionForDay(db: Database, dayId: string): Promise<string | null> {
 	const [row] = await db
 		.select({ id: sessions.id })
 		.from(sessions)
@@ -329,18 +343,22 @@ export async function loadSession(
 			dayId: sessions.dayId,
 			endedAt: sessions.endedAt,
 			deletedAt: sessions.deletedAt,
-			startedAt: sessions.startedAt,
+			startedAt: sessions.startedAt
 		})
 		.from(sessions);
 
 	if (mode === 'active') {
-		const [session] = await base.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt))).limit(1);
+		const [session] = await base
+			.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt)))
+			.limit(1);
 		return session ?? null;
 	}
 
 	if (mode === 'ended-active') {
 		const [session] = await base
-			.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt), isNotNull(sessions.endedAt)))
+			.where(
+				and(eq(sessions.id, sessionId), isNull(sessions.deletedAt), isNotNull(sessions.endedAt))
+			)
 			.limit(1);
 		return session ?? null;
 	}
@@ -368,14 +386,20 @@ export async function loadProgramOwnedSession(
 		dayId: sessions.dayId,
 		endedAt: sessions.endedAt,
 		deletedAt: sessions.deletedAt,
-		startedAt: sessions.startedAt,
+		startedAt: sessions.startedAt
 	};
 
 	if (mode === 'active') {
 		const [session] = await db
 			.select(projection)
 			.from(sessions)
-			.where(and(eq(sessions.id, sessionId), eq(sessions.programId, programId), isNull(sessions.deletedAt)))
+			.where(
+				and(
+					eq(sessions.id, sessionId),
+					eq(sessions.programId, programId),
+					isNull(sessions.deletedAt)
+				)
+			)
 			.limit(1);
 		return session ?? null;
 	}
@@ -400,7 +424,13 @@ export async function loadProgramOwnedSession(
 		const [session] = await db
 			.select(projection)
 			.from(sessions)
-			.where(and(eq(sessions.id, sessionId), eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
+			.where(
+				and(
+					eq(sessions.id, sessionId),
+					eq(sessions.programId, programId),
+					isNotNull(sessions.deletedAt)
+				)
+			)
 			.limit(1);
 		return session ?? null;
 	}
@@ -421,7 +451,7 @@ export async function listDeletedSessionsForProgram(
 			dayName: days.name,
 			endedAt: sessions.endedAt,
 			deletedAt: sessions.deletedAt,
-			startedAt: sessions.startedAt,
+			startedAt: sessions.startedAt
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
@@ -442,7 +472,9 @@ export async function softDeleteEndedSession(
 	await db
 		.update(sessions)
 		.set({ deletedAt: new Date() })
-		.where(and(eq(sessions.id, session.id), isNull(sessions.deletedAt), isNotNull(sessions.endedAt)));
+		.where(
+			and(eq(sessions.id, session.id), isNull(sessions.deletedAt), isNotNull(sessions.endedAt))
+		);
 	return { ok: true };
 }
 
@@ -498,10 +530,7 @@ export async function purgeDeletedSessionsForProgram(
  *
  * Returns `updated: true` only when a row was actually closed.
  */
-export async function endSession(
-	db: Database,
-	sessionId: string
-): Promise<{ updated: boolean }> {
+export async function endSession(db: Database, sessionId: string): Promise<{ updated: boolean }> {
 	const session = await loadSession(db, sessionId, 'active');
 	if (!session || session.endedAt) {
 		return { updated: false };
@@ -547,6 +576,7 @@ const updateSetSchema = z.object({
 });
 
 export type UpdateSetInput = {
+	expectedIdentity?: unknown;
 	executedLoad: unknown;
 	executedReps: unknown;
 	executedRir: unknown;
@@ -584,43 +614,67 @@ export async function updateSetInSession(
 	input: UpdateSetInput,
 	options?: UpdateSetOptions
 ): Promise<UpdateSetResult> {
-	const session = await loadSession(db, sessionId, 'active');
-	if (!session) {
-		return { ok: false, setId, status: 404, message: 'Session not found' };
-	}
-	if (session.endedAt && !options?.allowEndedSession) {
-		return { ok: false, setId, status: 409, message: 'Session has ended' };
-	}
+	return db.transaction(async (tx) => {
+		const [session] = await tx
+			.select()
+			.from(sessions)
+			.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt)))
+			.for('update');
+		if (!session) {
+			return { ok: false, setId, status: 404, message: 'Session not found' };
+		}
+		if (session.endedAt && !options?.allowEndedSession) {
+			return { ok: false, setId, status: 409, message: 'Session has ended' };
+		}
 
-	const parsed = updateSetSchema.safeParse(input);
-	if (!parsed.success) {
-		return {
-			ok: false,
-			setId,
-			status: 400,
-			fieldErrors: parsed.error.flatten().fieldErrors
-		};
-	}
+		const parsed = updateSetSchema.safeParse(input);
+		if (!parsed.success) {
+			return {
+				ok: false,
+				setId,
+				status: 400,
+				fieldErrors: parsed.error.flatten().fieldErrors
+			};
+		}
 
-	const updated = await db
-		.update(sets)
-		.set({
-			executedLoad: parsed.data.executedLoad,
-			executedReps: parsed.data.executedReps,
-			executedRir: parsed.data.executedRir,
-			notes: parsed.data.notes
-		})
-		.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)))
-		.returning({ id: sets.id });
+		const [currentSet] = await tx
+			.select()
+			.from(sets)
+			.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)));
+		if (!currentSet)
+			return { ok: false, setId, status: 404, message: 'Set not found in this session' };
+		const identity = `${currentSet.gymEquipmentId ?? 'legacy'}:${currentSet.loadConvention}`;
+		if (
+			(input.expectedIdentity != null && input.expectedIdentity !== identity) ||
+			(currentSet.gymEquipmentId != null && input.expectedIdentity !== identity)
+		) {
+			return {
+				ok: false,
+				setId,
+				status: 409,
+				message: 'Machine or load convention changed. Reload before logging.'
+			};
+		}
+		const updated = await tx
+			.update(sets)
+			.set({
+				executedLoad: parsed.data.executedLoad,
+				executedReps: parsed.data.executedReps,
+				executedRir: parsed.data.executedRir,
+				notes: parsed.data.notes
+			})
+			.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)))
+			.returning({ id: sets.id });
 
-	if (updated.length === 0) {
-		// setId does not belong to sessionId (or doesn't exist). Either way
-		// it's a 404 — same shape we return for an unknown session, so the
-		// caller never sees a silent success on a no-op UPDATE.
-		return { ok: false, setId, status: 404, message: 'Set not found in this session' };
-	}
+		if (updated.length === 0) {
+			// setId does not belong to sessionId (or doesn't exist). Either way
+			// it's a 404 — same shape we return for an unknown session, so the
+			// caller never sees a silent success on a no-op UPDATE.
+			return { ok: false, setId, status: 404, message: 'Set not found in this session' };
+		}
 
-	return { ok: true, setId };
+		return { ok: true, setId };
+	});
 }
 
 /**
@@ -655,13 +709,14 @@ export async function nextSetIdInSession(
 	const rows = await db
 		.select({ id: sets.id })
 		.from(sets)
-		.innerJoin(prescribedSets, eq(prescribedSets.id, sets.prescribedSetId))
-		.innerJoin(
-			dayExercises,
-			eq(dayExercises.id, prescribedSets.dayExerciseId)
-		)
+		.leftJoin(sessionExercises, eq(sessionExercises.id, sets.sessionExerciseId))
+		.leftJoin(prescribedSets, eq(prescribedSets.id, sets.prescribedSetId))
+		.leftJoin(dayExercises, eq(dayExercises.id, prescribedSets.dayExerciseId))
 		.where(eq(sets.sessionId, sessionId))
-		.orderBy(asc(dayExercises.position), asc(sets.position));
+		.orderBy(
+			asc(sql`coalesce(${sessionExercises.position}, ${dayExercises.position}, 0)`),
+			asc(sets.position)
+		);
 
 	const idx = rows.findIndex((r) => r.id === currentSetId);
 	if (idx < 0 || idx === rows.length - 1) return null;

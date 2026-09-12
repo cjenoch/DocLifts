@@ -78,6 +78,11 @@ export async function resetTestDb(client: postgres.Sql): Promise<void> {
 	await client`
 		TRUNCATE
 			pain_events,
+			session_exercises,
+			exercise_equipment_map,
+			gym_equipment,
+			equipment_models,
+			gyms,
 			sets,
 			sessions,
 			prescribed_sets,

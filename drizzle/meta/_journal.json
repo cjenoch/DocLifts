@@ -36,6 +36,13 @@
       "when": 1780209151147,
       "tag": "0004_bouncy_ezekiel_stane",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789226071761,
+      "tag": "0005_jittery_gladiator",
+      "breakpoints": true
     }
   ]
 }

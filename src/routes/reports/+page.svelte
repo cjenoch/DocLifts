@@ -8,10 +8,12 @@
 	<a href="/" class="text-sm text-indigo-400 active:underline">← Programs</a>
 
 	<h1 class="mt-2 text-2xl font-semibold tracking-tight">Reporting</h1>
-	<p class="mt-1 text-sm text-zinc-400">Completed + ended workouts only (deleted/open excluded where relevant).</p>
+	<p class="mt-1 text-sm text-zinc-400">
+		Completed + ended workouts only (deleted/open excluded where relevant).
+	</p>
 
 	<section class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-		<h2 class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Overview</h2>
+		<h2 class="text-xs font-semibold tracking-wider text-zinc-500 uppercase">Overview</h2>
 		<ul class="mt-3 space-y-1.5 text-sm text-zinc-200">
 			<li>Total sessions (not deleted): {data.overview.totalSessions}</li>
 			<li>Ended sessions: {data.overview.endedSessions}</li>
@@ -23,7 +25,9 @@
 	</section>
 
 	<section class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-		<h2 class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Consistency · Last 14 days</h2>
+		<h2 class="text-xs font-semibold tracking-wider text-zinc-500 uppercase">
+			Consistency · Last 14 days
+		</h2>
 		<div class="mt-3 grid grid-cols-7 gap-1.5 text-center text-[11px]">
 			{#each data.consistency as cell (cell.dateKey)}
 				<div
@@ -40,14 +44,23 @@
 	</section>
 
 	<section class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-		<h2 class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Top exercises (completed set rows)</h2>
+		<h2 class="text-xs font-semibold tracking-wider text-zinc-500 uppercase">
+			Top exercises (completed set rows)
+		</h2>
 		{#if data.topExercises.length === 0}
 			<p class="mt-3 text-sm text-zinc-500">No completed set data yet.</p>
 		{:else}
 			<ul class="mt-3 space-y-1.5 text-sm text-zinc-200">
-				{#each data.topExercises as ex, i (ex.exerciseName)}
+				{#each data.topExercises as ex, i}
 					<li class="flex items-center justify-between gap-2">
-						<span class="truncate">{i + 1}. {ex.exerciseName}</span>
+						<span
+							>{i + 1}. {ex.exerciseName}<small class="block text-zinc-400"
+								>{ex.gymName ?? 'Legacy context'} · {ex.machineLabel ?? 'Unknown machine'} · {ex.loadConvention.replaceAll(
+									'_',
+									' '
+								)}</small
+							></span
+						>
 						<span class="font-mono text-zinc-300">{ex.completedSetRows}</span>
 					</li>
 				{/each}
@@ -56,7 +69,9 @@
 	</section>
 
 	<section class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
-		<h2 class="text-xs font-semibold uppercase tracking-wider text-zinc-500">Recent trend (last 10 ended sessions)</h2>
+		<h2 class="text-xs font-semibold tracking-wider text-zinc-500 uppercase">
+			Recent trend (last 10 ended sessions)
+		</h2>
 		{#if data.recentTrend.length === 0}
 			<p class="mt-3 text-sm text-zinc-500">No ended sessions yet.</p>
 		{:else}

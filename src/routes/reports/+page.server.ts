@@ -1,5 +1,6 @@
 import { and, count, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
-import { db, exercises, sessions, sets } from '$lib/server/db';
+import { db, sessions, sets } from '$lib/server/db';
+import { topExerciseIdentities } from '$lib/server/machine-reports';
 import type { PageServerLoad } from './$types';
 
 const DAY_MS = 86_400_000;
@@ -9,7 +10,7 @@ export const load: PageServerLoad = async () => {
 		.select({
 			totalNotDeleted: count(sessions.id),
 			endedNotDeleted: count(sql`CASE WHEN ${sessions.endedAt} IS NOT NULL THEN 1 END`),
-			openNotDeleted: count(sql`CASE WHEN ${sessions.endedAt} IS NULL THEN 1 END`),
+			openNotDeleted: count(sql`CASE WHEN ${sessions.endedAt} IS NULL THEN 1 END`)
 		})
 		.from(sessions)
 		.where(isNull(sessions.deletedAt));
@@ -19,7 +20,7 @@ export const load: PageServerLoad = async () => {
 			totalInEndedSessions: count(sets.id),
 			completedInEndedSessions: count(
 				sql`CASE WHEN ${sets.executedLoad} IS NOT NULL AND ${sets.executedReps} IS NOT NULL THEN 1 END`
-			),
+			)
 		})
 		.from(sets)
 		.innerJoin(sessions, eq(sessions.id, sets.sessionId))
@@ -38,7 +39,7 @@ export const load: PageServerLoad = async () => {
 			totalSets: count(sets.id),
 			completedSets: count(
 				sql`CASE WHEN ${sets.executedLoad} IS NOT NULL AND ${sets.executedReps} IS NOT NULL THEN 1 END`
-			),
+			)
 		})
 		.from(sessions)
 		.leftJoin(sets, eq(sets.sessionId, sessions.id))
@@ -53,7 +54,7 @@ export const load: PageServerLoad = async () => {
 		totalSets: s.totalSets,
 		completedSets: s.completedSets,
 		completionPct:
-			s.totalSets > 0 ? Math.round((Number(s.completedSets) / Number(s.totalSets)) * 1000) / 10 : 0,
+			s.totalSets > 0 ? Math.round((Number(s.completedSets) / Number(s.totalSets)) * 1000) / 10 : 0
 	}));
 
 	const now = new Date();
@@ -66,7 +67,7 @@ export const load: PageServerLoad = async () => {
 	const consistencyRows = await db
 		.select({
 			dateKey: sql<string>`to_char(${sessions.startedAt} at time zone 'UTC', 'YYYY-MM-DD')`,
-			count: count(sessions.id),
+			count: count(sessions.id)
 		})
 		.from(sessions)
 		.where(
@@ -82,30 +83,12 @@ export const load: PageServerLoad = async () => {
 		if (bucket) bucket.count = Number(row.count);
 	}
 
-	const topExercises = await db
-		.select({
-			exerciseName: exercises.name,
-			completedSetRows: count(sets.id),
-		})
-		.from(sets)
-		.innerJoin(sessions, eq(sessions.id, sets.sessionId))
-		.innerJoin(exercises, eq(exercises.id, sets.exerciseId))
-		.where(
-			and(
-				isNull(sessions.deletedAt),
-				isNotNull(sessions.endedAt),
-				isNotNull(sets.executedLoad),
-				isNotNull(sets.executedReps)
-			)
-		)
-		.groupBy(exercises.name)
-		.orderBy(desc(count(sets.id)))
-		.limit(10);
+	const topExercises = await topExerciseIdentities(db);
 
 	const [windowCounts] = await db
 		.select({
 			last7: count(sql`CASE WHEN ${sessions.startedAt} >= now() - interval '7 days' THEN 1 END`),
-			last28: count(sql`CASE WHEN ${sessions.startedAt} >= now() - interval '28 days' THEN 1 END`),
+			last28: count(sql`CASE WHEN ${sessions.startedAt} >= now() - interval '28 days' THEN 1 END`)
 		})
 		.from(sessions)
 		.where(and(isNull(sessions.deletedAt), isNotNull(sessions.endedAt)));
@@ -119,10 +102,10 @@ export const load: PageServerLoad = async () => {
 			completedEndedSetRows: completed,
 			completionRatePct,
 			last7Sessions: windowCounts.last7,
-			last28Sessions: windowCounts.last28,
+			last28Sessions: windowCounts.last28
 		},
 		consistency,
 		recentTrend,
-		topExercises,
+		topExercises
 	};
 };

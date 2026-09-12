@@ -25,21 +25,21 @@ import { gymConfig } from './gym-config';
 // ---------- Types ----------
 
 export type SnapResult = {
-  achievable: number;
-  platesUsed: number[]; // per side, biggest first
+	achievable: number;
+	platesUsed: number[]; // per side, biggest first
 };
 
 export type EquipmentType =
-  | 'barbell'
-  | 'barbell-ez'
-  | 'machine-plate'
-  | 'machine-stack'
-  | 'cable'
-  | 'dumbbell'
-  | 'smith'
-  | 'bodyweight'
-  | 'band'
-  | string; // fall-through for any future equipment
+	| 'barbell'
+	| 'barbell-ez'
+	| 'machine-plate'
+	| 'machine-stack'
+	| 'cable'
+	| 'dumbbell'
+	| 'smith'
+	| 'bodyweight'
+	| 'band'
+	| string; // fall-through for any future equipment
 
 // ---------- Algorithm primitives ----------
 
@@ -55,24 +55,24 @@ export type EquipmentType =
  * bounded subset search. Don't pre-build that.
  */
 function greedyPlateSum(
-  targetPerSide: number,
-  plates: readonly number[],
+	targetPerSide: number,
+	plates: readonly number[]
 ): { sum: number; used: number[] } {
-  if (targetPerSide <= 0) return { sum: 0, used: [] };
+	if (targetPerSide <= 0) return { sum: 0, used: [] };
 
-  const sorted = [...plates].sort((a, b) => b - a);
-  const used: number[] = [];
-  let remaining = targetPerSide;
+	const sorted = [...plates].sort((a, b) => b - a);
+	const used: number[] = [];
+	let remaining = targetPerSide;
 
-  for (const plate of sorted) {
-    while (remaining >= plate) {
-      used.push(plate);
-      remaining -= plate;
-    }
-  }
+	for (const plate of sorted) {
+		while (remaining >= plate) {
+			used.push(plate);
+			remaining -= plate;
+		}
+	}
 
-  const sum = used.reduce((s, p) => s + p, 0);
-  return { sum, used };
+	const sum = used.reduce((s, p) => s + p, 0);
+	return { sum, used };
 }
 
 // ---------- Snap functions for each mode ----------
@@ -84,16 +84,16 @@ function greedyPlateSum(
  * If `targetLoad <= bar`, returns bar weight only (no plates).
  */
 export function snapToAchievable(
-  targetLoad: number,
-  bar: number = gymConfig.bars.standard,
-  plates: readonly number[] = gymConfig.platesPerSide,
+	targetLoad: number,
+	bar: number = gymConfig.bars.standard,
+	plates: readonly number[] = gymConfig.platesPerSide
 ): SnapResult {
-  if (targetLoad <= bar) {
-    return { achievable: bar, platesUsed: [] };
-  }
-  const perSide = (targetLoad - bar) / 2;
-  const { sum, used } = greedyPlateSum(perSide, plates);
-  return { achievable: bar + 2 * sum, platesUsed: used };
+	if (targetLoad <= bar) {
+		return { achievable: bar, platesUsed: [] };
+	}
+	const perSide = (targetLoad - bar) / 2;
+	const { sum, used } = greedyPlateSum(perSide, plates);
+	return { achievable: bar + 2 * sum, platesUsed: used };
 }
 
 /**
@@ -102,11 +102,11 @@ export function snapToAchievable(
  * Glute Drive, Plate Loaded Leg Press.
  */
 export function snapPerSidePlates(
-  targetPerSide: number,
-  plates: readonly number[] = gymConfig.platesPerSide,
+	targetPerSide: number,
+	plates: readonly number[] = gymConfig.platesPerSide
 ): SnapResult {
-  const { sum, used } = greedyPlateSum(targetPerSide, plates);
-  return { achievable: sum, platesUsed: used };
+	const { sum, used } = greedyPlateSum(targetPerSide, plates);
+	return { achievable: sum, platesUsed: used };
 }
 
 // ---------- Router ----------
@@ -120,21 +120,30 @@ export function snapPerSidePlates(
  * mode dispatch so callers don't have to remember the rules.
  */
 export function snapForEquipment(
-  targetLoad: number,
-  equipmentType: EquipmentType | null | undefined,
+	targetLoad: number,
+	equipmentType: EquipmentType | null | undefined,
+	loadConvention: string = 'legacy'
 ): SnapResult {
-  switch (equipmentType) {
-    case 'barbell':
-      return snapToAchievable(targetLoad, gymConfig.bars.standard);
-    case 'barbell-ez':
-      return snapToAchievable(targetLoad, gymConfig.bars.ezBar);
-    case 'machine-plate':
-      return snapPerSidePlates(targetLoad);
-    default:
-      // 'machine-stack', 'cable', 'dumbbell', 'smith', 'bodyweight', 'band',
-      // null, or anything unknown: pass through. The displayed value IS the load.
-      return { achievable: targetLoad, platesUsed: [] };
-  }
+	// A machine's starting resistance is descriptive, never a conversion.
+	// Without verified inventory/conversion rules, preserve the entered units.
+	if (
+		loadConvention !== 'legacy' &&
+		!(equipmentType === 'machine-plate' && loadConvention === 'plates_per_side')
+	) {
+		return { achievable: targetLoad, platesUsed: [] };
+	}
+	switch (equipmentType) {
+		case 'barbell':
+			return snapToAchievable(targetLoad, gymConfig.bars.standard);
+		case 'barbell-ez':
+			return snapToAchievable(targetLoad, gymConfig.bars.ezBar);
+		case 'machine-plate':
+			return snapPerSidePlates(targetLoad);
+		default:
+			// 'machine-stack', 'cable', 'dumbbell', 'smith', 'bodyweight', 'band',
+			// null, or anything unknown: pass through. The displayed value IS the load.
+			return { achievable: targetLoad, platesUsed: [] };
+	}
 }
 
 // ---------- Test fixtures (v5 deadlift increments) ----------
@@ -156,6 +165,4 @@ export function snapForEquipment(
  *   314 = 44 + 2×(45+45+45)
  *   324 = 44 + 2×(45+45+45+5)
  */
-export const v5DeadliftIncrements = [
-  134, 184, 224, 244, 254, 264, 284, 304, 314, 324,
-] as const;
+export const v5DeadliftIncrements = [134, 184, 224, 244, 254, 264, 284, 304, 314, 324] as const;

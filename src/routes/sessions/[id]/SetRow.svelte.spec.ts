@@ -34,6 +34,22 @@ function renderSetRow(props: Record<string, unknown>) {
 }
 
 describe('SetRow component', () => {
+	it('keeps the captured identity with unsaved inputs after another row invalidates the page', async () => {
+		const props = {
+			set: { ...baseSet, gymEquipmentId: 'machine-a', loadConvention: 'total_plates' },
+			sessionEnded: false,
+			allowEndedSessionEdit: false,
+			rowError: null,
+			rowMessage: null
+		};
+		const view = renderSetRow(props);
+		await view.rerender({
+			set: { ...props.set, gymEquipmentId: 'machine-b', prescribedLoad: 200 }
+		} as never);
+		expect(document.querySelector<HTMLInputElement>('input[name="expectedIdentity"]')?.value).toBe(
+			'machine-a:total_plates'
+		);
+	});
 	it('renders prescribed and history row details', async () => {
 		renderSetRow({
 			set: baseSet,

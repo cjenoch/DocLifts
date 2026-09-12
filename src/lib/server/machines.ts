@@ -19,6 +19,7 @@ import {
 	type PerformanceIdentity
 } from './progression';
 import { snapForEquipment } from './plates';
+import { mainPrefills } from './main-prefill';
 
 const name = z.string().trim().min(1).max(120);
 const optionalText = z.preprocess((v) => (v === '' || v == null ? undefined : v), name.optional());
@@ -177,6 +178,24 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 		.select()
 		.from(exercises)
 		.where(eq(exercises.id, occurrence.exerciseId));
+	const main =
+		occurrence.tier === 'main'
+			? await mainPrefills(
+					db,
+					occurrence.exerciseId,
+					rows.map((r, i) => ({
+						position: r.position,
+						setRole: r.setRole,
+						targetRepsMax: r.prescribedRepsMax,
+						targetRepsMin: r.prescribedRepsMin,
+						targetRir: r.prescribedRir,
+						history: histories[i]
+					})),
+					occurrence.progressionPolicy,
+					exercise.isLowerBody,
+					identity
+				)
+			: null;
 	const working = rows
 		.map((r, i) => ({ r, h: histories[i] }))
 		.filter((v) => v.r.setRole === 'working');
@@ -221,7 +240,11 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 			h = histories[i];
 		let load = h?.executedLoad ?? null;
 		let reasoning: string | null = null;
-		if (load != null && h && r.setRole !== 'warmup') {
+		if (main) {
+			const prefill = main.get(r.position)!;
+			load = prefill.load;
+			reasoning = prefill.reasoning;
+		} else if (load != null && h && r.setRole !== 'warmup') {
 			if (occurrence.tier !== 'main' && r.setRole === 'working') {
 				if (groupDecision) {
 					load =
@@ -357,22 +380,25 @@ export async function addSessionExercise(db: Database, sessionId: string, input:
 				...snapshot
 			})
 			.returning();
-		await tx
-			.insert(sets)
-			.values(
-				Array.from({ length: value.setCount }, (_, i) => ({
-					sessionId,
-					sessionExerciseId: occurrence.id,
-					exerciseId: exercise.id,
-					gymEquipmentId: snapshot.gymEquipmentId,
-					loadConvention: snapshot.loadConvention,
-					position: i + 1,
-					setRole: value.tier === 'main' ? ('top' as const) : ('working' as const),
-					prescribedRepsMin: value.repsMin,
-					prescribedRepsMax: value.repsMax,
-					prescribedRir: value.rir
-				}))
-			);
+		await tx.insert(sets).values(
+			Array.from({ length: value.setCount }, (_, i) => ({
+				sessionId,
+				sessionExerciseId: occurrence.id,
+				exerciseId: exercise.id,
+				gymEquipmentId: snapshot.gymEquipmentId,
+				loadConvention: snapshot.loadConvention,
+				position: i + 1,
+				setRole:
+					value.tier === 'main'
+						? i === 0
+							? ('top' as const)
+							: ('backoff' as const)
+						: ('working' as const),
+				prescribedRepsMin: value.repsMin,
+				prescribedRepsMax: value.repsMax,
+				prescribedRir: value.rir
+			}))
+		);
 		const [machine] = await tx
 			.select()
 			.from(gymEquipment)

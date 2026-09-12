@@ -28,6 +28,7 @@ import {
 	type Database
 } from './progression';
 import { snapForEquipment } from './plates';
+import { mainPrefills } from './main-prefill';
 
 export type StartSessionResult =
 	| { ok: true; sessionId: string }
@@ -118,6 +119,32 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 		| { kind: 'deload'; loadScale: number; reasoning: string };
 	type Prefill = { load: number | null; reasoning: string | null };
 
+	const mainDecisions = new Map<string, Awaited<ReturnType<typeof mainPrefills>>>();
+	for (const dayExerciseId of new Set(
+		prescribed.filter((p) => p.tier === 'main').map((p) => p.dayExerciseId)
+	)) {
+		const rows = prescribed
+			.map((p, i) => ({ p, history: histories[i] }))
+			.filter((r) => r.p.dayExerciseId === dayExerciseId);
+		const first = rows[0].p;
+		mainDecisions.set(
+			dayExerciseId,
+			await mainPrefills(
+				db,
+				first.exerciseId,
+				rows.map(({ p, history }) => ({
+					position: p.setPosition,
+					setRole: p.setRole,
+					targetRepsMax: p.targetRepsMax,
+					targetRepsMin: p.targetRepsMin,
+					targetRir: p.targetRir,
+					history
+				})),
+				first.progressionPolicy,
+				first.isLowerBody
+			)
+		);
+	}
 	const exerciseDecision = new Map<string, Decision>();
 
 	for (const exerciseId of new Set(prescribed.map((p) => p.exerciseId))) {
@@ -202,7 +229,15 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 				};
 			}
 
-			if (p.tier !== 'main' && p.setRole === 'working') {
+			if (p.tier === 'main') {
+				const main = mainDecisions.get(p.dayExerciseId)!.get(p.setPosition)!;
+				return {
+					load: main.load == null ? null : snapForEquipment(main.load, p.equipmentType).achievable,
+					reasoning: main.reasoning
+				};
+			}
+
+			if (p.setRole === 'working') {
 				const decision = exerciseDecision.get(p.exerciseId);
 				if (decision) {
 					const baseline = history.executedLoad;

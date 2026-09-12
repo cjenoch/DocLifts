@@ -16,6 +16,12 @@ Conventions: plates_per_side, total_plates, per_arm, displayed, unknown, plus ex
 
 Selecting a new machine clears template/legacy load suggestions. Cold-start load stays blank rather than carrying over an unrelated machine's initial load. Warmups use matching machine history without engine progression. Secondary/isolation suggestions aggregate all working slots and use typed engine decisions. Inputs remain editable.
 
+## MAIN progression contract
+
+Both legacy session start and machine rebinding use `mainPrefills`: exactly one actual `top` slot supplies the engine input, targets and backwards streak. Backoff reps/RIR/streaks never drive a MAIN decision. A backoff with history preserves its last executed load ratio to the top slot's last executed load when applying the top's returned advance/deload load; hold preserves its own load. This is not a fixed percentage prescription. Snap follows ratio application using the selected load convention. Provenance explicitly identifies the top decision and retained backoff ratio.
+
+Missing/ambiguous top history or a zero top baseline cannot establish a backoff ratio, so non-top rows hold. A missing slot history retains the existing cold-start behavior (legacy initial load; bound-machine blank). Warmups bypass the engine and retain matching slot history. MAIN decisions are scoped to the current occurrence (legacy: day-exercise ID), not just exercise ID. Quick-added MAIN exercises contain one top followed by backoffs. No existing prescription, execution or historical role is rewritten.
+
 ## User path and safety
 
 Home navigation → Gyms and machines → create gym → add named physical machine (model optional). Return to an active workout and select/change its machine before logging, or quick-add an existing/new exercise to this workout only. Gym and machine must match; exercise and machine equipment types must match. New exercises explicitly declare lower-body increment metadata. Quick-add does not modify days, day-exercises, prescriptions or program activation.

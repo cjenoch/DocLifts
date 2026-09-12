@@ -43,6 +43,8 @@
 		<p class="mt-1 text-sm text-zinc-400">{data.program.description}</p>
 	{/if}
 
+	<a href="/programs/{data.program.id}/edit" class="mt-4 inline-block rounded-lg border border-zinc-700 px-4 py-3 text-sm text-indigo-300">Edit program as new version</a>
+
 	<h2 class="mt-7 mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Days</h2>
 
 	{#if data.days.length === 0}

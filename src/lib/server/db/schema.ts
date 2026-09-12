@@ -61,6 +61,26 @@ export const programs = pgTable(
 	})
 );
 
+// Durable idempotency receipt, committed atomically with the complete draft tree.
+export const programDraftRequests = pgTable(
+	'program_draft_requests',
+	{
+		requestId: uuid('request_id').primaryKey(),
+		fingerprint: text('fingerprint').notNull(),
+		programId: uuid('program_id')
+			.notNull()
+			.references(() => programs.id),
+		createdAt: timestamp('created_at').notNull().defaultNow()
+	},
+	(t) => ({
+		programIdx: index('program_draft_requests_program_idx').on(t.programId),
+		fingerprintCheck: check(
+			'program_draft_requests_fingerprint_check',
+			sql`${t.fingerprint} ~ '^[0-9a-f]{64}$'`
+		)
+	})
+);
+
 // ---------- days ----------
 
 export const days = pgTable(

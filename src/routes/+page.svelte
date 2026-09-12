@@ -15,6 +15,8 @@
     </a>
   </div>
 
+  <a href="/programs/new" class="mb-5 block rounded-lg bg-indigo-600 px-4 py-3 text-center font-semibold text-white">Create program</a>
+
   {#if data.programs.length === 0}
     <p class="text-zinc-500">No active programs.</p>
   {:else}

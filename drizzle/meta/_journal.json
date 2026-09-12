@@ -43,6 +43,13 @@
       "when": 1789226071761,
       "tag": "0005_jittery_gladiator",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789235518597,
+      "tag": "0006_program_draft_requests",
+      "breakpoints": true
     }
   ]
 }

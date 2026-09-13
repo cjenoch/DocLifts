@@ -28,8 +28,10 @@ import { sql } from 'drizzle-orm';
 import {
 	boolean,
 	check,
+	date,
 	index,
 	integer,
+	jsonb,
 	numeric,
 	pgTable,
 	text,
@@ -38,6 +40,43 @@ import {
 	uniqueIndex,
 	uuid
 } from 'drizzle-orm/pg-core';
+import type { ImportedLine } from '$lib/imported-workout';
+
+// Historical source records are separate from progression inputs so unknown
+// dates and estimates need not masquerade as measured performance.
+export const workoutLogImports = pgTable('workout_log_imports', {
+	id: uuid('id').primaryKey(),
+	sourceSha256: text('source_sha256').notNull().unique(),
+	sourceName: text('source_name').notNull(),
+	sourceText: text('source_text').notNull(),
+	importedAt: timestamp('imported_at').notNull().defaultNow()
+});
+export const importedWorkouts = pgTable(
+	'imported_workouts',
+	{
+		id: uuid('id').primaryKey(),
+		importId: uuid('import_id')
+			.notNull()
+			.references(() => workoutLogImports.id, { onDelete: 'cascade' }),
+		sourceLine: integer('source_line').notNull(),
+		workoutDate: date('workout_date'),
+		earliestDate: date('earliest_date'),
+		latestDate: date('latest_date'),
+		title: text('title').notNull(),
+		gym: text('gym'),
+		dateNote: text('date_note').notNull(),
+		lines: jsonb('lines').$type<ImportedLine[]>().notNull()
+	},
+	(t) => ({
+		importIdx: index('imported_workouts_import_idx').on(t.importId),
+		dateIdx: index('imported_workouts_date_idx').on(t.workoutDate),
+		sourceUnique: unique('imported_workouts_source_unique').on(t.importId, t.sourceLine),
+		dateRange: check(
+			'imported_workouts_date_range',
+			sql`${t.earliestDate} IS NULL OR ${t.latestDate} IS NULL OR ${t.earliestDate} <= ${t.latestDate}`
+		)
+	})
+);
 
 // ---------- programs ----------
 

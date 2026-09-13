@@ -53,8 +53,11 @@ services:
     ports:
       - "100.118.77.26:3000:3000"
     # Health: an HTTP GET to / returns 200 once the app is serving.
+    # Use 127.0.0.1 (not localhost): in Alpine, localhost may resolve to IPv6
+    # ::1 first, and node listens on IPv4 0.0.0.0 — the IPv6 probe fails and
+    # the container shows "unhealthy" even though the app is fine.
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12

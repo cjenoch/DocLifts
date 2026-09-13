@@ -1,3 +1,12 @@
+# DocLifts — VPS compose stack (tailnet-only, no Caddy)
+# db + web co-locate; app serves directly on the VPS tailnet IP port 3000.
+# Secrets live in .env (NOT committed). DATABASE_URL points at the db service,
+# not localhost, so the web container resolves the db over the compose network.
+#
+# Tailnet-only design (owner direction): the web service is published on the
+# VPS tailnet IP (100.118.77.26:3000), reachable only from the tailnet — no
+# public exposure, no Caddy, no TLS termination. If/when auth lands and we want
+# it public, add a Caddy vhost then.
 services:
   db:
     image: postgres:16
@@ -5,12 +14,51 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: doclifts
-      POSTGRES_PASSWORD: dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: doclifts
-    ports:
-      - "127.0.0.1:5432:5432"   # bind to localhost only, not 0.0.0.0
+    # Bind to the compose service only (no host port). Web reaches it by
+    # service name; nothing exposes 5432 off the docker network on the VPS.
+    expose:
+      - "5432"
     volumes:
-      - doclifts-pgdata:/var/lib/postgresql/data
+      - doclifts_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doclifts -d doclifts"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: doclifts-web:vps
+    container_name: doclifts-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://doclifts:${POSTGRES_PASSWORD:?set in .env}@db:5432/doclifts
+      # adapter-node CSRF/cookie origin: must match a trustedOrigins entry in
+      # svelte.config.js. Tailnet IP + MagicDNS hostname both allowed.
+      ORIGIN: ${PUBLIC_ORIGIN:-http://100.118.77.26:3000}
+    # Publish on the VPS tailnet IP (not 127.0.0.1, not 0.0.0.0) so the app is
+    # reachable from other tailnet devices (phone/laptop) but not the public
+    # internet. DB stays off the host port.
+    ports:
+      - "100.118.77.26:3000:3000"
+    # Health: an HTTP GET to / returns 200 once the app is serving.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
 volumes:
-  doclifts-pgdata:
+  doclifts_pgdata:

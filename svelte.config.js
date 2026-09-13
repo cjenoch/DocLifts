@@ -20,7 +20,18 @@ const config = {
 		//
 		// Extend this list if the app moves; on adding auth, also wire
 		// PROTOCOL_HEADER / HOST_HEADER so adapter-node trusts forwarded values.
-		csrf: { trustedOrigins: ['https://testdev01.tail29bbdb.ts.net'] }
+		// Tailnet-only on the VPS: allow the tailnet MagicDNS hostname and the
+		// tailnet IP (the exact Origin a requesting browser will send). Both
+		// hostnames resolve to the same tailnet node. Add any new tailnet host
+		// here when the app moves again.
+		csrf: {
+			trustedOrigins: [
+				'http://100.118.77.26:3000',
+				'https://100.118.77.26:3000',
+				'http://enochnvps.tail29bbdb.ts.net:3000',
+				'https://enochnvps.tail29bbdb.ts.net:3000'
+			]
+		}
 	}
 };
 

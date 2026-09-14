@@ -9,6 +9,8 @@ This is the personal project behind [DocLifts — Training, AI-Assisted Developm
 ## Features and engineering
 
 - Machine identity, equipment-aware plate snapping, and session quick-add.
+- A phone-friendly workout screen with searchable exercise selection, inline gym/equipment setup, and working/warmup/backoff sets added directly to an exercise. The last empty set can be removed without renumbering existing sets.
+- Explicit saving/error states and unfinished set drafts retained through Pause/Resume and reload in the same browser tab. Drafts are not saved workout records or synced between devices; use Save to persist them. Finishing a workout prompts you to save unfinished entries first.
 - MAIN backoff suggestions derived from the top set actually performed.
 - A drag-and-drop program editor with transactional draft handling and a Traveling Push/Pull/Legs preset.
 - Workout history editing, soft deletion, and restoration.

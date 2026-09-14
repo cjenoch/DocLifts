@@ -1,216 +1,324 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { untrack } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
+	import { onMount, untrack } from 'svelte';
 	import type { PageData } from './$types';
-
-	type SetRow = PageData['groups'][number]['sets'][number];
-	type Metric = SetRow['targetMetric'];
-	type Role = SetRow['setRole'];
-
+	type Set = PageData['groups'][number]['sets'][number];
 	let {
 		set,
 		sessionEnded,
 		allowEndedSessionEdit,
-		rowError,
-		rowMessage
+		ondirty
 	}: {
-		set: SetRow;
+		set: Set;
 		sessionEnded: boolean;
 		allowEndedSessionEdit: boolean;
-		rowError: Record<string, string[] | undefined> | null;
-		rowMessage: string | null;
+		ondirty: (id: string, dirty: boolean) => void;
 	} = $props();
-
-	// Local input state, captured ONCE at mount via untrack(). Living in this
-	// component (preserved across the parent's re-renders by the keyed each
-	// block) means typing-but-not-saving a value here doesn't get wiped when
-	// another row saves. After a successful save of THIS row, these values
-	// already equal what was just persisted, so no re-sync needed.
-	let executedLoad = $state<string>(
-		untrack(() =>
-			set.executedLoad != null
-				? String(set.executedLoad)
-				: set.prescribedLoad != null
-					? String(set.prescribedLoad)
-					: ''
-		)
+	const identity = untrack(() => `${set.gymEquipmentId ?? 'legacy'}:${set.loadConvention}`);
+	const key = untrack(() => `doclifts:set-draft:${set.id}`);
+	let load = $state<number | undefined>(
+		untrack(() => set.executedLoad ?? set.prescribedLoad ?? undefined)
 	);
-	let executedReps = $state<string>(
-		untrack(() => (set.executedReps != null ? String(set.executedReps) : ''))
-	);
-	let executedRir = $state<string>(
-		untrack(() => (set.executedRir != null ? String(set.executedRir) : ''))
-	);
-	let notes = $state<string>(untrack(() => set.notes ?? ''));
-	// Keep the identity token attached to the mounted input values. Invalidation
-	// may refresh props from another tab without remounting these unsaved inputs.
-	const expectedIdentity = untrack(
-		() => `${set.gymEquipmentId ?? 'legacy'}:${set.loadConvention ?? 'legacy'}`
-	);
-
-	const logged = $derived(set.executedLoad != null);
-
-	function formatTarget(min: number | null, max: number | null, metric: Metric): string {
-		if (min == null && max == null) return '—';
-		const unit = metric === 'seconds' ? 's' : '';
-		if (min === max) return `${min}${unit}`;
-		return `${min}-${max}${unit}`;
-	}
-
-	function formatHistory(h: SetRow['history'], metric: Metric): string | null {
-		if (!h || h.executedLoad == null || h.executedReps == null) return null;
-		const unit = metric === 'seconds' ? 's' : '';
-		let s = `${h.executedLoad} × ${h.executedReps}${unit}`;
-		if (h.executedRir != null) s += ` @ RIR ${h.executedRir}`;
-		return s;
-	}
-
-	function roleBadge(role: Role): { text: string; cls: string } {
-		switch (role) {
-			case 'top':
-				return { text: 'TOP', cls: 'bg-amber-500 text-zinc-950' };
-			case 'warmup':
-				return { text: 'warmup', cls: 'bg-zinc-800 text-zinc-400' };
-			case 'backoff':
-				return { text: 'backoff', cls: 'bg-indigo-500/15 text-indigo-300' };
-			default:
-				return { text: 'working', cls: 'bg-zinc-800 text-zinc-300' };
+	let reps = $state<number | undefined>(untrack(() => set.executedReps ?? undefined));
+	let rir = $state<number | undefined>(untrack(() => set.executedRir ?? undefined));
+	let notes = $state(untrack(() => set.notes ?? ''));
+	const values = () => JSON.stringify([load ?? null, reps ?? null, rir ?? null, notes]);
+	const persisted = () =>
+		JSON.stringify([
+			set.executedLoad,
+			set.executedReps,
+			set.executedRir,
+			set.notes,
+			set.gymEquipmentId,
+			set.loadConvention
+		]);
+	let baseline = $state(untrack(values));
+	let ready = $state(false);
+	let storageOk = $state(true);
+	let saving = $state(false);
+	let message = $state('');
+	let notesOpen = $state(untrack(() => Boolean(set.notes)));
+	const dirty = $derived(values() !== baseline);
+	const completed = $derived(set.executedLoad != null && set.executedReps != null);
+	const editable = $derived(!sessionEnded || allowEndedSessionEdit);
+	onMount(() => {
+		try {
+			const raw = sessionStorage.getItem(key);
+			if (raw && editable) {
+				const draft = JSON.parse(raw);
+				if (
+					draft.identity === identity &&
+					draft.persisted === persisted() &&
+					Array.isArray(draft.values) &&
+					draft.values.length === 4 &&
+					draft.values.slice(0, 3).every((v: unknown) => v === null || typeof v === 'number') &&
+					typeof draft.values[3] === 'string'
+				) {
+					[load, reps, rir] = draft.values.slice(0, 3).map((v: number | null) => v ?? undefined);
+					notes = draft.values[3];
+					notesOpen = Boolean(notes);
+				} else sessionStorage.removeItem(key);
+			}
+		} catch {
+			storageOk = false;
 		}
-	}
-
-	function rowClass(role: Role, isLogged: boolean): string {
-		if (isLogged) return 'border-l-4 border-emerald-400 bg-emerald-500/10';
-		if (role === 'top') return 'border-l-4 border-amber-400 bg-amber-500/10';
-		if (role === 'warmup') return 'opacity-70';
-		return 'border-l-4 border-zinc-800';
-	}
-
-	const badge = $derived(roleBadge(set.setRole));
-	const hist = $derived(formatHistory(set.history, set.targetMetric));
+		ready = true;
+		return () => ondirty(set.id, false);
+	});
+	$effect(() => {
+		if (!ready || !editable) return;
+		ondirty(set.id, dirty);
+		try {
+			if (dirty)
+				sessionStorage.setItem(
+					key,
+					JSON.stringify({ identity, persisted: persisted(), values: JSON.parse(values()) })
+				);
+			else sessionStorage.removeItem(key);
+		} catch {
+			storageOk = false;
+		}
+	});
+	beforeNavigate(({ cancel }) => {
+		if (
+			dirty &&
+			!storageOk &&
+			!confirm('This browser cannot keep your draft. Leave without saving this set?')
+		)
+			cancel();
+	});
 </script>
 
-<li id="set-{set.id}" class="rounded-lg bg-zinc-900/60 p-3 text-sm {rowClass(set.setRole, logged)}">
-	<div class="flex items-center justify-between gap-2">
-		<div class="flex items-center gap-2">
-			<span class="w-5 text-right text-xs text-zinc-500">{set.position}</span>
-			<span
-				class="rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase {badge.cls}"
-			>
-				{badge.text}
-			</span>
-			{#if logged}
-				<span
-					class="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-300 uppercase"
-				>
-					logged
-				</span>
-			{/if}
-		</div>
-		<div class="text-right text-xs text-zinc-400">
-			<span class="font-mono text-zinc-200">{set.prescribedLoad ?? '—'}</span>
-			×
-			<span class="font-mono text-zinc-200">
-				{formatTarget(set.prescribedRepsMin, set.prescribedRepsMax, set.targetMetric)}
-			</span>
-			{#if set.prescribedRir != null}
-				<span class="ml-1">RIR {set.prescribedRir}</span>
-			{/if}
-		</div>
+<li id="set-{set.id}" class:completed={completed && !dirty} class:dirty>
+	<div class="set-heading">
+		<span>Set {set.position} <small>{set.setRole === 'top' ? 'Top set' : set.setRole}</small></span
+		><span class="status" aria-live="polite"
+			>{saving
+				? 'Saving…'
+				: message
+					? 'Needs attention'
+					: dirty
+						? 'Unsaved'
+						: completed
+							? '✓ Saved'
+							: 'Ready'}</span
+		>
 	</div>
-	{#if hist}
-		<div class="pl-9 text-xs text-zinc-500">Last: {hist}</div>
-	{/if}
-	{#if set.suggestionReasoning}
-		<div class="pl-9 text-xs text-indigo-300">Suggested: {set.suggestionReasoning}</div>
-	{/if}
-
-	{#if !sessionEnded || allowEndedSessionEdit}
+	<div class="target">
+		Target: {set.prescribedLoad ?? '—'} × {set.prescribedRepsMin ?? '—'}{set.prescribedRepsMax !==
+		set.prescribedRepsMin
+			? `–${set.prescribedRepsMax ?? '—'}`
+			: ''}{set.targetMetric === 'seconds' ? ' sec' : ''}{set.prescribedRir != null
+			? ` · ${set.prescribedRir} RIR`
+			: ''}
+	</div>
+	{#if set.history?.executedLoad != null && set.history?.executedReps != null}<div class="history">
+			Last: {set.history.executedLoad} × {set.history.executedReps}{set.targetMetric === 'seconds'
+				? ' sec'
+				: ''}{set.history.executedRir != null ? ` · ${set.history.executedRir} RIR` : ''}
+		</div>{/if}
+	{#if set.suggestionReasoning}<p class="suggestion">{set.suggestionReasoning}</p>{/if}
+	{#if editable}
 		<form
 			method="POST"
 			action="?/updateSet"
-			use:enhance
-			class="mt-2 flex flex-wrap items-center gap-1.5"
+			use:enhance={() => {
+				saving = true;
+				message = '';
+				return async ({ result, update }) => {
+					try {
+						if (result.type === 'success') {
+							baseline = values();
+							try {
+								sessionStorage.removeItem(key);
+							} catch {
+								/* Draft warning remains visible. */
+							}
+							await update({ reset: false });
+						} else if (result.type === 'failure') {
+							const errors = result.data?.fieldErrors as Record<string, string[]> | undefined;
+							message = errors
+								? Object.values(errors).flat().join(' ')
+								: String(result.data?.message ?? 'Check this set and try again.');
+						} else message = 'Could not save. Your entry is still here. Try again.';
+					} finally {
+						saving = false;
+					}
+				};
+			}}
 		>
-			{#if allowEndedSessionEdit}
-				<input type="hidden" name="allowEndedSessionEdit" value="1" />
-			{/if}
-			<input type="hidden" name="setId" value={set.id} />
-			<input type="hidden" name="expectedIdentity" value={expectedIdentity} />
-			<label class="flex items-center gap-1">
-				<span class="text-[10px] tracking-wide text-zinc-500 uppercase">load</span>
-				<input
-					type="number"
-					name="executedLoad"
-					inputmode="decimal"
-					step="0.5"
-					min="0"
-					bind:value={executedLoad}
-					class="w-16 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-1 tabular-nums"
-				/>
-			</label>
-			<label class="flex items-center gap-1">
-				<span class="text-[10px] tracking-wide text-zinc-500 uppercase">
-					{set.targetMetric === 'seconds' ? 'sec' : 'reps'}
-				</span>
-				<input
-					type="number"
-					name="executedReps"
-					inputmode="numeric"
-					step="1"
-					min="0"
-					bind:value={executedReps}
-					class="w-14 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-1 tabular-nums"
-				/>
-			</label>
-			<label class="flex items-center gap-1">
-				<span class="text-[10px] tracking-wide text-zinc-500 uppercase">RIR</span>
-				<input
-					type="number"
-					name="executedRir"
-					inputmode="numeric"
-					step="1"
-					min="0"
-					max="10"
-					bind:value={executedRir}
-					class="w-12 rounded-md border border-zinc-700 bg-zinc-900 px-1.5 py-1 tabular-nums"
-				/>
-			</label>
-			<button
-				type="submit"
-				class="ml-auto rounded-md bg-indigo-500 px-3 py-1 text-xs font-semibold text-white shadow-sm shadow-indigo-500/20 transition active:scale-[0.97] active:bg-indigo-600"
-			>
-				Save
-			</button>
-			<input
-				type="text"
-				name="notes"
-				placeholder="notes"
-				bind:value={notes}
-				class="basis-full rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1"
+			<input type="hidden" name="setId" value={set.id} /><input
+				type="hidden"
+				name="expectedIdentity"
+				value={identity}
 			/>
-			{#if rowError}
-				<div class="basis-full text-xs text-rose-400">
-					{#each Object.entries(rowError) as [field, msgs]}
-						<span class="mr-2">{field}: {msgs?.[0]}</span>
-					{/each}
+			{#if allowEndedSessionEdit}<input type="hidden" name="allowEndedSessionEdit" value="1" />{/if}
+			<fieldset disabled={saving}>
+				<div class="entry">
+					<label
+						>Weight<input
+							type="number"
+							name="executedLoad"
+							min="0"
+							step="0.5"
+							inputmode="decimal"
+							bind:value={load}
+						/></label
+					><label
+						>{set.targetMetric === 'seconds' ? 'Seconds' : 'Reps'}<input
+							type="number"
+							name="executedReps"
+							min="0"
+							step="1"
+							inputmode="numeric"
+							bind:value={reps}
+						/></label
+					><label
+						><abbr title="Reps in reserve">RIR</abbr><input
+							type="number"
+							name="executedRir"
+							min="0"
+							max="10"
+							step="1"
+							inputmode="numeric"
+							bind:value={rir}
+						/></label
+					><button
+						class="save"
+						type="submit"
+						aria-label={`Save set ${set.position}`}
+						disabled={saving}>{saving ? '…' : completed && !dirty ? '✓' : 'Save'}</button
+					>
 				</div>
-			{/if}
-			{#if rowMessage}
-				<div class="basis-full text-xs text-rose-400">{rowMessage}</div>
-			{/if}
+				<button
+					class="note-toggle"
+					type="button"
+					onclick={() => (notesOpen = !notesOpen)}
+					aria-expanded={notesOpen}
+					>{notesOpen ? 'Hide note' : notes ? 'Edit note' : '+ Note'}</button
+				>
+				<label class:hidden={!notesOpen}
+					>Set note<input
+						name="notes"
+						type="text"
+						bind:value={notes}
+						placeholder="How did it feel?"
+					/></label
+				>
+			</fieldset>
+			{#if message}<p role="alert" class="error">{message}</p>{/if}
+			{#if dirty && !storageOk}<p class="error">
+					Draft storage is unavailable. Save before leaving.
+				</p>{/if}
 		</form>
-	{:else if logged}
-		<div class="mt-1 pl-9 text-xs text-zinc-300">
-			Executed
-			<span class="font-mono text-zinc-100">{set.executedLoad ?? '—'}</span>
-			×
-			<span class="font-mono text-zinc-100">{set.executedReps ?? '—'}</span>
-			{#if set.executedRir != null}
-				@ RIR {set.executedRir}
-			{/if}
-			{#if set.notes}
-				<div class="text-zinc-500 italic">{set.notes}</div>
-			{/if}
-		</div>
-	{/if}
+	{:else}<p class="result">
+			{completed
+				? `${set.executedLoad} × ${set.executedReps}${set.targetMetric === 'seconds' ? ' sec' : ''}`
+				: 'Not logged'}{set.executedRir != null ? ` · ${set.executedRir} RIR` : ''}
+		</p>
+		{#if set.notes}<p class="history">{set.notes}</p>{/if}{/if}
 </li>
+
+<style>
+	li {
+		padding: 18px 0;
+		border-top: 1px solid #293345;
+		scroll-margin-top: 24px;
+	}
+	.set-heading {
+		display: flex;
+		justify-content: space-between;
+		gap: 8px;
+		font-size: 14px;
+		font-weight: 600;
+	}
+	small {
+		margin-left: 6px;
+		font-weight: 400;
+		color: #a8b3c5;
+		text-transform: capitalize;
+	}
+	.status {
+		color: #a8b3c5;
+		font-size: 12px;
+	}
+	.completed .status {
+		color: #6ee7b7;
+	}
+	.dirty .status {
+		color: #fcd34d;
+	}
+	.target,
+	.history {
+		font-size: 12px;
+		color: #acb8ca;
+		margin-top: 5px;
+	}
+	.suggestion {
+		font-size: 12px;
+		color: #c7d2fe;
+		margin-top: 5px;
+	}
+	.entry {
+		display: grid;
+		grid-template-columns: 1.2fr 1fr 0.8fr 58px;
+		gap: 8px;
+		align-items: end;
+		margin-top: 12px;
+	}
+	label {
+		font-size: 12px;
+		color: #c4cede;
+		min-width: 0;
+		display: block;
+	}
+	input {
+		display: block;
+		width: 100%;
+		min-width: 0;
+		height: 48px;
+		margin-top: 5px;
+		border: 1px solid #4b5870;
+		border-radius: 9px;
+		padding: 8px;
+		font-size: 18px;
+		font-variant-numeric: tabular-nums;
+		background: #0b1220;
+		color: #f1f5f9;
+	}
+	.save {
+		height: 48px;
+		border-radius: 9px;
+		background: #c7d2fe;
+		color: #172044;
+		font-weight: 700;
+		font-size: 14px;
+		cursor: pointer;
+	}
+	.completed .save {
+		background: #203d36;
+		color: #8af0c5;
+	}
+	.note-toggle {
+		min-height: 36px;
+		font-size: 12px;
+		color: #aebcce;
+		cursor: pointer;
+	}
+	.error {
+		font-size: 13px;
+		color: #fda4af;
+		margin-top: 8px;
+	}
+	.result {
+		margin-top: 10px;
+		font-size: 20px;
+	}
+	:disabled {
+		opacity: 0.6;
+	}
+	.hidden {
+		display: none;
+	}
+</style>

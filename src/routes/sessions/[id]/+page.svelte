@@ -1,270 +1,432 @@
 <script lang="ts">
+	import { requestId as newRequestId } from '$lib/request-id';
+	import { enhance } from '$app/forms';
+	import { onMount, tick, untrack } from 'svelte';
 	import type { ActionData, PageData } from './$types';
 	import SetRow from './SetRow.svelte';
 	import MachinePicker from '$lib/MachinePicker.svelte';
-
+	import AddWorkoutExercise from '$lib/AddWorkoutExercise.svelte';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
-
-	const unloggedSetCount = $derived.by(() => {
-		return data.groups
-			.flatMap((group) => group.sets)
-			.filter((set) => set.executedLoad == null || set.executedReps == null).length;
+	let dirtyIds = $state<string[]>([]);
+	let appending = $state<string | null>(null);
+	let pickerOpen = $state(false);
+	let appendError = $state('');
+	let ids = $state<Record<string, string>>({});
+	onMount(() => {
+		ids = Object.fromEntries(data.groups.map((g) => [g.key, newRequestId()]));
 	});
+	$effect(() => {
+		const groups = data.groups;
+		untrack(() => {
+			if (typeof crypto !== 'undefined')
+				for (const g of groups) if (!ids[g.key]) ids[g.key] = newRequestId();
+		});
+	});
+	function ondirty(id: string, dirty: boolean) {
+		// Do not subscribe a child effect to the parent's collection.
+		untrack(() => {
+			if (dirty && !dirtyIds.includes(id)) dirtyIds = [...dirtyIds, id];
+			else if (!dirty && dirtyIds.includes(id)) dirtyIds = dirtyIds.filter((v) => v !== id);
+		});
+	}
+	const allSets = $derived(data.groups.flatMap((g) => g.sets));
+	const completed = $derived(
+		allSets.filter((s) => s.executedLoad != null && s.executedReps != null).length
+	);
 </script>
 
-<div class="mx-auto max-w-md px-4 py-6 pb-28">
-	<a href="/programs/{data.session.programId}" class="text-sm text-indigo-400 active:underline">
-		← Back
-	</a>
-
-	<h1 class="mt-2 text-xl font-semibold tracking-tight">{data.day.name}</h1>
-	<p class="text-xs text-zinc-500">
-		Started {new Date(data.session.startedAt).toLocaleString()}
-		{#if data.session.endedAt}
-			· ended {new Date(data.session.endedAt).toLocaleString()}
-		{/if}
-	</p>
-
-	{#if data.session.endedAt}
-		<div class="mt-2 flex items-center gap-2 text-xs">
-			{#if data.allowEndedSessionEdit}
-				<span class="rounded bg-amber-500/20 px-2 py-1 text-amber-300">Editing ended session</span>
-				<a href="/sessions/{data.session.id}" class="text-indigo-400 active:underline"
-					>Done editing</a
-				>
+<svelte:head><title>{data.day.name} · DocLifts</title></svelte:head>
+<main class="workout">
+	<a class="back" href="/programs/{data.session.programId}">← Workouts</a>
+	<header>
+		<div class="eyebrow">DOCLIFTS / {data.session.endedAt ? 'WORKOUT HISTORY' : 'IN SESSION'}</div>
+		<h1>{data.day.name}</h1>
+		<p class="muted">
+			{new Date(data.session.startedAt).toLocaleDateString(undefined, {
+				month: 'short',
+				day: 'numeric',
+				year: 'numeric'
+			})} · {data.groups.length} exercises
+		</p>
+		<div class="progress-copy">
+			<span>{completed} of {allSets.length} sets logged</span><span
+				>{Math.round((completed / Math.max(allSets.length, 1)) * 100)}%</span
+			>
+		</div>
+		<progress value={completed} max={Math.max(allSets.length, 1)} aria-label="Workout completion"
+		></progress>
+	</header>
+	{#if data.session.endedAt}<div class="history-tools">
+			{#if data.allowEndedSessionEdit}<a href="/sessions/{data.session.id}">Done editing</a>
 				<form
 					method="POST"
 					action="?/deleteSession"
-					class="ml-auto flex items-center gap-1.5"
-					onsubmit={(event) => {
-						const input = event.currentTarget.querySelector(
-							'input[name="confirmDelete"]'
-						) as HTMLInputElement | null;
-						const value = input?.value.trim().toLowerCase() ?? '';
-						if (value !== 'd') {
-							event.preventDefault();
-							return;
-						}
-						if (!confirm('Delete this ended workout? Press OK to confirm (2/3).')) {
-							event.preventDefault();
-							return;
-						}
-						if (!confirm('Final confirm (3/3): permanently delete this workout?')) {
-							event.preventDefault();
-						}
+					onsubmit={(e) => {
+						if (!confirm('Move this workout to Trash? You can restore it later.'))
+							e.preventDefault();
 					}}
 				>
-					<input
-						type="text"
-						name="confirmDelete"
-						maxlength="1"
-						placeholder="d"
-						autocomplete="off"
-						class="w-10 rounded border border-rose-900 bg-zinc-950 px-2 py-1 text-center text-[11px] text-zinc-100"
-					/>
-					<button
-						type="submit"
-						class="rounded bg-rose-500/20 px-2 py-1 text-[11px] font-semibold text-rose-300 active:bg-rose-500/30"
+					<input type="hidden" name="confirmDelete" value="d" /><button class="trash"
+						>Move to Trash</button
 					>
-						Delete Workout
-					</button>
-				</form>
-			{:else}
-				<span class="text-zinc-400">This session is read-only.</span>
-				<a href="/sessions/{data.session.id}?edit=1" class="text-indigo-400 active:underline">
-					Edit this workout
-				</a>
-			{/if}
-		</div>
-	{/if}
-
-	{#if form && 'message' in form && form.message}<p role="alert" class="mt-4 text-amber-300">
+				</form>{:else}<span class="muted">Completed workout</span><a
+					href="/sessions/{data.session.id}?edit=1">Edit workout</a
+				>{/if}
+		</div>{/if}
+	{#if form && 'message' in form && form.message}<p role="alert" class="error">
 			{form.message}
 		</p>{/if}
-	{#if !data.session.endedAt}
-		<a href="/gyms" class="mt-4 block text-indigo-300">Manage gyms and machines</a>
-		<details class="mt-4 rounded border border-zinc-700 p-3">
-			<summary>Quick-add to this workout only</summary>
-			<p class="mt-2 text-sm text-zinc-400">
-				Adds sets to this active session. Your program template stays unchanged.
-			</p>
-			<form method="POST" action="?/addExercise" class="mt-3 space-y-3">
-				<label class="block"
-					>Existing exercise<select name="exerciseId" class="block w-full rounded bg-zinc-800 p-2"
-						><option value="">Create a new exercise below</option
-						>{#each data.choices.exercises as exercise}<option value={exercise.id}
-								>{exercise.name} ({exercise.equipmentType})</option
-							>{/each}</select
-					></label
-				>
-				<label class="block"
-					>New exercise name<input
-						name="exerciseName"
-						maxlength="120"
-						class="block w-full rounded bg-zinc-800 p-2"
-					/></label
-				>
-				<label class="block"
-					>Canonical movement (optional)<input
-						name="canonicalMovement"
-						maxlength="120"
-						placeholder="e.g. chest_press"
-						class="block w-full rounded bg-zinc-800 p-2"
-					/></label
-				>
-				<label class="block"
-					><input type="checkbox" name="isLowerBody" value="1" /> New exercise is lower body (+10 rather
-					than +5 increment)</label
-				>
-				<label class="block"
-					>Equipment type<select name="equipmentType" class="block w-full rounded bg-zinc-800 p-2"
-						>{#each ['machine-plate', 'machine-stack', 'cable', 'dumbbell', 'barbell', 'barbell-ez', 'smith', 'bodyweight', 'band'] as type}<option
-								value={type}>{type}</option
-							>{/each}</select
-					></label
-				>
-				<MachinePicker gyms={data.choices.gyms} machines={data.choices.machines} />
-				<label class="block"
-					>Working sets<input
-						name="setCount"
-						type="number"
-						min="1"
-						max="10"
-						value="2"
-						required
-						class="block w-full rounded bg-zinc-800 p-2"
-					/></label
-				>
-				<label class="block"
-					>Minimum reps<input
-						name="repsMin"
-						type="number"
-						min="0"
-						max="100"
-						value="8"
-						required
-						class="block w-full rounded bg-zinc-800 p-2"
-					/></label
-				>
-				<label class="block"
-					>Maximum reps<input
-						name="repsMax"
-						type="number"
-						min="0"
-						max="100"
-						value="12"
-						required
-						class="block w-full rounded bg-zinc-800 p-2"
-					/></label
-				>
-				<label class="block"
-					>Target RIR<input
-						name="rir"
-						type="number"
-						min="0"
-						max="10"
-						value="1"
-						required
-						class="block w-full rounded bg-zinc-800 p-2"
-					/></label
-				>
-				<label class="block"
-					>Tier<select name="tier" class="block w-full rounded bg-zinc-800 p-2"
-						><option value="secondary">Secondary</option><option value="isolation">Isolation</option
-						></select
-					></label
-				>
-				<label class="block"
-					>Progression policy<select
-						name="progressionPolicy"
-						class="block w-full rounded bg-zinc-800 p-2"
-						><option value="standard">Standard</option><option value="cautious"
-							>Cautious — manual advance</option
-						><option value="hold">Hold — manual load</option></select
-					></label
-				>
-				<button class="rounded bg-indigo-600 px-4 py-2">Add exercise to workout</button>
-			</form>
-		</details>
-	{/if}
-
-	{#each data.groups as group (group.key)}
-		<section class="mt-7">
-			<div class="flex items-baseline justify-between gap-2">
-				<h2 class="text-base font-semibold text-zinc-100">{group.exerciseName}</h2>
-				<div class="flex items-center gap-1.5 text-[10px] tracking-wider text-zinc-500 uppercase">
-					{#if group.tier}
-						<span>{group.tier}</span>
-					{/if}
-					{#if group.progressionPolicy && group.progressionPolicy !== 'standard'}
-						<span class="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">
-							{group.progressionPolicy}
-						</span>
-					{/if}
+	{#each data.groups as group, index (group.key)}
+		<section class="exercise" id="exercise-{group.key}" tabindex="-1">
+			<div class="exercise-heading">
+				<span class="number">{String(index + 1).padStart(2, '0')}</span>
+				<div>
+					<h2>{group.exerciseName}</h2>
+					<p class="muted">
+						{group.gymName
+							? `${group.gymName} · ${group.machineLabel}`
+							: 'Equipment not specified'}{group.loadConvention !== 'legacy'
+							? ` · ${group.loadConvention.replaceAll('_', ' ')}`
+							: ''}
+					</p>
 				</div>
 			</div>
-
-			<p class="mt-2 text-sm text-zinc-400">
-				{group.gymName ?? 'Legacy context'} · {group.machineLabel ?? 'Unknown machine'} · {group.modelName ??
-					'Unknown model'} · {group.loadConvention.replaceAll('_', ' ')}
-			</p>
-			{#if !data.session.endedAt && group.occurrenceId}
-				<details class="mt-2 rounded border border-zinc-700 p-2">
-					<summary>Select / change machine</summary>
-					<p class="mt-2 text-sm text-amber-200">
-						Only before logging any values. This clears legacy load suggestions and uses this
-						machine's history. For a different machine after logging, quick-add a separate exercise.
+			{#if !data.session.endedAt && group.occurrenceId}<details class="equipment">
+					<summary>Equipment details</summary>
+					<p class="muted">
+						Choose before logging. Changing equipment starts a separate performance history.
 					</p>
-					<form method="POST" action="?/bindMachine" class="mt-2">
-						<input type="hidden" name="occurrenceId" value={group.occurrenceId} />
-						<MachinePicker gyms={data.choices.gyms} machines={data.choices.machines} />
-						<label class="mt-2 block"
-							><input type="checkbox" name="confirm" value="CHANGE" required /> I confirm this machine
-							and load convention</label
-						>
-						<button class="mt-2 rounded bg-indigo-600 px-3 py-2">Apply machine</button>
+					<form method="POST" action="?/bindMachine">
+						<input type="hidden" name="occurrenceId" value={group.occurrenceId} /><MachinePicker
+							gyms={data.choices.gyms}
+							machines={data.choices.machines}
+							equipmentType={data.choices.exercises.find((e) => e.id === group.exerciseId)
+								?.equipmentType}
+						/><label class="confirm"
+							><input type="checkbox" name="confirm" value="CHANGE" required /> Confirm equipment and
+							weight format</label
+						><button class="secondary">Apply equipment</button>
 					</form>
-				</details>
-			{/if}
-			<ul class="mt-2 space-y-2">
-				{#each group.sets as set (set.id)}
-					<SetRow
+				</details>{/if}
+			<ul>
+				{#each group.sets as set (set.id)}<SetRow
 						{set}
 						sessionEnded={data.session.endedAt != null}
 						allowEndedSessionEdit={data.allowEndedSessionEdit}
-						rowError={form?.setId === set.id ? (form.fieldErrors ?? null) : null}
-						rowMessage={form?.setId === set.id && 'message' in form ? (form.message ?? null) : null}
-					/>
-				{/each}
+						{ondirty}
+					/>{/each}
 			</ul>
-		</section>
-	{/each}
-</div>
-
-{#if !data.session.endedAt}
-	<div class="sticky bottom-0 border-t border-zinc-800 bg-zinc-950/90 p-4 backdrop-blur">
-		<div class="mx-auto grid max-w-md grid-cols-2 gap-2">
-			<a
-				href="/programs/{data.session.programId}"
-				class="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-center text-sm font-semibold text-zinc-200 transition active:scale-[0.99] active:bg-zinc-800"
-			>
-				Pause Session
-			</a>
-			<form method="POST" action="?/endSession">
-				<button
-					type="submit"
-					class="w-full rounded-lg bg-emerald-500 px-4 py-3 text-base font-semibold text-zinc-950 shadow-sm shadow-emerald-500/20 transition active:scale-[0.99] active:bg-emerald-600"
-					onclick={(event) => {
-						if (unloggedSetCount <= 0) return;
-						const noun = unloggedSetCount === 1 ? 'set' : 'sets';
-						if (!confirm(`${unloggedSetCount} ${noun} are still unlogged. End session anyway?`)) {
-							event.preventDefault();
-						}
+			{#if !data.session.endedAt}<form
+					class="add-set"
+					method="POST"
+					action="?/appendSet"
+					use:enhance={() => {
+						appending = group.key;
+						appendError = '';
+						return async ({ result, update }) => {
+							try {
+								if (result.type === 'success' && result.data?.addedSetId) {
+									await update({ reset: false });
+									ids[group.key] = newRequestId();
+									await tick();
+									const row = document.getElementById(`set-${result.data.addedSetId}`);
+									row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+									row
+										?.querySelector('input:not([type=hidden])')
+										?.closest('label')
+										?.querySelector('input')
+										?.focus({ preventScroll: true });
+								} else
+									appendError =
+										result.type === 'failure'
+											? String(result.data?.message)
+											: 'Could not add set. Please try again.';
+							} finally {
+								appending = null;
+							}
+						};
 					}}
 				>
-					End Session
-				</button>
-			</form>
+					<input type="hidden" name="sourceSetId" value={group.sets.at(-1)?.id} /><input
+						type="hidden"
+						name="requestId"
+						value={ids[group.key] ?? ''}
+					/><select name="setRole" aria-label={`New set type for ${group.exerciseName}`}
+						><option value="working">Working set</option><option value="warmup">Warmup</option
+						><option value="backoff">Backoff</option></select
+					><button disabled={appending !== null || !ids[group.key]}
+						>{appending === group.key ? 'Adding…' : '+ Add set'}</button
+					>
+				</form>
+				{@const last = group.sets.at(-1)!}
+				{#if group.sets.length > 1 && last.executedLoad == null && last.executedReps == null && last.executedRir == null && !last.notes}
+					<form
+						method="POST"
+						action="?/removeSet"
+						use:enhance={({ cancel }) => {
+							if (!confirm('Remove the last empty set? Logged sets stay unchanged.')) {
+								cancel();
+								return;
+							}
+							appending = group.key;
+							return async ({ result, update }) => {
+								try {
+									if (result.type === 'success') await update({ reset: false });
+									else
+										appendError =
+											result.type === 'failure'
+												? String(result.data?.message)
+												: 'Could not remove set.';
+								} finally {
+									appending = null;
+								}
+							};
+						}}
+					>
+						<input type="hidden" name="setId" value={last.id} /><button
+							class="remove-set"
+							disabled={appending !== null || dirtyIds.includes(last.id)}
+							>Remove last empty set</button
+						>
+					</form>
+				{/if}
+			{/if}
+		</section>
+	{/each}
+	{#if appendError}<p role="alert" class="error">{appendError}</p>{/if}
+	{#if !data.session.endedAt}<AddWorkoutExercise
+			choices={data.choices}
+			bind:open={pickerOpen}
+		/>{/if}
+</main>
+{#if !data.session.endedAt}<footer>
+		<div class="footer-inner">
+			<p aria-live="polite">
+				{dirtyIds.length
+					? `${dirtyIds.length} unsaved ${dirtyIds.length === 1 ? 'set' : 'sets'} · drafts kept in this tab`
+					: 'Saved sets are stored in your workout'}
+			</p>
+			<div class="footer-actions">
+				<a href="/programs/{data.session.programId}">Pause</a><a
+					class="jump-add"
+					onclick={() => (pickerOpen = true)}
+					href="#add-workout-exercise">Add exercise</a
+				>
+				<form
+					method="POST"
+					action="?/endSession"
+					onsubmit={(e) => {
+						if (dirtyIds.length) {
+							e.preventDefault();
+							alert('Save your unfinished entries before finishing this workout.');
+							return;
+						}
+						if (
+							completed < allSets.length &&
+							!confirm(`${allSets.length - completed} sets are not logged. Finish workout anyway?`)
+						)
+							e.preventDefault();
+					}}
+				>
+					<button>Finish workout</button>
+				</form>
+			</div>
 		</div>
-	</div>
-{/if}
+	</footer>{/if}
+
+<style>
+	.remove-set {
+		min-height: 44px;
+		font-size: 12px;
+		color: #acb8ca;
+		margin-top: 6px;
+	}
+	.workout {
+		max-width: 680px;
+		margin: auto;
+		padding: 28px 16px 150px;
+	}
+	.back {
+		font-size: 14px;
+		color: #b8c8e0;
+	}
+	header {
+		padding: 26px 0;
+	}
+	.eyebrow {
+		font-size: 11px;
+		letter-spacing: 0.16em;
+		color: #a5b4fc;
+		font-weight: 700;
+	}
+	h1 {
+		font-size: 28px;
+		letter-spacing: -0.035em;
+		line-height: 1.2;
+		font-weight: 700;
+		margin: 10px 0;
+	}
+	.muted {
+		color: #a8b3c5;
+		font-size: 13px;
+		line-height: 1.5;
+	}
+	.progress-copy {
+		display: flex;
+		justify-content: space-between;
+		font-size: 12px;
+		margin-top: 20px;
+		color: #c4cede;
+	}
+	progress {
+		width: 100%;
+		height: 5px;
+		display: block;
+		margin-top: 8px;
+		border: 0;
+		border-radius: 8px;
+		overflow: hidden;
+		background: #263145;
+	}
+	progress::-webkit-progress-bar {
+		background: #263145;
+	}
+	progress::-webkit-progress-value {
+		background: #a5b4fc;
+	}
+	.exercise {
+		background: #121a28;
+		border: 1px solid #2b3648;
+		border-radius: 18px;
+		padding: 18px;
+		margin-bottom: 20px;
+		scroll-margin-top: 16px;
+	}
+	.exercise-heading {
+		display: flex;
+		gap: 12px;
+		margin-bottom: 16px;
+	}
+	.number {
+		font-size: 12px;
+		color: #a5b4fc;
+		padding-top: 4px;
+		font-variant-numeric: tabular-nums;
+	}
+	h2 {
+		font-size: 19px;
+		line-height: 1.3;
+		font-weight: 650;
+		letter-spacing: -0.02em;
+	}
+	.exercise-heading p {
+		margin-top: 5px;
+	}
+	.equipment {
+		font-size: 13px;
+		margin-bottom: 14px;
+	}
+	summary {
+		cursor: pointer;
+		padding: 10px 0;
+		color: #b6c5da;
+	}
+	.confirm {
+		display: flex;
+		gap: 8px;
+		margin-top: 12px;
+	}
+	.secondary {
+		min-height: 44px;
+		margin-top: 12px;
+		color: #c7d2fe;
+	}
+	.add-set {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+		padding-top: 8px;
+	}
+	.add-set select {
+		min-width: 0;
+		background: #0b1220;
+		color: #c4cede;
+		padding: 10px;
+		border-radius: 9px;
+		border: 1px solid #46546b;
+		font-size: 14px;
+	}
+	.add-set button {
+		min-height: 46px;
+		border: 1px solid #677a9a;
+		border-radius: 9px;
+		font-weight: 600;
+		color: #d5dfff;
+	}
+	button {
+		cursor: pointer;
+	}
+	button:disabled {
+		opacity: 0.5;
+	}
+	footer {
+		position: fixed;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		background: #0d1421f5;
+		border-top: 1px solid #303c50;
+		padding: 10px 16px max(12px, env(safe-area-inset-bottom));
+		backdrop-filter: blur(12px);
+	}
+	.footer-inner {
+		max-width: 648px;
+		margin: auto;
+	}
+	footer p {
+		font-size: 11px;
+		color: #b6c3d5;
+		text-align: center;
+		margin-bottom: 8px;
+	}
+	.footer-actions {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.footer-actions a,
+	.footer-actions button {
+		min-height: 46px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 13px;
+		font-weight: 600;
+		padding: 10px 12px;
+		border-radius: 9px;
+	}
+	.footer-actions a {
+		color: #c7d2fe;
+	}
+	.footer-actions button {
+		background: #c7d2fe;
+		color: #182044;
+	}
+	.history-tools {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 20px;
+		color: #c7d2fe;
+		font-size: 14px;
+	}
+	.trash {
+		color: #fda4af;
+		min-height: 44px;
+	}
+	.error {
+		color: #fda4af;
+		padding: 12px 0;
+	}
+</style>

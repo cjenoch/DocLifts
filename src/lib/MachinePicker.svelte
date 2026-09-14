@@ -1,13 +1,19 @@
 <script lang="ts">
 	let {
 		gyms,
-		machines
+		machines,
+		equipmentType
 	}: {
 		gyms: { id: string; name: string }[];
 		machines: { id: string; gymId: string; localLabel: string; equipmentType: string }[];
+		equipmentType?: string;
 	} = $props();
 	let gymId = $state('');
-	const available = $derived(machines.filter((m) => m.gymId === gymId));
+	const available = $derived(
+		machines.filter(
+			(m) => m.gymId === gymId && (!equipmentType || m.equipmentType === equipmentType)
+		)
+	);
 </script>
 
 <label class="block"
@@ -46,8 +52,10 @@
 		class="mt-1 block w-full rounded border border-zinc-600 bg-zinc-900 p-2"
 	>
 		<option value="">Choose how you record load</option>
-		<option value="plates_per_side">Plates per side</option>
-		<option value="total_plates">Total plates (all sides)</option>
+		{#if !equipmentType || equipmentType === 'machine-plate'}
+			<option value="plates_per_side">Plates per side</option>
+			<option value="total_plates">Total plates (all sides)</option>
+		{/if}
 		<option value="per_arm">Per arm</option>
 		<option value="displayed">Displayed load</option>
 		<option value="unknown">Unknown convention (kept separate)</option>

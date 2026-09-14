@@ -10,6 +10,7 @@ import {
 	sessions,
 	sets
 } from './db/schema';
+import { dayExercises } from './db/schema';
 import {
 	computeConsecutiveBackwards,
 	defaultIncrement,
@@ -54,13 +55,16 @@ const identitySchema = z.object({
 });
 const addSchema = z
 	.object({
+		requestId: optionalId,
 		exerciseId: optionalId,
 		exerciseName: optionalText,
 		canonicalMovement: optionalText,
 		equipmentType,
 		isLowerBody: z.preprocess((v) => (v == null ? false : v === '1' ? true : v), z.boolean()),
-		gymId: z.string().uuid(),
-		gymEquipmentId: z.string().uuid(),
+		gymId: optionalId,
+		gymEquipmentId: optionalId,
+		newGymName: optionalText,
+		newMachineName: optionalText,
 		loadConvention: convention,
 		setCount: z.coerce.number().int().min(1).max(10),
 		repsMin: z.coerce.number().int().min(0).max(100),
@@ -338,8 +342,35 @@ export async function bindSessionMachine(
 export async function addSessionExercise(db: Database, sessionId: string, input: unknown) {
 	const value = addSchema.parse(input);
 	return db.transaction(async (tx) => {
-		await lockActive(tx, sessionId);
-		const snapshot = await machineSnapshot(tx, value);
+		const activeSession = await lockActive(tx, sessionId);
+		if (value.requestId) {
+			const [existing] = await tx
+				.select()
+				.from(sessionExercises)
+				.where(eq(sessionExercises.id, value.requestId));
+			if (existing) {
+				if (existing.sessionId !== sessionId)
+					throw new MachineInputError('Please reload and try again.');
+				return existing;
+			}
+		}
+		let gymId = value.gymId;
+		let gymEquipmentId = value.gymEquipmentId;
+		if (!gymId && value.newGymName) {
+			const gym = await createGym(tx, { name: value.newGymName });
+			gymId = gym.id;
+		}
+		if (!gymEquipmentId && gymId && value.newMachineName) {
+			const machine = await createMachine(tx, {
+				gymId,
+				localLabel: value.newMachineName,
+				equipmentType: value.equipmentType
+			});
+			gymEquipmentId = machine.id;
+		}
+		if (!gymId || !gymEquipmentId)
+			throw new MachineInputError('Choose or name your gym and equipment.');
+		const snapshot = await machineSnapshot(tx, { ...value, gymId, gymEquipmentId });
 		if (snapshot.equipmentType !== value.equipmentType)
 			throw new MachineInputError('Machine equipment type must match exercise');
 		let exercise;
@@ -368,13 +399,18 @@ export async function addSessionExercise(db: Database, sessionId: string, input:
 			.select({ position: max(sessionExercises.position) })
 			.from(sessionExercises)
 			.where(eq(sessionExercises.sessionId, sessionId));
+		const [templateLast] = await tx
+			.select({ position: max(dayExercises.position) })
+			.from(dayExercises)
+			.where(eq(dayExercises.dayId, activeSession.dayId));
 		const [occurrence] = await tx
 			.insert(sessionExercises)
 			.values({
+				...(value.requestId ? { id: value.requestId } : {}),
 				sessionId,
 				exerciseId: exercise.id,
 				exerciseName: exercise.name,
-				position: (last.position ?? 0) + 1,
+				position: Math.max(last.position ?? 0, templateLast.position ?? 0) + 1,
 				tier: value.tier,
 				progressionPolicy: value.progressionPolicy,
 				...snapshot

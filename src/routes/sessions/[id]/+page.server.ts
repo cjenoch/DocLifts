@@ -13,7 +13,6 @@ import { getLastCompletedSet, type HistoryRow } from '$lib/server/progression';
 import {
 	endSession,
 	loadSession,
-	nextSetIdInSession,
 	softDeleteEndedSession,
 	updateSetInSession
 } from '$lib/server/sessions';
@@ -25,6 +24,7 @@ import {
 	MachineInputError
 } from '$lib/server/machines';
 import type { Actions, PageServerLoad } from './$types';
+import { appendWorkoutSet, removeEmptyLastSet } from '$lib/server/workout-sets';
 
 const uuidParamSchema = z.string().uuid();
 
@@ -169,15 +169,46 @@ const deleteEndedSessionSchema = z.object({
 });
 
 export const actions: Actions = {
-	addExercise: async ({ request, params }) => {
+	removeSet: async ({ request, params }) => {
 		try {
-			await addSessionExercise(db, params.id, Object.fromEntries(await request.formData()));
+			await removeEmptyLastSet(db, params.id, String((await request.formData()).get('setId')));
+			return { removed: true };
 		} catch (e) {
 			if (e instanceof z.ZodError || e instanceof MachineInputError)
-				return fail(400, { message: e.message, setId: null });
+				return fail(400, { message: e instanceof z.ZodError ? e.issues[0].message : e.message });
 			throw e;
 		}
-		redirect(303, `/sessions/${params.id}`);
+	},
+	appendSet: async ({ request, params }) => {
+		try {
+			const added = await appendWorkoutSet(
+				db,
+				params.id,
+				Object.fromEntries(await request.formData())
+			);
+			return { addedSetId: added.id };
+		} catch (e) {
+			if (e instanceof z.ZodError || e instanceof MachineInputError)
+				return fail(400, { message: e instanceof z.ZodError ? e.issues[0].message : e.message });
+			throw e;
+		}
+	},
+	addExercise: async ({ request, params }) => {
+		try {
+			const added = await addSessionExercise(
+				db,
+				params.id,
+				Object.fromEntries(await request.formData())
+			);
+			return { addedExerciseId: added.id, addedMachineId: added.gymEquipmentId };
+		} catch (e) {
+			if (e instanceof z.ZodError || e instanceof MachineInputError)
+				return fail(400, {
+					message: e instanceof z.ZodError ? e.issues[0].message : e.message,
+					setId: null
+				});
+			throw e;
+		}
 	},
 	bindMachine: async ({ request, params }) => {
 		const form = Object.fromEntries(await request.formData());
@@ -240,13 +271,8 @@ export const actions: Actions = {
 			});
 		}
 
-		// Redirect to the same page with a fragment anchoring the NEXT row,
-		// so saving scrolls the user toward what they're about to log instead
-		// of resetting to top. Falls back to the just-saved row when there's
-		// no next set (last row of the session). Browser-native scroll-to-
-		// anchor; no client JS required.
-		const nextId = await nextSetIdInSession(db, parsedSessionId.data, result.setId);
-		redirect(303, `/sessions/${parsedSessionId.data}#set-${nextId ?? result.setId}`);
+		// Refresh saved status in place without moving focus or clearing other drafts.
+		return { savedSetId: result.setId };
 	},
 
 	deleteSession: async ({ request, params }) => {

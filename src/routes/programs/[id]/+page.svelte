@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TrashAction from '$lib/TrashAction.svelte';
 	import { enhance } from '$app/forms';
 	import type { PageData } from './$types';
 
@@ -20,7 +21,7 @@
 			out.push({
 				dateKey,
 				label: `${d.getMonth() + 1}/${d.getDate()}`,
-				count: data.sessionsByDay[dateKey] ?? 0,
+				count: data.sessionsByDay[dateKey] ?? 0
 			});
 		}
 		return out;
@@ -30,7 +31,7 @@
 		const date = selectedDate;
 		if (!date) return data.recentSessions;
 		return data.recentSessions.filter((session) =>
-			session.startedAt.toISOString().startsWith(date),
+			session.startedAt.toISOString().startsWith(date)
 		);
 	});
 </script>
@@ -43,9 +44,13 @@
 		<p class="mt-1 text-sm text-zinc-400">{data.program.description}</p>
 	{/if}
 
-	<a href="/programs/{data.program.id}/edit" class="mt-4 inline-block rounded-lg border border-zinc-700 px-4 py-3 text-sm text-indigo-300">Edit program as new version</a>
+	<a
+		href="/programs/{data.program.id}/edit"
+		class="mt-4 inline-block rounded-lg border border-zinc-700 px-4 py-3 text-sm text-indigo-300"
+		>Edit program as new version</a
+	>
 
-	<h2 class="mt-7 mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Days</h2>
+	<h2 class="mt-7 mb-2 text-xs font-semibold tracking-wider text-zinc-500 uppercase">Days</h2>
 
 	{#if data.days.length === 0}
 		<p class="text-zinc-500">No days configured.</p>
@@ -110,13 +115,15 @@
 			class="flex w-full items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-left"
 			onclick={() => (historyOpen = !historyOpen)}
 		>
-			<span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Recent Workouts</span>
+			<span class="text-xs font-semibold tracking-wider text-zinc-400 uppercase"
+				>Recent Workouts</span
+			>
 			<span class="text-sm text-zinc-300">{historyOpen ? 'Hide' : 'Show'}</span>
 		</button>
 
 		{#if historyOpen}
 			<div class="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
-				<div class="mb-3 text-xs uppercase tracking-wider text-zinc-500">Last 14 days</div>
+				<div class="mb-3 text-xs tracking-wider text-zinc-500 uppercase">Last 14 days</div>
 				<div class="grid grid-cols-7 gap-1.5 text-center text-[11px]">
 					{#each calendarDays as cell (cell.dateKey)}
 						<button
@@ -189,131 +196,55 @@
 	<section class="mt-8">
 		<button
 			type="button"
-			class="flex w-full items-center justify-between rounded-xl border border-red-900/40 bg-red-950/20 px-4 py-3 text-left"
+			class="flex w-full items-center justify-between rounded-xl border border-zinc-700 bg-zinc-900/50 px-4 py-3 text-left"
 			onclick={() => (trashOpen = !trashOpen)}
+			aria-expanded={trashOpen}
 		>
-			<span class="text-xs font-semibold uppercase tracking-wider text-red-300">Trash</span>
-			<span class="text-sm text-zinc-300">{trashOpen ? 'Hide' : 'Show'}</span>
+			<span class="text-sm font-semibold text-zinc-200">Trash ({data.trashSessions.length})</span
+			><span class="text-sm text-zinc-400">{trashOpen ? 'Hide' : 'Show'}</span>
 		</button>
-
 		{#if trashOpen}
-			<div class="mt-3 rounded-xl border border-red-900/40 bg-zinc-900/40 p-3">
-				<p class="text-xs text-red-300">Restore is reversible. Permanent delete and Empty Trash are irreversible.</p>
-				{#if data.trashSessions.length === 0}
-					<p class="mt-3 text-zinc-500">Trash is empty.</p>
+			<div class="mt-3 rounded-xl border border-zinc-800 p-4">
+				{#if data.trashSessions.length === 0}<p class="text-sm text-zinc-400">Trash is empty.</p>
 				{:else}
-					<ul class="mt-3 space-y-2">
+					<p class="text-sm text-zinc-400">Restore a workout or delete it for good.</p>
+					<ul class="mt-4 space-y-3">
 						{#each data.trashSessions as session (session.id)}
-							<li class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm">
-								<div class="flex items-center justify-between gap-2">
-									<div>
-										<div class="font-medium text-zinc-100">{session.dayName}</div>
-										<div class="text-xs text-zinc-500">
-											Started {new Date(session.startedAt).toLocaleString()} · Deleted {session.deletedAt ? new Date(session.deletedAt).toLocaleString() : '—'}
-										</div>
-									</div>
-								</div>
-								<div class="mt-3 flex flex-col gap-2">
-									<form method="POST" action="?/restoreSession" use:enhance>
-										<input type="hidden" name="sessionId" value={session.id} />
-										<button
-											type="submit"
-											class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white active:bg-emerald-700"
-										>
-											Restore
-										</button>
-									</form>
-
-									<form
-										method="POST"
+							<li class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+								<h3 class="font-medium text-zinc-100">{session.dayName}</h3>
+								<p class="mt-1 text-sm text-zinc-400">
+									{new Date(session.startedAt).toLocaleDateString(undefined, {
+										month: 'short',
+										day: 'numeric',
+										year: 'numeric'
+									})}
+								</p>
+								<div class="mt-3 flex flex-wrap gap-2">
+									<TrashAction action="?/restoreSession" label="Restore" sessionId={session.id} />
+									<TrashAction
 										action="?/permanentDeleteSession"
-										use:enhance={({ formElement, formData, cancel }) => {
-											const confirmDelete = String(formData.get('confirmDelete') ?? '').toLowerCase();
-											if (confirmDelete !== 'd') {
-												cancel();
-												alert('Type d to confirm permanent delete.');
-												return;
-											}
-											if (!confirm('This permanently deletes this workout and all its sets. Continue?')) {
-												cancel();
-												return;
-											}
-											if (!confirm('Final confirmation: this cannot be undone. Permanently delete?')) {
-												cancel();
-												return;
-											}
-											return async ({ update }) => {
-												await update({ reset: false });
-												formElement.reset();
-											};
-										}}
-									>
-										<input type="hidden" name="sessionId" value={session.id} />
-										<div class="flex items-center gap-2">
-											<input
-												name="confirmDelete"
-												type="text"
-												required
-												maxlength="1"
-												placeholder="d"
-												class="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100"
-											/>
-											<button
-												type="submit"
-												class="rounded-md bg-red-700 px-3 py-1.5 text-xs font-semibold text-white active:bg-red-800"
-											>
-												Delete permanently
-											</button>
-										</div>
-									</form>
+										label="Delete permanently"
+										sessionId={session.id}
+										destructive
+										confirmation={`Permanently delete ${session.dayName} from ${new Date(session.startedAt).toLocaleDateString()}? This cannot be undone.`}
+										confirmationField="confirmDelete"
+										confirmationValue="d"
+									/>
 								</div>
 							</li>
 						{/each}
 					</ul>
-
-					<form
-						class="mt-4 rounded-xl border border-red-900/50 bg-red-950/20 p-3"
-						method="POST"
-						action="?/purgeTrash"
-						use:enhance={({ formElement, formData, cancel }) => {
-							const confirmPurge = String(formData.get('confirmPurge') ?? '').toUpperCase();
-							if (confirmPurge !== 'PURGE') {
-								cancel();
-								alert('Type PURGE to confirm empty trash.');
-								return;
-							}
-							if (!confirm(`This will permanently delete ${data.trashSessions.length} trashed workout(s). Continue?`)) {
-								cancel();
-								return;
-							}
-							if (!confirm('Final confirmation: Empty Trash cannot be undone.')) {
-								cancel();
-								return;
-							}
-							return async ({ update }) => {
-								await update({ reset: false });
-								formElement.reset();
-							};
-						}}
-					>
-						<div class="text-xs text-red-200">Empty Trash ({data.trashSessions.length} items)</div>
-						<div class="mt-2 flex items-center gap-2">
-							<input type="hidden" name="expectedCount" value={data.trashSessions.length} />
-							<input
-								name="confirmPurge"
-								type="text"
-								required
-								placeholder="PURGE"
-								class="w-28 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-100"
-							/>
-							<button
-								type="submit"
-								class="rounded-md bg-red-800 px-3 py-1.5 text-xs font-semibold text-white active:bg-red-900"
-							>
-								Empty Trash
-							</button>
-						</div>
-					</form>
+					<div class="mt-5 border-t border-zinc-800 pt-4">
+						<TrashAction
+							action="?/purgeTrash"
+							label={`Empty Trash (${data.trashSessions.length})`}
+							expectedCount={data.trashSessions.length}
+							destructive
+							confirmation={`Permanently delete all ${data.trashSessions.length} workouts in this program’s Trash? This cannot be undone.`}
+							confirmationField="confirmPurge"
+							confirmationValue="PURGE"
+						/>
+					</div>
 				{/if}
 			</div>
 		{/if}

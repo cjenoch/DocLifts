@@ -13,3 +13,12 @@ docker-compose.yml
 Caddyfile
 .DS_Store
 .vscode
+docs
+journal
+HANDOFF*
+STATUS.md
+APP_DOCS.md
+planning*
+deploy
+*.dump
+*.sql.gz

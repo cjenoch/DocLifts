@@ -19,6 +19,9 @@ export default defineConfig({
 					name: 'client',
 					browser: {
 						enabled: true,
+						api: process.env.PW_TEST_PORT
+							? { host: '127.0.0.1', port: Number(process.env.PW_TEST_PORT) }
+							: undefined,
 						// Point at a system Chrome/Chromium when Playwright's bundled build
 						// is unavailable (e.g. Ubuntu 26.04). Opt-in via PW_EXECUTABLE_PATH
 						// so the repo stays portable across dev hosts.

@@ -6,6 +6,16 @@ A single-user weightlifting log for training across gyms: record what you lifted
 
 This is the personal project behind [DocLifts — Training, AI-Assisted Development, and QA](https://enoch.ai/case-studies/doclifts/). AI tools support development and review; the app's training logic does not depend on an LLM.
 
+## Try the demo
+
+```sh
+docker compose -f compose.demo.yml up --build -d
+```
+
+Open **http://localhost:4179** after initialization. This separate, temporary stack contains fictional workouts and equipment. It needs no `.env` or access to the author's VPS, and never mounts a production database. [Demo setup, reset, and troubleshooting](docs/demo.md).
+
+DocLifts is licensed under **Apache-2.0**. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [contribution guidance](CONTRIBUTING.md).
+
 ## Features and engineering
 
 - Machine identity, equipment-aware plate snapping, and session quick-add.
@@ -77,14 +87,7 @@ docker compose -p doclifts up -d --build --wait web
 
 The migration runner uses the builder image because the slim web runtime does not include the migration tooling or source migration directory. Run migrations through Drizzle so its migration journal stays consistent. Startup does not automatically migrate, seed, or import personal history.
 
-For a new empty database only, the optional program seed can run in the same builder image:
-
-```sh
-docker run --rm --network doclifts_default --env-file .env \
-  doclifts-migrations:local pnpm exec tsx src/lib/server/db/seed.ts
-```
-
-Do not seed a populated production database as part of a routine deploy. Review the seed before using it.
+Create a program through the UI for a new personal installation. The default seed now supplies fictional demo data only and refuses to run against a production database. Use the separate [demo stack](docs/demo.md) to try sample workouts.
 
 The VPS migration used the legacy Docker builder to work around a host build-environment issue. If that same issue occurs on the existing host, prefix the build commands with `DOCKER_BUILDKIT=0`; it is not a requirement for every Docker installation.
 
@@ -156,4 +159,4 @@ Integration tests create/use the separate test database and reset its tables. Ne
 
 ## License
 
-All rights reserved — see [LICENSE](./LICENSE). The source is published for reference and evaluation only. It is not open source and is not licensed for reuse.
+Copyright 2026 Enoch AI LLC. Licensed under the [Apache License, Version 2.0](./LICENSE). See [NOTICE](./NOTICE) for attribution.

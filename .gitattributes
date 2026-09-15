@@ -1,0 +1,10 @@
+# Historical operational notes are not part of the downloadable source release.
+journal/ export-ignore
+HANDOFF* export-ignore
+STATUS.md export-ignore
+APP_DOCS.md export-ignore
+planning* export-ignore
+docs/SESSION* export-ignore
+docs/PROJECT_CLAUDE* export-ignore
+docs/plans/ export-ignore
+deploy/ export-ignore

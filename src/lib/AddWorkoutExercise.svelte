@@ -172,7 +172,7 @@
 									name="newGymName"
 									required
 									maxlength="120"
-									placeholder="e.g. Sunrise Center or Home"
+									placeholder="e.g. Your gym or Home"
 								/></label
 							>
 							{#if choices.gyms.length}<button

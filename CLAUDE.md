@@ -151,7 +151,9 @@ If the user asks for any of these, confirm before building. The "personal tool, 
 ## File conventions
 
 - `src/lib/server/db/schema.ts` — all Drizzle table definitions
-- `src/lib/server/db/seed.ts` — v5 program seed
+- `src/lib/server/db/seed.ts` — guarded fictional demo seed CLI; requires `DOCLIFTS_DEMO=1` and a `doclifts_demo` database. Never use it to seed production.
+- `src/lib/server/demo.ts` — transactional fictional fixtures; refuses populated non-demo databases and never truncates existing data.
+- `compose.demo.yml` — isolated, localhost-only temporary demo; does not mount production data or read `.env`.
 - `src/lib/server/db/index.ts` — Drizzle client singleton
 - `src/lib/server/progression.ts` — engine + history helpers
 - `src/lib/server/plates.ts` — plate snap algorithms + router

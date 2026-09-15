@@ -19,7 +19,12 @@ export default defineConfig({
 					name: 'client',
 					browser: {
 						enabled: true,
-						provider: playwright(),
+						// Point at a system Chrome/Chromium when Playwright's bundled build
+						// is unavailable (e.g. Ubuntu 26.04). Opt-in via PW_EXECUTABLE_PATH
+						// so the repo stays portable across dev hosts.
+						provider: process.env.PW_EXECUTABLE_PATH
+							? playwright({ launchOptions: { executablePath: process.env.PW_EXECUTABLE_PATH } })
+							: playwright(),
 						instances: [{ browser: 'chromium', headless: true }]
 					},
 					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],

@@ -121,7 +121,7 @@ Never call `snapToAchievable` directly from the pipeline. Always go through the 
 ### Engine output is suggestion, never auto-applied
 
 - The user override path is one tap. Never bake a load into the prescribed field without giving the user an editable surface.
-- Show provenance on every suggested load. Rendered in SetRow as `Suggested: …` under the load field, persisted via `sets.suggestion_reasoning` (snapshotted at session-start like the rest of the prescription).
+- Show provenance on every suggested load. Rendered in SetRow under the load field as the reasoning text itself (e.g. `+5: top set hit 5 reps at RIR 1`), persisted via `sets.suggestion_reasoning` (snapshotted at session-start like the rest of the prescription). No `Suggested:` prefix — the reasoning line is self-explanatory (owner decision, 2026-09-14).
 - Provenance goes near or under the load field, NOT in a tooltip. Tooltips are for things you don't need to see; provenance you need every session.
 
 ## Schema discipline
@@ -156,6 +156,9 @@ If the user asks for any of these, confirm before building. The "personal tool, 
 - `src/lib/server/progression.ts` — engine + history helpers
 - `src/lib/server/plates.ts` — plate snap algorithms + router
 - `src/lib/server/sessions.ts` — action helpers (`startSessionForDay`, `endSession`, `updateSetInSession`). The route `+page.server.ts` files are thin wrappers around these.
+- `src/lib/server/workout-sets.ts` — in-session set mutation (append set, remove-empty-last-set) for the inline logging UX. Locks the session row, validates done/deleted state, uses a client-supplied `requestId` as the set PK for idempotency, tags appended sets as `machine`-sourced copies (provenance: "Copied from the previous set. Adjust to what you lift."). Never renumbers existing `position`s.
+- `src/routes/sessions/[id]/AddWorkoutExercise.svelte` — client-side quick-add a new exercise to a live session (machine picker + machine-type-aware equipment preselect).
+- `src/lib/request-id.ts` — idempotency token helpers (client generates a per-submit UUID; server keys on it so a double-submit can't double-append).
 - `src/lib/server/gym-config.ts` — single-gym hardcoded config (move to `gyms` table when multi-gym arrives)
 - `src/lib/server/test-db.ts` — integration-test DB bootstrap. Not imported by production code.
 - `scripts/backup-db.sh` — daily `pg_dump` to `~/backups/doclifts/`, 30-day rotation. Installed in user crontab (`0 3 * * *`). Cron log at `~/backups/doclifts/cron.log`.

@@ -30,7 +30,13 @@ const baseSet = {
 };
 
 function renderSetRow(props: Record<string, unknown>) {
-	return render(SetRow as unknown as never, { props } as never);
+	// ondirty was added by the inline-sets refactor and is required in every
+	// render path; default it to a recording stub so tests exercise the real
+	// dirtiness contract. Override by passing ondirty in props when asserted.
+	const onDirty = props.ondirty ?? (() => {});
+	return render(SetRow as unknown as never, {
+		props: { ondirty: onDirty, ...props } as never
+	});
 }
 
 describe('SetRow component', () => {
@@ -59,10 +65,10 @@ describe('SetRow component', () => {
 			rowMessage: null
 		});
 
-		await expect.element(page.getByText('TOP', { exact: true })).toBeInTheDocument();
-		await expect.element(page.getByText('Last: 95 × 5 @ RIR 1')).toBeInTheDocument();
+		await expect.element(page.getByText('Target: 100 × 3–5 · 1 RIR')).toBeInTheDocument();
+		await expect.element(page.getByText('Last: 95 × 5 · 1 RIR')).toBeInTheDocument();
 		await expect
-			.element(page.getByText('Suggested: +5: top set hit 5 reps at RIR 1'))
+			.element(page.getByText('+5: top set hit 5 reps at RIR 1'))
 			.toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: 'Save' })).toBeInTheDocument();
 	});
@@ -82,7 +88,7 @@ describe('SetRow component', () => {
 			rowMessage: null
 		});
 
-		await expect.element(page.getByText('Executed')).toBeInTheDocument();
+		await expect.element(page.getByText('100 × 5 · 1 RIR')).toBeInTheDocument();
 		await expect.element(page.getByText('felt solid')).toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: 'Save' })).not.toBeInTheDocument();
 	});

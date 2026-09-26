@@ -1,41 +1,36 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+
+	// Typed-confirmation purge form. The user must TYPE "PURGE" into the input
+	// before the submit button enables — the single-keystroke reveal of the
+	// old TrashAction was judged too weak for an irreversible bulk delete
+	// (owner decision + audit finding, 2026-09-26). The server-side Zod
+	// literal on confirmPurge stays authoritative; this is the UX half.
 	let {
 		action,
-		label,
-		sessionId,
 		expectedCount,
-		confirmation,
-		confirmationField,
-		confirmationValue,
-		destructive = false,
-		class: className = ''
+		confirmation
 	}: {
 		action: string;
-		label: string;
-		sessionId?: string;
-		expectedCount?: number;
-		confirmation?: string;
-		confirmationField?: string;
-		confirmationValue?: string;
-		destructive?: boolean;
-		class?: string;
+		expectedCount: number;
+		confirmation: string;
 	} = $props();
+
 	let busy = $state(false);
 	let confirming = $state(false);
+	let typed = $state('');
 	let message = $state('');
 </script>
 
 <form
 	method="POST"
 	{action}
-	class={className}
 	use:enhance={({ formData, cancel }) => {
-		if (busy || (confirmation && !confirming)) {
+		if (busy || !confirming || typed !== 'PURGE') {
 			cancel();
 			return;
 		}
-		if (confirmationField && confirmationValue) formData.set(confirmationField, confirmationValue);
+		formData.set('confirmPurge', typed);
 		busy = true;
 		message = '';
 		return async ({ result, update }) => {
@@ -52,26 +47,30 @@
 		};
 	}}
 >
-	{#if sessionId}<input type="hidden" name="sessionId" value={sessionId} />{/if}
-	{#if expectedCount !== undefined}<input
-			type="hidden"
-			name="expectedCount"
-			value={expectedCount}
-		/>{/if}
-	{#if confirmation && !confirming}
-		<button type="button" class:destructive onclick={() => (confirming = true)}>{label}</button>
-	{:else if confirmation}
-		<div class="confirmation" role="group" aria-label="Confirm permanent deletion">
+	<input type="hidden" name="expectedCount" value={expectedCount} />
+	{#if !confirming}
+		<button type="button" class="destructive" onclick={() => (confirming = true)}
+			>Empty Trash ({expectedCount})</button
+		>
+	{:else}
+		<div class="confirmation" role="group" aria-label="Confirm permanent purge">
 			<p>{confirmation}</p>
+			<input
+				type="text"
+				bind:value={typed}
+				placeholder="Type PURGE"
+				autocomplete="off"
+				spellcheck="false"
+				aria-label="Type PURGE to confirm"
+				disabled={busy}
+			/>
 			<div class="actions">
 				<button type="button" disabled={busy} onclick={() => (confirming = false)}>Cancel</button
-				><button type="submit" class:destructive disabled={busy}
-					>{busy ? 'Deleting…' : label}</button
+				><button type="submit" class="destructive" disabled={busy || typed !== 'PURGE'}
+					>{busy ? 'Purging…' : 'Permanently delete'}</button
 				>
 			</div>
 		</div>
-	{:else}
-		<button type="submit" disabled={busy}>{busy ? 'Restoring…' : label}</button>
 	{/if}
 	{#if message}<p role="alert">{message}</p>{/if}
 </form>
@@ -87,6 +86,17 @@
 		margin: 0 0 12px;
 		color: #e2e8f0;
 		line-height: 1.5;
+	}
+	.confirmation input {
+		width: 100%;
+		min-height: 44px;
+		margin-bottom: 12px;
+		padding: 10px 12px;
+		border: 1px solid #66404c;
+		border-radius: 9px;
+		background: transparent;
+		color: #fda4af;
+		font-size: 14px;
 	}
 	.actions {
 		display: flex;
@@ -111,10 +121,5 @@
 	button:disabled {
 		opacity: 0.6;
 		cursor: wait;
-	}
-	p {
-		color: #fda4af;
-		font-size: 13px;
-		margin-top: 8px;
 	}
 </style>

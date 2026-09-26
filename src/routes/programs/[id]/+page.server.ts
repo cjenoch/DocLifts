@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db, days, programs, sessions } from '$lib/server/db';
 import {
 	listDeletedSessionsForProgram,
@@ -8,7 +8,7 @@ import {
 	softDeleteEndedSession,
 	startSessionForDay,
 	hardDeleteSession,
-	purgeDeletedSessionsForProgram,
+	purgeDeletedSessionsForProgram
 } from '$lib/server/sessions';
 import { z } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
@@ -37,7 +37,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			name: days.name,
 			position: days.position,
 			alternateGroupId: days.alternateGroupId,
-			notes: days.notes,
+			notes: days.notes
 		})
 		.from(days)
 		.where(eq(days.programId, program.id))
@@ -61,7 +61,7 @@ export const load: PageServerLoad = async ({ params }) => {
 			dayName: days.name,
 			startedAt: sessions.startedAt,
 			endedAt: sessions.endedAt,
-			deletedAt: sessions.deletedAt,
+			deletedAt: sessions.deletedAt
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
@@ -78,29 +78,40 @@ export const load: PageServerLoad = async ({ params }) => {
 
 	const trashSessions = await listDeletedSessionsForProgram(db, program.id, 50);
 
+	// True trash count for the purge expectedCount guard — the display list
+	// above is capped at 50, but the purgeTrash action re-counts with limit
+	// 1000. If the UI submitted the capped display length, >50 trashed
+	// sessions would 409 forever (audit finding, 2026-09-26).
+	const trashCountRow = await db
+		.select({ count: sql<number>`count(*)::int` })
+		.from(sessions)
+		.where(and(eq(sessions.programId, program.id), isNotNull(sessions.deletedAt)));
+	const trashCount = trashCountRow[0]?.count ?? 0;
+
 	return {
 		program,
 		days: programDays.map((d) => ({
 			...d,
-			openSessionId: openByDay.get(d.id) ?? null,
+			openSessionId: openByDay.get(d.id) ?? null
 		})),
 		recentSessions,
 		sessionsByDay,
 		trashSessions,
+		trashCount
 	};
 };
 
 const deleteSessionSchema = z.object({
-	sessionId: z.string().uuid(),
+	sessionId: z.string().uuid()
 });
 
 const restoreSessionSchema = z.object({
-	sessionId: z.string().uuid(),
+	sessionId: z.string().uuid()
 });
 
 const permanentDeleteSchema = z.object({
 	sessionId: z.string().uuid(),
-	confirmDelete: z.preprocess((v) => (typeof v === 'string' ? v.toLowerCase() : v), z.literal('d')),
+	confirmDelete: z.preprocess((v) => (typeof v === 'string' ? v.toLowerCase() : v), z.literal('d'))
 });
 
 const purgeTrashSchema = z.object({
@@ -108,7 +119,10 @@ const purgeTrashSchema = z.object({
 		(v) => (typeof v === 'string' ? v.toUpperCase() : v),
 		z.literal('PURGE')
 	),
-	expectedCount: z.preprocess((v) => (typeof v === 'string' ? Number(v) : v), z.number().int().nonnegative()),
+	expectedCount: z.preprocess(
+		(v) => (typeof v === 'string' ? Number(v) : v),
+		z.number().int().nonnegative()
+	)
 });
 
 export const actions: Actions = {
@@ -134,13 +148,18 @@ export const actions: Actions = {
 	deleteSession: async ({ request, params }) => {
 		const form = await request.formData();
 		const parsed = deleteSessionSchema.safeParse({
-			sessionId: form.get('sessionId'),
+			sessionId: form.get('sessionId')
 		});
 		if (!parsed.success) {
 			return fail(400, { message: 'Invalid session id' });
 		}
 
-		const ownedSession = await loadProgramOwnedSession(db, parsed.data.sessionId, params.id, 'ended-active');
+		const ownedSession = await loadProgramOwnedSession(
+			db,
+			parsed.data.sessionId,
+			params.id,
+			'ended-active'
+		);
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });
 		}
@@ -155,13 +174,18 @@ export const actions: Actions = {
 	restoreSession: async ({ request, params }) => {
 		const form = await request.formData();
 		const parsed = restoreSessionSchema.safeParse({
-			sessionId: form.get('sessionId'),
+			sessionId: form.get('sessionId')
 		});
 		if (!parsed.success) {
 			return fail(400, { message: 'Invalid session id' });
 		}
 
-		const ownedSession = await loadProgramOwnedSession(db, parsed.data.sessionId, params.id, 'deleted-only');
+		const ownedSession = await loadProgramOwnedSession(
+			db,
+			parsed.data.sessionId,
+			params.id,
+			'deleted-only'
+		);
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });
 		}
@@ -177,13 +201,18 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const parsed = permanentDeleteSchema.safeParse({
 			sessionId: form.get('sessionId'),
-			confirmDelete: form.get('confirmDelete'),
+			confirmDelete: form.get('confirmDelete')
 		});
 		if (!parsed.success) {
 			return fail(400, { message: 'Press d in the permanent delete box to confirm' });
 		}
 
-		const ownedSession = await loadProgramOwnedSession(db, parsed.data.sessionId, params.id, 'deleted-only');
+		const ownedSession = await loadProgramOwnedSession(
+			db,
+			parsed.data.sessionId,
+			params.id,
+			'deleted-only'
+		);
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });
 		}
@@ -199,7 +228,7 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const parsed = purgeTrashSchema.safeParse({
 			confirmPurge: form.get('confirmPurge'),
-			expectedCount: form.get('expectedCount'),
+			expectedCount: form.get('expectedCount')
 		});
 		if (!parsed.success) {
 			return fail(400, { message: 'Type PURGE and confirm count to empty trash' });
@@ -207,10 +236,12 @@ export const actions: Actions = {
 
 		const deleted = await listDeletedSessionsForProgram(db, params.id, 1000);
 		if (deleted.length !== parsed.data.expectedCount) {
-			return fail(409, { message: `Trash count changed. Expected ${parsed.data.expectedCount}, found ${deleted.length}.` });
+			return fail(409, {
+				message: `Trash count changed. Expected ${parsed.data.expectedCount}, found ${deleted.length}.`
+			});
 		}
 
 		const purged = await purgeDeletedSessionsForProgram(db, params.id);
 		return { ok: true, purged: purged.purged };
-	},
+	}
 };

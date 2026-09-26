@@ -6,6 +6,7 @@
 	import SetRow from './SetRow.svelte';
 	import MachinePicker from '$lib/MachinePicker.svelte';
 	import AddWorkoutExercise from '$lib/AddWorkoutExercise.svelte';
+	import TrashAction from '$lib/TrashAction.svelte';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let dirtyIds = $state<string[]>([]);
 	let appending = $state<string | null>(null);
@@ -57,21 +58,20 @@
 		></progress>
 	</header>
 	{#if data.session.endedAt}<div class="history-tools">
-			{#if data.allowEndedSessionEdit}<a href="/sessions/{data.session.id}">Done editing</a>
-				<form
-					method="POST"
+			{#if data.allowEndedSessionEdit}
+				<a href="/sessions/{data.session.id}">Done editing</a>
+				<TrashAction
 					action="?/deleteSession"
-					onsubmit={(e) => {
-						if (!confirm('Move this workout to Trash? You can restore it later.'))
-							e.preventDefault();
-					}}
-				>
-					<input type="hidden" name="confirmDelete" value="d" /><button class="trash"
-						>Move to Trash</button
-					>
-				</form>{:else}<span class="muted">Completed workout</span><a
-					href="/sessions/{data.session.id}?edit=1">Edit workout</a
-				>{/if}
+					label="Move to Trash"
+					confirmation="Move this workout to Trash? You can restore it later."
+					confirmationField="confirmDelete"
+					confirmationValue="d"
+					class="trash"
+				/>
+			{:else}
+				<span class="muted">Completed workout</span>
+				<a href="/sessions/{data.session.id}?edit=1">Edit workout</a>
+			{/if}
 		</div>{/if}
 	{#if form && 'message' in form && form.message}<p role="alert" class="error">
 			{form.message}

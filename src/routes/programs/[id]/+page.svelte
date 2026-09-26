@@ -1,5 +1,6 @@
 <script lang="ts">
 	import TrashAction from '$lib/TrashAction.svelte';
+	import TrashPurgeForm from '$lib/TrashPurgeForm.svelte';
 	import { enhance } from '$app/forms';
 	import type { PageData } from './$types';
 
@@ -235,14 +236,15 @@
 						{/each}
 					</ul>
 					<div class="mt-5 border-t border-zinc-800 pt-4">
-						<TrashAction
+						<!-- Owner decision 2026-09-26: purge requires the user to TYPE "PURGE".
+							     The two-click reveal alone was judged too weak for an irreversible
+							     bulk delete (audit finding). Typed value is validated client-side
+							     (submit disabled until it matches) and server-side by the
+							     purgeTrash Zod literal, which stays authoritative. -->
+						<TrashPurgeForm
 							action="?/purgeTrash"
-							label={`Empty Trash (${data.trashSessions.length})`}
-							expectedCount={data.trashSessions.length}
-							destructive
-							confirmation={`Permanently delete all ${data.trashSessions.length} workouts in this program’s Trash? This cannot be undone.`}
-							confirmationField="confirmPurge"
-							confirmationValue="PURGE"
+							expectedCount={data.trashCount}
+							confirmation={`Permanently delete all ${data.trashCount} workouts in this program's Trash? This cannot be undone. Type PURGE to confirm.`}
 						/>
 					</div>
 				{/if}

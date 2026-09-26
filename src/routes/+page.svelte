@@ -7,12 +7,23 @@
 <div class="mx-auto max-w-md px-4 py-6">
 	<div class="mb-5 flex items-center justify-between gap-2">
 		<h1 class="text-2xl font-semibold tracking-tight">Programs</h1>
-		<a
-			href="/reports"
-			class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold tracking-wide text-zinc-200 uppercase active:bg-zinc-800"
-		>
-			Reporting
-		</a>
+		<div class="flex items-center gap-2">
+			<a
+				href="/history"
+				class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold tracking-wide text-zinc-200 uppercase active:bg-zinc-800"
+				>History</a
+			>
+			<a
+				href="/gyms"
+				class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold tracking-wide text-zinc-200 uppercase active:bg-zinc-800"
+				>Gyms</a
+			>
+			<a
+				href="/reports"
+				class="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-semibold tracking-wide text-zinc-200 uppercase active:bg-zinc-800"
+				>Reporting</a
+			>
+		</div>
 	</div>
 
 	<a

@@ -132,21 +132,13 @@ Never call `snapToAchievable` directly from the pipeline. Always go through the 
 - All numeric columns use `mode: 'number'`. JS-number precision is safe for load weights bounded under 1000 lbs.
 - `pain_events` requires at least one of (sessionId, setId, exerciseId) non-null via CHECK constraint.
 
-## Out of scope (do NOT add without user approval)
+## Out of scope
 
-- Authentication or login flows
-- Cloud deployment
-- AI/LLM integration in the app itself
-- Mobile or PWA
-- Sync between devices
-- Advanced charting dashboards beyond the current Reporting v1 (consistency + trend bars already shipped)
-- Rest timers (UI; rest **targets** in schema are fine)
-- Multi-gym support
-- Wave loading state machine
-- Sleep / energy / readiness fields on sessions
-- Gamification, social features, or streaks
-
-If the user asks for any of these, confirm before building. The "personal tool, not product" framing is locked.
+Per owner decision (2026-09-26): the feature-gate list is retired. There is no standing
+out-of-scope list anymore. Multi-gym support was explicitly approved and shipped
+(`/gyms`, `gyms` + `gym_equipment` tables). Treat new features like any other change:
+follow the architectural principles above, and confirm with the owner before large
+builds — but no item is pre-banned. The "personal tool, not product" framing is locked.
 
 ## File conventions
 
@@ -161,7 +153,7 @@ If the user asks for any of these, confirm before building. The "personal tool, 
 - `src/lib/server/workout-sets.ts` — in-session set mutation (append set, remove-empty-last-set) for the inline logging UX. Locks the session row, validates done/deleted state, uses a client-supplied `requestId` as the set PK for idempotency, tags appended sets as `machine`-sourced copies (provenance: "Copied from the previous set. Adjust to what you lift."). Never renumbers existing `position`s.
 - `src/routes/sessions/[id]/AddWorkoutExercise.svelte` — client-side quick-add a new exercise to a live session (machine picker + machine-type-aware equipment preselect).
 - `src/lib/request-id.ts` — idempotency token helpers (client generates a per-submit UUID; server keys on it so a double-submit can't double-append).
-- `src/lib/server/gym-config.ts` — single-gym hardcoded config (move to `gyms` table when multi-gym arrives)
+- `src/lib/server/gym-config.ts` — plate inventory config (single-gym hardcoded; superseded for equipment picking by the shipped `gyms`/`gym_equipment` tables, but still the plate-snap inventory source)
 - `src/lib/server/test-db.ts` — integration-test DB bootstrap. Not imported by production code.
 - `scripts/backup-db.sh` — daily `pg_dump` to `~/backups/doclifts/`, 30-day rotation. Installed in user crontab (`0 3 * * *`). Cron log at `~/backups/doclifts/cron.log`.
 - `deploy/doclifts.service` — authoritative systemd unit (releases/current runtime). Matches the installed unit on the host; the older `scripts/apply-doclifts-systemd-override.sh` form is superseded and removed.

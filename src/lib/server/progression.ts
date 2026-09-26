@@ -190,9 +190,15 @@ function allSetsLogic(input: ProgressionInput): ProgressionResult {
 
 /**
  * Rounds a load to 0.5 lb precision. Final plate-snap happens in plates.ts.
+ * Exported as `round05` for callers that must match the engine's rounding when
+ * scaling an engine decision across positions (drift-trap guard).
  */
-function round(load: number): number {
+export function round05(load: number): number {
 	return Math.round(load * 2) / 2;
+}
+
+function round(load: number): number {
+	return round05(load);
 }
 
 /** 5 lb for upper-body exercises, 10 lb for lower-body exercises. */

@@ -24,6 +24,7 @@ import {
 	computeConsecutiveBackwards,
 	defaultIncrement,
 	getLastCompletedSet,
+	round05,
 	suggestNextLoad,
 	type Database
 } from './progression';
@@ -145,14 +146,24 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 			)
 		);
 	}
+	// Keyed by dayExerciseId (NOT exerciseId) so two occurrences of the same
+	// exercise in one day progress independently — mirrors the MAIN branch above.
+	// Keying by exerciseId would merge both occurrences' working sets into one
+	// engine call and apply a single decision to both (review finding, 2026-09-26).
 	const exerciseDecision = new Map<string, Decision>();
 
-	for (const exerciseId of new Set(prescribed.map((p) => p.exerciseId))) {
+	for (const dayExerciseId of new Set(prescribed.map((p) => p.dayExerciseId))) {
 		const rows = prescribed
 			.map((p, i) => ({ p, history: histories[i] }))
-			.filter((row) => row.p.exerciseId === exerciseId)
+			.filter((row) => row.p.dayExerciseId === dayExerciseId)
 			.filter((row) => row.p.tier !== 'main' && row.p.setRole === 'working');
 		if (!rows.length) continue;
+		// All-sets-clear rule: if ANY working position lacks executed history,
+		// the exercise is not eligible for an engine decision at all. Skipping
+		// here drops every position of this exercise to the dumb-prefill path
+		// below (which must not call the engine for non-main tiers — see the
+		// per-row fallback comment). A single clearing position must not advance
+		// the exercise (CLAUDE.md §SECONDARY/ISOLATION).
 		if (rows.some((row) => row.history?.executedLoad == null)) continue;
 
 		const sorted = rows.sort((a, b) => a.p.setPosition - b.p.setPosition);
@@ -192,19 +203,19 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 
 		const baseline = relevantSets[0].load;
 		if (suggested.kind === 'advance') {
-			exerciseDecision.set(exerciseId, {
+			exerciseDecision.set(dayExerciseId, {
 				kind: 'advance',
 				delta: suggested.load - baseline,
 				reasoning: suggested.reasoning
 			});
 		} else if (suggested.kind === 'deload') {
-			exerciseDecision.set(exerciseId, {
+			exerciseDecision.set(dayExerciseId, {
 				kind: 'deload',
 				loadScale: baseline === 0 ? 0 : suggested.load / baseline,
 				reasoning: suggested.reasoning
 			});
 		} else {
-			exerciseDecision.set(exerciseId, { kind: 'hold', reasoning: suggested.reasoning });
+			exerciseDecision.set(dayExerciseId, { kind: 'hold', reasoning: suggested.reasoning });
 		}
 	}
 
@@ -238,14 +249,14 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 			}
 
 			if (p.setRole === 'working') {
-				const decision = exerciseDecision.get(p.exerciseId);
+				const decision = exerciseDecision.get(p.dayExerciseId);
 				if (decision) {
 					const baseline = history.executedLoad;
 					const raw =
 						decision.kind === 'advance'
 							? baseline + decision.delta
 							: decision.kind === 'deload'
-								? baseline * decision.loadScale
+								? round05(baseline * decision.loadScale)
 								: baseline;
 					return {
 						load: snapForEquipment(raw, p.equipmentType).achievable,
@@ -254,35 +265,19 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 				}
 			}
 
-			const targetRepsMax = p.targetRepsMax ?? history.prescribedRepsMax ?? p.targetRepsMin ?? 0;
-			const targetRir = p.targetRir ?? history.prescribedRir ?? 0;
-			const increment = defaultIncrement(p.isLowerBody);
-			const relevantSets = [
-				{
-					position: p.setPosition,
-					load: history.executedLoad,
-					reps: history.executedReps ?? targetRepsMax,
-					rir: history.executedRir ?? targetRir
-				}
-			];
-			const consecutiveBackwards = await computeConsecutiveBackwards(
-				db,
-				p.exerciseId,
-				p.setRole,
-				p.setPosition
-			);
-			const suggested = suggestNextLoad({
-				tier: p.tier,
-				policy: p.progressionPolicy,
-				relevantSets,
-				targetRepsMax,
-				targetRir,
-				increment,
-				consecutiveBackwards
-			});
+			// Per-row fallback (no exercise-level decision): dumb prefill only.
+			//
+			// A non-main tier that reaches this point either had no working rows
+			// (warmups/backoffs handled above) or lacked history on some working
+			// position. Calling suggestNextLoad per-row here with a single-element
+			// relevantSets would let ONE clearing position advance the exercise —
+			// violating the all-sets-clear rule (review finding, 2026-09-26). So:
+			// no engine call for non-main tiers on this path; hold at last load.
+			// (Control-flow note: the `if (p.tier === 'main')` branch above has
+			// already returned, so only non-main tiers reach here.)
 			return {
-				load: snapForEquipment(suggested.load, p.equipmentType).achievable,
-				reasoning: suggested.reasoning
+				load: snapForEquipment(history.executedLoad, p.equipmentType).achievable,
+				reasoning: 'held: incomplete history on this exercise'
 			};
 		})
 	);
@@ -538,9 +533,19 @@ export async function hardDeleteSession(
 		return { ok: false, status: 404, message: 'Session not found in trash' };
 	}
 
-	await db.transaction(async (tx) => {
-		await tx.delete(sessions).where(eq(sessions.id, session.id));
+	// Re-assert deleted state INSIDE the transaction: the pre-check above runs
+	// outside it, so a restore committed in between would otherwise let this
+	// DELETE irrecoverably destroy a live session (review finding, 2026-09-26).
+	// 0 affected rows = the session was restored concurrently → 409.
+	const deleted = await db.transaction(async (tx) => {
+		return tx
+			.delete(sessions)
+			.where(and(eq(sessions.id, session.id), isNotNull(sessions.deletedAt)))
+			.returning({ id: sessions.id });
 	});
+	if (deleted.length === 0) {
+		return { ok: false, status: 409, message: 'Session is no longer in trash' };
+	}
 	return { ok: true };
 }
 

@@ -168,19 +168,24 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 
 		const sorted = rows.sort((a, b) => a.p.setPosition - b.p.setPosition);
 		const first = sorted[0];
-		const firstHistory = first.history;
-		if (!firstHistory || firstHistory.executedLoad == null) continue;
 
-		const targetRepsMax =
-			first.p.targetRepsMax ?? firstHistory.prescribedRepsMax ?? first.p.targetRepsMin ?? 0;
-		const targetRir = first.p.targetRir ?? firstHistory.prescribedRir ?? 0;
 		const increment = defaultIncrement(first.p.isLowerBody);
-		const relevantSets = sorted.map((row) => ({
-			position: row.p.setPosition,
-			load: row.history?.executedLoad ?? 0,
-			reps: row.history?.executedReps ?? targetRepsMax,
-			rir: row.history?.executedRir ?? targetRir
-		}));
+		// M2 (2026-09-28): each working position is judged against its OWN rep
+		// range / RIR target — position 1's target no longer applies
+		// exercise-wide.
+		const relevantSets = sorted.map((row) => {
+			const targetRepsMax =
+				row.p.targetRepsMax ?? row.history?.prescribedRepsMax ?? row.p.targetRepsMin ?? 0;
+			const targetRir = row.p.targetRir ?? row.history?.prescribedRir ?? 0;
+			return {
+				position: row.p.setPosition,
+				load: row.history?.executedLoad ?? 0,
+				reps: row.history?.executedReps ?? targetRepsMax,
+				rir: row.history?.executedRir ?? targetRir,
+				targetRepsMax,
+				targetRir
+			};
+		});
 		const backwardsPerPosition = await Promise.all(
 			sorted.map((row) =>
 				computeConsecutiveBackwards(db, first.p.exerciseId, 'working', row.p.setPosition)
@@ -195,8 +200,6 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 			tier: first.p.tier,
 			policy: first.p.progressionPolicy,
 			relevantSets,
-			targetRepsMax,
-			targetRir,
 			increment,
 			consecutiveBackwards
 		});

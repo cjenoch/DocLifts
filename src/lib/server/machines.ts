@@ -227,14 +227,16 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 		groupDecision = suggestNextLoad({
 			tier: occurrence.tier,
 			policy: occurrence.progressionPolicy,
+			// M2 (2026-09-28): each position carries its own rep range / RIR
+			// target — no more judging every position against position 1's.
 			relevantSets: working.map((v) => ({
 				position: v.r.position,
 				load: v.h!.executedLoad!,
 				reps: v.h!.executedReps!,
-				rir: v.h!.executedRir ?? v.r.prescribedRir ?? 0
+				rir: v.h!.executedRir ?? v.r.prescribedRir ?? 0,
+				targetRepsMax: v.r.prescribedRepsMax ?? 0,
+				targetRir: v.r.prescribedRir ?? 0
 			})),
-			targetRepsMax: first.r.prescribedRepsMax ?? 0,
-			targetRir: first.r.prescribedRir ?? 0,
 			increment: defaultIncrement(exercise.isLowerBody),
 			consecutiveBackwards: Math.min(...backwards)
 		});
@@ -262,31 +264,12 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 					reasoning = groupDecision.reasoning;
 				} else reasoning = 'held: incomplete working-set history for this machine';
 			} else {
-				const decision = suggestNextLoad({
-					tier: occurrence.tier,
-					policy: occurrence.progressionPolicy,
-					relevantSets: [
-						{
-							position: r.position,
-							load,
-							reps: h.executedReps!,
-							rir: h.executedRir ?? r.prescribedRir ?? 0
-						}
-					],
-					targetRepsMax: r.prescribedRepsMax ?? 0,
-					targetRir: r.prescribedRir ?? 0,
-					increment: defaultIncrement(exercise.isLowerBody),
-					consecutiveBackwards: await computeConsecutiveBackwards(
-						db,
-						r.exerciseId,
-						r.setRole,
-						r.position,
-						10,
-						identity
-					)
-				});
-				load = decision.load;
-				reasoning = decision.reasoning;
+				// M1 (2026-09-28): non-main, non-working rows (in practice legacy
+				// 'backoff'/'top' rows on secondary/isolation occurrences) hold at
+				// their last executed load. Calling the engine per-row here would
+				// let a single clearing row advance past the all-sets-clear gate —
+				// the same trap sessions.ts's per-row fallback deliberately avoids.
+				reasoning = 'held: non-working set on non-main tier';
 			}
 		}
 		await db

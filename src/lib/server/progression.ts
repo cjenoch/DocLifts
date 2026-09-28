@@ -55,6 +55,12 @@ export type ExecutedSet = {
 	load: number;
 	reps: number;
 	rir: number;
+	/**
+	 * This set's OWN rep-range top and RIR target. The engine judges every
+	 * position against its own target — never position 1's (M2, 2026-09-28).
+	 */
+	targetRepsMax: number;
+	targetRir: number;
 };
 
 export type ProgressionInput = {
@@ -63,10 +69,9 @@ export type ProgressionInput = {
 	/**
 	 * For 'main' tier: pass [topSet] (single-element array).
 	 * For 'secondary' / 'isolation': pass all working sets in position order.
+	 * Each set carries its own targetRepsMax/targetRir (see ExecutedSet).
 	 */
 	relevantSets: ExecutedSet[];
-	targetRepsMax: number;
-	targetRir: number;
 	/** 5 lb for upper body, 10 lb for lower body. Caller decides based on exercise. */
 	increment: number;
 	/** Computed by `computeConsecutiveBackwards()` (or 0 if insufficient history). */
@@ -126,7 +131,9 @@ export function suggestNextLoad(input: ProgressionInput): ProgressionResult {
 
 function mainTierLogic(input: ProgressionInput): ProgressionResult {
 	const top = input.relevantSets[0];
-	const { increment, targetRepsMax, targetRir } = input;
+	const { increment } = input;
+	// The top set carries its own targets (M2, 2026-09-28).
+	const { targetRepsMax, targetRir } = top;
 
 	// Missed target reps → hold
 	if (top.reps < targetRepsMax) {
@@ -165,17 +172,19 @@ function mainTierLogic(input: ProgressionInput): ProgressionResult {
 
 function allSetsLogic(input: ProgressionInput): ProgressionResult {
 	const baseline = input.relevantSets[0].load;
-	const { increment, targetRepsMax, targetRir } = input;
+	const { increment } = input;
 
+	// M2 (2026-09-28): every position is judged against its OWN rep range /
+	// RIR target, never position 1's.
 	const allClearTop = input.relevantSets.every(
-		(s) => s.reps >= targetRepsMax && s.rir <= targetRir
+		(s) => s.reps >= s.targetRepsMax && s.rir <= s.targetRir
 	);
 
 	if (allClearTop) {
 		return {
 			kind: 'advance',
 			load: baseline + increment,
-			reasoning: `+${increment}: all working sets at top of range, RIR ≤ ${targetRir}`
+			reasoning: `+${increment}: all working sets at top of range`
 		};
 	}
 

@@ -758,12 +758,229 @@ describe('startSessionForDay: prefill pipeline', () => {
 			{
 				position: 1,
 				prescribedLoad: 105,
-				suggestionReasoning: '+5: all working sets at top of range, RIR ≤ 1'
+				suggestionReasoning: '+5: all working sets at top of range'
 			},
 			{
 				position: 2,
 				prescribedLoad: 95,
-				suggestionReasoning: '+5: all working sets at top of range, RIR ≤ 1'
+				suggestionReasoning: '+5: all working sets at top of range'
+			}
+		]);
+	});
+
+	it('holds SECONDARY when a position clears position 1\u2019s range but not its own (M2)', async () => {
+		const [prog] = await db.insert(programs).values({ name: 'm2 hold' }).returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day 1', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'M2 Press', equipmentType: 'cable' })
+			.returning();
+		const [dx] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex.id,
+				position: 1,
+				tier: 'secondary',
+				progressionPolicy: 'standard'
+			})
+			.returning();
+		await db.insert(prescribedSets).values([
+			{
+				dayExerciseId: dx.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 6,
+				targetRepsMax: 8,
+				targetRir: 1,
+				initialLoad: 100
+			},
+			{
+				dayExerciseId: dx.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 10,
+				targetRepsMax: 12,
+				targetRir: 1,
+				initialLoad: 100
+			}
+		]);
+
+		// Prior completed session: position 1 clears its 8; position 2 hits 10 —
+		// clears position 1's 8 but NOT its own 12. Pre-fix the engine judged
+		// position 2 against 8 and advanced 135 → 140.
+		const [priorSession] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(Date.now() - 120_000),
+				endedAt: new Date(Date.now() - 90_000)
+			})
+			.returning();
+		await db.insert(sets).values([
+			{
+				sessionId: priorSession.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 135,
+				executedReps: 8,
+				executedRir: 1,
+				prescribedRepsMax: 8,
+				prescribedRir: 1
+			},
+			{
+				sessionId: priorSession.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 135,
+				executedReps: 10,
+				executedRir: 1,
+				prescribedRepsMax: 12,
+				prescribedRir: 1
+			}
+		]);
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const rows = await db
+			.select({
+				position: sets.position,
+				prescribedLoad: sets.prescribedLoad,
+				suggestionReasoning: sets.suggestionReasoning
+			})
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.position));
+
+		expect(rows).toEqual([
+			{
+				position: 1,
+				prescribedLoad: 135,
+				suggestionReasoning: 'held: not all working sets cleared top of range'
+			},
+			{
+				position: 2,
+				prescribedLoad: 135,
+				suggestionReasoning: 'held: not all working sets cleared top of range'
+			}
+		]);
+	});
+
+	it('advances SECONDARY when every position clears its own range (M2)', async () => {
+		const [prog] = await db.insert(programs).values({ name: 'm2 advance' }).returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day 1', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'M2 Press Advance', equipmentType: 'cable' })
+			.returning();
+		const [dx] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex.id,
+				position: 1,
+				tier: 'secondary',
+				progressionPolicy: 'standard'
+			})
+			.returning();
+		await db.insert(prescribedSets).values([
+			{
+				dayExerciseId: dx.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 6,
+				targetRepsMax: 8,
+				targetRir: 1,
+				initialLoad: 100
+			},
+			{
+				dayExerciseId: dx.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 10,
+				targetRepsMax: 12,
+				targetRir: 1,
+				initialLoad: 100
+			}
+		]);
+
+		const [priorSession] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(Date.now() - 120_000),
+				endedAt: new Date(Date.now() - 90_000)
+			})
+			.returning();
+		await db.insert(sets).values([
+			{
+				sessionId: priorSession.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 135,
+				executedReps: 8,
+				executedRir: 1,
+				prescribedRepsMax: 8,
+				prescribedRir: 1
+			},
+			{
+				sessionId: priorSession.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 135,
+				executedReps: 12,
+				executedRir: 1,
+				prescribedRepsMax: 12,
+				prescribedRir: 1
+			}
+		]);
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const rows = await db
+			.select({
+				position: sets.position,
+				prescribedLoad: sets.prescribedLoad,
+				suggestionReasoning: sets.suggestionReasoning
+			})
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.position));
+
+		expect(rows).toEqual([
+			{
+				position: 1,
+				prescribedLoad: 140,
+				suggestionReasoning: '+5: all working sets at top of range'
+			},
+			{
+				position: 2,
+				prescribedLoad: 140,
+				suggestionReasoning: '+5: all working sets at top of range'
 			}
 		]);
 	});

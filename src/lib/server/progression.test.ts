@@ -5,9 +5,9 @@ function makeInput(overrides: Partial<ProgressionInput> = {}): ProgressionInput 
 	return {
 		tier: 'main',
 		policy: 'standard',
-		relevantSets: [{ position: 1, load: 100, reps: 5, rir: 1 }],
-		targetRepsMax: 5,
-		targetRir: 1,
+		relevantSets: [
+			{ position: 1, load: 100, reps: 5, rir: 1, targetRepsMax: 5, targetRir: 1 }
+		],
 		increment: 5,
 		consecutiveBackwards: 0,
 		...overrides
@@ -19,7 +19,9 @@ describe('suggestNextLoad: policy gating', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				policy: 'hold',
-				relevantSets: [{ position: 1, load: 405, reps: 5, rir: 0 }]
+				relevantSets: [
+					{ position: 1, load: 405, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 1 }
+				]
 			})
 		);
 		expect(r.load).toBe(405);
@@ -30,7 +32,9 @@ describe('suggestNextLoad: policy gating', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				policy: 'cautious',
-				relevantSets: [{ position: 1, load: 100, reps: 5, rir: 0 }]
+				relevantSets: [
+					{ position: 1, load: 100, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 1 }
+				]
 			})
 		);
 		expect(r.load).toBe(100);
@@ -60,7 +64,12 @@ describe('suggestNextLoad: deload trigger', () => {
 
 	it('deload decision kind and reasoning stay in sync', () => {
 		const r = suggestNextLoad(
-			makeInput({ consecutiveBackwards: 2, relevantSets: [{ position: 1, load: 105, reps: 4, rir: 3 }] })
+			makeInput({
+				consecutiveBackwards: 2,
+				relevantSets: [
+					{ position: 1, load: 105, reps: 4, rir: 3, targetRepsMax: 5, targetRir: 1 }
+				]
+			})
 		);
 		expect(r.kind).toBe('deload');
 		expect(r.reasoning).toBe('10% deload after 2 consecutive backwards sessions');
@@ -77,7 +86,9 @@ describe('suggestNextLoad: deload trigger', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				consecutiveBackwards: 2,
-				relevantSets: [{ position: 1, load: 105, reps: 5, rir: 1 }]
+				relevantSets: [
+					{ position: 1, load: 105, reps: 5, rir: 1, targetRepsMax: 5, targetRir: 1 }
+				]
 			})
 		);
 		expect(r.load).toBe(94.5);
@@ -99,8 +110,9 @@ describe('suggestNextLoad: MAIN tier', () => {
 	it('+2*increment when top set is crushed (RIR ≥ 2 below target)', () => {
 		const r = suggestNextLoad(
 			makeInput({
-				targetRir: 2,
-				relevantSets: [{ position: 1, load: 100, reps: 5, rir: 0 }]
+				relevantSets: [
+					{ position: 1, load: 100, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 2 }
+				]
 			})
 		);
 		expect(r.load).toBe(110);
@@ -110,7 +122,9 @@ describe('suggestNextLoad: MAIN tier', () => {
 	it('holds when top set missed target reps', () => {
 		const r = suggestNextLoad(
 			makeInput({
-				relevantSets: [{ position: 1, load: 100, reps: 3, rir: 1 }]
+				relevantSets: [
+					{ position: 1, load: 100, reps: 3, rir: 1, targetRepsMax: 5, targetRir: 1 }
+				]
 			})
 		);
 		expect(r.load).toBe(100);
@@ -120,7 +134,9 @@ describe('suggestNextLoad: MAIN tier', () => {
 	it('holds when top set hit reps but RIR is above target', () => {
 		const r = suggestNextLoad(
 			makeInput({
-				relevantSets: [{ position: 1, load: 100, reps: 5, rir: 3 }]
+				relevantSets: [
+					{ position: 1, load: 100, reps: 5, rir: 3, targetRepsMax: 5, targetRir: 1 }
+				]
 			})
 		);
 		expect(r.load).toBe(100);
@@ -132,8 +148,8 @@ describe('suggestNextLoad: MAIN tier', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				relevantSets: [
-					{ position: 1, load: 100, reps: 5, rir: 1 },
-					{ position: 2, load: 90, reps: 3, rir: 4 } // would block all-sets logic
+					{ position: 1, load: 100, reps: 5, rir: 1, targetRepsMax: 5, targetRir: 1 },
+					{ position: 2, load: 90, reps: 3, rir: 4, targetRepsMax: 5, targetRir: 1 } // would block all-sets logic
 				]
 			})
 		);
@@ -151,11 +167,9 @@ describe('suggestNextLoad: SECONDARY / ISOLATION tier', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				tier: 'secondary',
-				targetRepsMax: 10,
-				targetRir: 2,
 				relevantSets: [
-					{ position: 1, load: 80, reps: 10, rir: 2 },
-					{ position: 2, load: 80, reps: 11, rir: 1 }
+					{ position: 1, load: 80, reps: 10, rir: 2, targetRepsMax: 10, targetRir: 2 },
+					{ position: 2, load: 80, reps: 11, rir: 1, targetRepsMax: 10, targetRir: 2 }
 				]
 			})
 		);
@@ -166,11 +180,9 @@ describe('suggestNextLoad: SECONDARY / ISOLATION tier', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				tier: 'isolation',
-				targetRepsMax: 12,
-				targetRir: 1,
 				relevantSets: [
-					{ position: 1, load: 40, reps: 12, rir: 1 },
-					{ position: 2, load: 40, reps: 9, rir: 0 } // reps short
+					{ position: 1, load: 40, reps: 12, rir: 1, targetRepsMax: 12, targetRir: 1 },
+					{ position: 2, load: 40, reps: 9, rir: 0, targetRepsMax: 12, targetRir: 1 } // reps short
 				]
 			})
 		);
@@ -182,11 +194,9 @@ describe('suggestNextLoad: SECONDARY / ISOLATION tier', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				tier: 'secondary',
-				targetRepsMax: 10,
-				targetRir: 1,
 				relevantSets: [
-					{ position: 1, load: 80, reps: 10, rir: 1 },
-					{ position: 2, load: 80, reps: 10, rir: 3 } // RIR too high
+					{ position: 1, load: 80, reps: 10, rir: 1, targetRepsMax: 10, targetRir: 1 },
+					{ position: 2, load: 80, reps: 10, rir: 3, targetRepsMax: 10, targetRir: 1 } // RIR too high
 				]
 			})
 		);
@@ -198,16 +208,76 @@ describe('suggestNextLoad: SECONDARY / ISOLATION tier', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				tier: 'isolation',
-				targetRepsMax: 12,
-				targetRir: 1,
 				relevantSets: [
-					{ position: 1, load: 40, reps: 12, rir: 0 },
-					{ position: 2, load: 35, reps: 12, rir: 1 }
+					{ position: 1, load: 40, reps: 12, rir: 0, targetRepsMax: 12, targetRir: 1 },
+					{ position: 2, load: 35, reps: 12, rir: 1, targetRepsMax: 12, targetRir: 1 }
 				]
 			})
 		);
 		// Baseline is the first set's load (40), not min or max across sets.
 		expect(r.load).toBe(45);
+	});
+});
+
+describe('suggestNextLoad: per-position targets (M2)', () => {
+	it("holds when a position clears position 1's range but not its own", () => {
+		// Position 2 hits 10 reps — clears position 1's target of 8, but its
+		// own target is 12. Pre-fix the engine judged it against 8 and advanced.
+		const r = suggestNextLoad(
+			makeInput({
+				tier: 'secondary',
+				relevantSets: [
+					{ position: 1, load: 135, reps: 8, rir: 1, targetRepsMax: 8, targetRir: 1 },
+					{ position: 2, load: 135, reps: 10, rir: 1, targetRepsMax: 12, targetRir: 1 }
+				]
+			})
+		);
+		expect(r.kind).toBe('hold');
+		expect(r.load).toBe(135);
+	});
+
+	it('advances when every position clears its own range', () => {
+		const r = suggestNextLoad(
+			makeInput({
+				tier: 'secondary',
+				relevantSets: [
+					{ position: 1, load: 135, reps: 8, rir: 1, targetRepsMax: 8, targetRir: 1 },
+					{ position: 2, load: 135, reps: 12, rir: 1, targetRepsMax: 12, targetRir: 1 }
+				]
+			})
+		);
+		expect(r.kind).toBe('advance');
+		expect(r.load).toBe(140);
+	});
+
+	it('judges a narrow position against its own target, not a wider position 1', () => {
+		// Position 2 manages 6 reps against its own target of 8 — a hold either
+		// way, but for the right reason (6 < 8, not 6 < 12).
+		const r = suggestNextLoad(
+			makeInput({
+				tier: 'secondary',
+				relevantSets: [
+					{ position: 1, load: 135, reps: 12, rir: 1, targetRepsMax: 12, targetRir: 1 },
+					{ position: 2, load: 135, reps: 6, rir: 1, targetRepsMax: 8, targetRir: 1 }
+				]
+			})
+		);
+		expect(r.kind).toBe('hold');
+		expect(r.load).toBe(135);
+	});
+
+	it('holds when a position clears reps but misses its own RIR target', () => {
+		const r = suggestNextLoad(
+			makeInput({
+				tier: 'secondary',
+				relevantSets: [
+					{ position: 1, load: 135, reps: 8, rir: 1, targetRepsMax: 8, targetRir: 1 },
+					{ position: 2, load: 135, reps: 12, rir: 3, targetRepsMax: 12, targetRir: 1 }
+				]
+			})
+		);
+		expect(r.kind).toBe('hold');
+		expect(r.load).toBe(135);
 	});
 });
 

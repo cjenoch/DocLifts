@@ -45,11 +45,13 @@ export async function mainPrefills(
 							position: top.position,
 							load: baseline,
 							reps: h.executedReps!,
-							rir: h.executedRir ?? top.targetRir ?? h.prescribedRir ?? 0
+							rir: h.executedRir ?? top.targetRir ?? h.prescribedRir ?? 0,
+							// M2 (2026-09-28): the top set carries its own targets.
+							targetRepsMax:
+								top.targetRepsMax ?? h.prescribedRepsMax ?? top.targetRepsMin ?? 0,
+							targetRir: top.targetRir ?? h.prescribedRir ?? 0
 						}
 					],
-					targetRepsMax: top.targetRepsMax ?? h.prescribedRepsMax ?? top.targetRepsMin ?? 0,
-					targetRir: top.targetRir ?? h.prescribedRir ?? 0,
 					increment: defaultIncrement(isLowerBody),
 					consecutiveBackwards: await computeConsecutiveBackwards(
 						db,

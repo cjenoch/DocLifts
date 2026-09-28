@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDb, type TestDb } from './test-db';
 import * as s from './db/schema';
 import { createGym, createMachine, addSessionExercise, bindSessionMachine } from './machines';
@@ -334,5 +334,85 @@ describe('physical machine identity', () => {
 		await expect(
 			bindSessionMachine(db, run.sessionId, run.occurrence.id, binding(f.gym.id, f.machine.id))
 		).rejects.toThrow(/ended/i);
+	});
+	it('holds legacy backoff rows on non-main tiers instead of advancing them per-row (M1)', async () => {
+		const f = await fixture();
+		const ident = `${f.machine.id}:plates_per_side`;
+		const backoffValues = {
+			exerciseId: f.exercise.id,
+			gymEquipmentId: f.machine.id,
+			loadConvention: 'plates_per_side' as const,
+			position: 3,
+			setRole: 'backoff' as const,
+			prescribedRepsMin: 8,
+			prescribedRepsMax: 10,
+			prescribedRir: 1
+		};
+
+		// Session 1: bind the machine, add a legacy backoff row, then log a
+		// mixed session — working position 2 fails (so the group holds at 135)
+		// while the backoff row clears its own 8–10 range at 95.
+		let run = await start(f.day.id);
+		const [backoff1] = await db
+			.insert(s.sets)
+			.values({ sessionId: run.sessionId, sessionExerciseId: run.occurrence.id, ...backoffValues })
+			.returning();
+		await bindSessionMachine(db, run.sessionId, run.occurrence.id, binding(f.gym.id, f.machine.id));
+		const working1 = await db
+			.select()
+			.from(s.sets)
+			.where(and(eq(s.sets.sessionId, run.sessionId), eq(s.sets.setRole, 'working')))
+			.orderBy(asc(s.sets.position));
+		const logRow = (id: string, load: number, reps: number, rir: number) =>
+			updateSetInSession(db, run.sessionId, id, {
+				executedLoad: load,
+				executedReps: reps,
+				executedRir: rir,
+				notes: '',
+				expectedIdentity: ident
+			});
+		await logRow(working1[0].id, 135, 8, 1);
+		await logRow(working1[1].id, 135, 6, 3);
+		await logRow(backoff1.id, 95, 10, 1);
+		await endSession(db, run.sessionId);
+
+		// Session 2: re-binding re-runs prefillOccurrence against that history.
+		run = await start(f.day.id);
+		await db
+			.insert(s.sets)
+			.values({ sessionId: run.sessionId, sessionExerciseId: run.occurrence.id, ...backoffValues });
+		await bindSessionMachine(db, run.sessionId, run.occurrence.id, binding(f.gym.id, f.machine.id));
+		const rows = await db
+			.select({
+				position: s.sets.position,
+				setRole: s.sets.setRole,
+				prescribedLoad: s.sets.prescribedLoad,
+				suggestionReasoning: s.sets.suggestionReasoning
+			})
+			.from(s.sets)
+			.where(eq(s.sets.sessionId, run.sessionId))
+			.orderBy(asc(s.sets.position));
+
+		// Pre-fix the clearing backoff row advanced 95 → 100 on its own.
+		expect(rows).toEqual([
+			{
+				position: 1,
+				setRole: 'working',
+				prescribedLoad: 135,
+				suggestionReasoning: 'held: not all working sets cleared top of range'
+			},
+			{
+				position: 2,
+				setRole: 'working',
+				prescribedLoad: 135,
+				suggestionReasoning: 'held: not all working sets cleared top of range'
+			},
+			{
+				position: 3,
+				setRole: 'backoff',
+				prescribedLoad: 95,
+				suggestionReasoning: 'held: non-working set on non-main tier'
+			}
+		]);
 	});
 });

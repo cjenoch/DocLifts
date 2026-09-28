@@ -170,6 +170,9 @@ const deleteEndedSessionSchema = z.object({
 
 export const actions: Actions = {
 	removeSet: async ({ request, params }) => {
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid session id' });
+		}
 		try {
 			await removeEmptyLastSet(db, params.id, String((await request.formData()).get('setId')));
 			return { removed: true };
@@ -180,6 +183,9 @@ export const actions: Actions = {
 		}
 	},
 	appendSet: async ({ request, params }) => {
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid session id' });
+		}
 		try {
 			const added = await appendWorkoutSet(
 				db,
@@ -194,6 +200,9 @@ export const actions: Actions = {
 		}
 	},
 	addExercise: async ({ request, params }) => {
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid session id', setId: null });
+		}
 		try {
 			const added = await addSessionExercise(
 				db,
@@ -211,6 +220,9 @@ export const actions: Actions = {
 		}
 	},
 	bindMachine: async ({ request, params }) => {
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid session id', setId: null });
+		}
 		const form = Object.fromEntries(await request.formData());
 		try {
 			await bindSessionMachine(db, params.id, String(form.occurrenceId), form);
@@ -240,6 +252,9 @@ export const actions: Actions = {
 		const setId = form.get('setId');
 		if (typeof setId !== 'string' || setId.length === 0) {
 			return fail(400, { setId: null, message: 'Missing setId' });
+		}
+		if (!uuidParamSchema.safeParse(setId).success) {
+			return fail(400, { setId: null, message: 'Invalid setId' });
 		}
 
 		const allowEndedSessionEditRaw = form.get('allowEndedSessionEdit');

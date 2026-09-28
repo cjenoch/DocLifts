@@ -1,6 +1,7 @@
 import {
 	computeConsecutiveBackwards,
 	defaultIncrement,
+	round05,
 	suggestNextLoad,
 	type Database,
 	type PerformanceIdentity,
@@ -77,7 +78,7 @@ export async function mainPrefills(
 			result.set(slot.position, { load: decision.load, reasoning: decision.reasoning });
 		} else if (slot.setRole === 'backoff' && baseline > 0) {
 			result.set(slot.position, {
-				load: decision.kind === 'hold' ? load : (load * decision.load) / baseline,
+				load: decision.kind === 'hold' ? load : round05((load * decision.load) / baseline),
 				reasoning: `backoff ratio retained from top set: ${decision.reasoning}`
 			});
 		} else {

@@ -353,7 +353,7 @@ export async function getLastCompletedSet(
 				excludeSessionId ? ne(sessions.id, excludeSessionId) : undefined
 			)
 		)
-		.orderBy(desc(sets.loggedAt))
+		.orderBy(desc(sets.loggedAt), desc(sessions.startedAt), desc(sets.position))
 		.limit(1);
 
 	return rows[0] ?? null;

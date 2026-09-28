@@ -15,6 +15,7 @@ import {
 	computeConsecutiveBackwards,
 	defaultIncrement,
 	getLastCompletedSet,
+	round05,
 	suggestNextLoad,
 	type Database,
 	type PerformanceIdentity
@@ -259,7 +260,7 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 							: groupDecision.kind === 'deload'
 								? baseline === 0
 									? 0
-									: (load * groupDecision.load) / baseline
+									: round05((load * groupDecision.load) / baseline)
 								: load;
 					reasoning = groupDecision.reasoning;
 				} else reasoning = 'held: incomplete working-set history for this machine';

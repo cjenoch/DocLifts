@@ -89,7 +89,10 @@ export async function resetTestDb(client: postgres.Sql): Promise<void> {
 			day_exercises,
 			days,
 			programs,
-			exercises
+			exercises,
+			program_draft_requests,
+			workout_log_imports,
+			imported_workouts
 		RESTART IDENTITY CASCADE
 	`;
 }

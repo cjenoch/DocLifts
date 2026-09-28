@@ -147,6 +147,9 @@ export const actions: Actions = {
 
 	deleteSession: async ({ request, params }) => {
 		const form = await request.formData();
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid program id' });
+		}
 		const parsed = deleteSessionSchema.safeParse({
 			sessionId: form.get('sessionId')
 		});
@@ -173,6 +176,9 @@ export const actions: Actions = {
 
 	restoreSession: async ({ request, params }) => {
 		const form = await request.formData();
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid program id' });
+		}
 		const parsed = restoreSessionSchema.safeParse({
 			sessionId: form.get('sessionId')
 		});
@@ -199,6 +205,9 @@ export const actions: Actions = {
 
 	permanentDeleteSession: async ({ request, params }) => {
 		const form = await request.formData();
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid program id' });
+		}
 		const parsed = permanentDeleteSchema.safeParse({
 			sessionId: form.get('sessionId'),
 			confirmDelete: form.get('confirmDelete')
@@ -226,6 +235,9 @@ export const actions: Actions = {
 
 	purgeTrash: async ({ request, params }) => {
 		const form = await request.formData();
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid program id' });
+		}
 		const parsed = purgeTrashSchema.safeParse({
 			confirmPurge: form.get('confirmPurge'),
 			expectedCount: form.get('expectedCount')

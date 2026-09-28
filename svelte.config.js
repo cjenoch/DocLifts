@@ -8,6 +8,26 @@ const config = {
 	},
 	kit: {
 		adapter: adapter(),
+		// L13: strict Content-Security-Policy. mode 'nonce' makes SvelteKit
+		// add per-request nonces to its own inline hydration scripts/styles,
+		// so script-src/style-src stay locked to 'self' with no
+		// 'unsafe-inline'. No external scripts, styles, fonts, or images
+		// exist anywhere in the app, and app.html carries no inline
+		// style/script attributes, so nothing else needs allowlisting.
+		csp: {
+			mode: 'nonce',
+			directives: {
+				'default-src': ['self'],
+				'script-src': ['self'],
+				'style-src': ['self'],
+				'img-src': ['self'],
+				'font-src': ['self'],
+				'object-src': ['none'],
+				'base-uri': ['self'],
+				'form-action': ['self'],
+				'frame-ancestors': ['none']
+			}
+		},
 		// CSRF: single-user, Tailscale-only, no auth. trustedOrigins allowlists
 		// the canonical HTTPS URL fronted by Tailscale Serve — needed because
 		// adapter-node would otherwise compute url.origin from the proxy's

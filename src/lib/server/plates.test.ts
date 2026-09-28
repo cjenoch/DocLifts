@@ -24,6 +24,13 @@ describe('snapToAchievable (barbell)', () => {
 		expect(snapToAchievable(44)).toEqual({ achievable: 44, platesUsed: [] });
 	});
 
+	it('returns 0 (not the bar) for zero or negative targets', () => {
+		// L5: a 0/negative input is a data problem, not a 44-lb intent.
+		expect(snapToAchievable(0)).toEqual({ achievable: 0, platesUsed: [] });
+		expect(snapToAchievable(-10)).toEqual({ achievable: 0, platesUsed: [] });
+		expect(snapForEquipment(0, 'barbell').achievable).toBe(0);
+	});
+
 	it('snaps DOWN (never up) when no exact plate combo matches', () => {
 		// 50 lb total → 3 lb per side. Smallest plate is 2.5, so per-side rounds
 		// to 2.5 → achievable 49. Must NOT round up to 54 (44 + 5+5).

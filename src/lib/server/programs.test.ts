@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDb } from './test-db';
-import { duplicateProgramForEdit } from './programs';
+import { duplicateProgramForEditInTransaction } from './programs';
 import * as s from './db/schema';
 let h: Awaited<ReturnType<typeof setupTestDb>>;
 beforeAll(async () => {
@@ -67,7 +67,7 @@ it('deep-copies every template child and keeps historical prescription reference
 			executedReps: 12
 		})
 		.returning();
-	const copy = await duplicateProgramForEdit(db, p.id);
+	const copy = await db.transaction((tx) => duplicateProgramForEditInTransaction(tx, p.id));
 	const [newDay] = await db.select().from(s.days).where(eq(s.days.programId, copy.id));
 	const [newDx] = await db.select().from(s.dayExercises).where(eq(s.dayExercises.dayId, newDay.id));
 	const [newPs] = await db
@@ -90,5 +90,7 @@ it('deep-copies every template child and keeps historical prescription reference
 	expect(unchanged).toEqual(set);
 	const [oldPs] = await db.select().from(s.prescribedSets).where(eq(s.prescribedSets.id, ps.id));
 	expect(oldPs.targetRepsMax).toBe(12);
-	await expect(duplicateProgramForEdit(db, p.id)).rejects.toThrow(/inactive/i);
+	await expect(
+		db.transaction((tx) => duplicateProgramForEditInTransaction(tx, p.id))
+	).rejects.toThrow(/inactive/i);
 });

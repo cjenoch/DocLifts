@@ -365,7 +365,7 @@ export const sessions = pgTable(
 		notes: text('notes')
 	},
 	(t) => ({
-		dayStartedAtIdx: index('sessions_day_started_at_idx').on(t.dayId, t.startedAt.desc()),
+		dayStartedAtIdx: index('sessions_day_started_at_idx').on(t.dayId, t.startedAt.desc().nullsLast()),
 		programIdIdx: index('sessions_program_id_idx').on(t.programId),
 		// At most one open session per day. Partial unique index — closes the
 		// double-submit race in `startSessionForDay` (the app-layer check there
@@ -503,7 +503,7 @@ export const sets = pgTable(
 			t.exerciseId,
 			t.setRole,
 			t.position,
-			t.loggedAt.desc()
+			t.loggedAt.desc().nullsLast()
 		),
 		repsCheck: check('sets_reps_check', sql`${t.executedReps} IS NULL OR ${t.executedReps} >= 0`),
 		loadCheck: check('sets_load_check', sql`${t.executedLoad} IS NULL OR ${t.executedLoad} >= 0`),
@@ -560,11 +560,11 @@ export const painEvents = pgTable(
 	(t) => ({
 		exerciseOccurredIdx: index('pain_events_exercise_occurred_idx').on(
 			t.exerciseId,
-			t.occurredAt.desc()
+			t.occurredAt.desc().nullsLast()
 		),
 		locationOccurredIdx: index('pain_events_location_occurred_idx').on(
 			t.location,
-			t.occurredAt.desc()
+			t.occurredAt.desc().nullsLast()
 		),
 		sessionIdIdx: index('pain_events_session_id_idx').on(t.sessionId),
 		setIdIdx: index('pain_events_set_id_idx').on(t.setId),

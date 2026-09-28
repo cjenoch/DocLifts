@@ -7,11 +7,6 @@ import type { Database } from './progression';
 // Session quick-add deliberately does not call this or alter any template row.
 export type ProgramTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-export async function duplicateProgramForEdit(db: Database, programId: string) {
-	z.string().uuid().parse(programId);
-	return db.transaction((tx) => duplicateProgramForEditInTransaction(tx, programId));
-}
-
 // Caller owns the transaction: copy, archive and edits must commit or roll back together.
 export async function duplicateProgramForEditInTransaction(
 	tx: ProgramTransaction,

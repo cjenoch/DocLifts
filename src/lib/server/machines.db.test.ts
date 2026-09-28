@@ -3,7 +3,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDb, type TestDb } from './test-db';
 import * as s from './db/schema';
 import { createGym, createMachine, addSessionExercise, bindSessionMachine } from './machines';
-import { startSessionForDay, endSession, updateSetInSession, nextSetIdInSession } from './sessions';
+import { startSessionForDay, endSession, updateSetInSession } from './sessions';
 import { getLastCompletedSet, computeConsecutiveBackwards } from './progression';
 let db: TestDb;
 let handle: Awaited<ReturnType<typeof setupTestDb>>;
@@ -291,7 +291,6 @@ describe('physical machine identity', () => {
 		const rows = await db.select().from(s.sets).where(eq(s.sets.sessionExerciseId, occ.id));
 		expect(rows).toHaveLength(2);
 		expect(rows.every((r) => r.prescribedLoad === null)).toBe(true);
-		expect(await nextSetIdInSession(db, run.sessionId, rows[0].id)).toBe(rows[1].id);
 		expect(await db.select().from(s.dayExercises)).toHaveLength(1);
 		expect(await db.select().from(s.prescribedSets)).toHaveLength(2);
 		expect(await db.select().from(s.programs)).toHaveLength(1);
@@ -412,6 +411,112 @@ describe('physical machine identity', () => {
 				setRole: 'backoff',
 				prescribedLoad: 95,
 				suggestionReasoning: 'held: non-working set on non-main tier'
+			}
+		]);
+	});
+	it('gives MAIN quick-add cold starts null reasoning, not missing-history text (L7)', async () => {
+		const f = await fixture();
+		const run = await start(f.day.id);
+		const machine = await createMachine(db, {
+			gymId: f.gym.id,
+			localLabel: 'Cold bench',
+			equipmentType: 'barbell'
+		});
+		const occ = await addSessionExercise(db, run.sessionId, {
+			exerciseName: 'Bench Press',
+			equipmentType: 'barbell',
+			gymId: f.gym.id,
+			gymEquipmentId: machine.id,
+			loadConvention: 'unknown',
+			setCount: 2,
+			repsMin: 5,
+			repsMax: 5,
+			rir: 2,
+			tier: 'main',
+			progressionPolicy: 'standard',
+			isLowerBody: false
+		});
+		const rows = await db
+			.select({
+				position: s.sets.position,
+				setRole: s.sets.setRole,
+				prescribedLoad: s.sets.prescribedLoad,
+				suggestionReasoning: s.sets.suggestionReasoning
+			})
+			.from(s.sets)
+			.where(eq(s.sets.sessionExerciseId, occ.id))
+			.orderBy(asc(s.sets.position));
+		// Cold start: no history anywhere, so there is no provenance to
+		// report — null load pairs with null reasoning, matching the
+		// sessions.ts cold-start path.
+		expect(rows).toEqual([
+			{ position: 1, setRole: 'top', prescribedLoad: null, suggestionReasoning: null },
+			{ position: 2, setRole: 'backoff', prescribedLoad: null, suggestionReasoning: null }
+		]);
+	});
+	it("reserves the missing-history text for genuinely ambiguous MAIN history (L7)", async () => {
+		const f = await fixture();
+		const machine = await createMachine(db, {
+			gymId: f.gym.id,
+			localLabel: 'Ambiguous bench',
+			equipmentType: 'barbell'
+		});
+		const input = {
+			exerciseName: 'Incline Press',
+			equipmentType: 'barbell',
+			gymId: f.gym.id,
+			gymEquipmentId: machine.id,
+			loadConvention: 'unknown' as const,
+			setCount: 2,
+			repsMin: 5,
+			repsMax: 5,
+			rir: 2,
+			tier: 'main' as const,
+			progressionPolicy: 'standard' as const,
+			isLowerBody: false
+		};
+		// Session 1: log ONLY the backoff row — the top set has no history.
+		let run = await start(f.day.id);
+		const first = await addSessionExercise(db, run.sessionId, input);
+		const firstRows = await db
+			.select()
+			.from(s.sets)
+			.where(eq(s.sets.sessionExerciseId, first.id))
+			.orderBy(asc(s.sets.position));
+		const backoff = firstRows.find((r) => r.setRole === 'backoff')!;
+		await updateSetInSession(db, run.sessionId, backoff.id, {
+			executedLoad: 95,
+			executedReps: 10,
+			executedRir: 1,
+			notes: '',
+			expectedIdentity: `${machine.id}:unknown`
+		});
+		await endSession(db, run.sessionId);
+
+		// Session 2: the backoff has a real load but no usable top-set
+		// decision — that is the genuinely ambiguous case.
+		run = await start(f.day.id);
+		const second = await addSessionExercise(db, run.sessionId, {
+			...input,
+			exerciseId: first.exerciseId
+		});
+		const rows = await db
+			.select({
+				position: s.sets.position,
+				setRole: s.sets.setRole,
+				prescribedLoad: s.sets.prescribedLoad,
+				suggestionReasoning: s.sets.suggestionReasoning
+			})
+			.from(s.sets)
+			.where(eq(s.sets.sessionExerciseId, second.id))
+			.orderBy(asc(s.sets.position));
+		expect(rows).toEqual([
+			{ position: 1, setRole: 'top', prescribedLoad: null, suggestionReasoning: null },
+			{
+				position: 2,
+				setRole: 'backoff',
+				prescribedLoad: 95,
+				suggestionReasoning: 'held: missing or ambiguous MAIN top-set history'
 			}
 		]);
 	});

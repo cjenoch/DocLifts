@@ -81,13 +81,18 @@ function greedyPlateSum(
  * Barbell snap: input is TOTAL bar+plate weight. Subtracts bar, halves, snaps,
  * doubles and adds bar back.
  *
- * If `targetLoad <= bar`, returns bar weight only (no plates).
+ * If `0 < targetLoad <= bar`, returns bar weight only (no plates) — you can't
+ * lift less than the bar. A zero or negative target is a data problem, not a
+ * 44-lb intent, so it snaps to 0 instead of silently flooring to the bar.
  */
 export function snapToAchievable(
 	targetLoad: number,
 	bar: number = gymConfig.bars.standard,
 	plates: readonly number[] = gymConfig.platesPerSide
 ): SnapResult {
+	if (targetLoad <= 0) {
+		return { achievable: 0, platesUsed: [] };
+	}
 	if (targetLoad <= bar) {
 		return { achievable: bar, platesUsed: [] };
 	}

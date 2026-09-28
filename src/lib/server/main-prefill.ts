@@ -72,7 +72,12 @@ export async function mainPrefills(
 		} else if (!decision || baseline == null) {
 			result.set(slot.position, {
 				load,
-				reasoning: 'held: missing or ambiguous MAIN top-set history'
+				// L7: a null load is a cold start — it carries no provenance, so
+				// the reasoning stays null like every other cold-start path.
+				// This text is reserved for genuinely ambiguous history: a
+				// real (non-null) load with no usable top-set decision.
+				reasoning:
+					load == null ? null : 'held: missing or ambiguous MAIN top-set history'
 			});
 		} else if (slot === top) {
 			result.set(slot.position, { load: decision.load, reasoning: decision.reasoning });

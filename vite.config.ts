@@ -3,6 +3,22 @@ import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
 
+// Point the app's `db` singleton at the test database for every vitest
+// project, at config-load time — before any test module is imported.
+//
+// db/index.ts builds the client at MODULE IMPORT from DATABASE_URL. A test
+// that imports `auth` therefore binds whatever DATABASE_URL is in the
+// environment, and on the VPS that is the PRODUCTION database: auth tables
+// get created and user rows written there by a test run. A project's `env`
+// block does not reliably do this (the value is read when the config is
+// resolved, and SvelteKit's env handling wins), so assign the process
+// variable directly. It is the earliest point available.
+//
+// The fallback matches test-db.ts's own secretless default. The URL contains
+// no credential — TEST_DATABASE_URL carries the password when one is needed.
+process.env.DATABASE_URL ??=
+	process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_test';
+
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
 	server: {

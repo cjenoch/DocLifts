@@ -62,6 +62,14 @@ export async function setupTestDb(): Promise<{
 	const testUrl = process.env.TEST_DATABASE_URL ?? DEFAULT_TEST_URL;
 	const dbName = dbNameFromUrl(testUrl);
 
+	// NOTE: this does NOT protect the app's `db` singleton. That is created at
+	// module import from DATABASE_URL, so a test importing `auth` before
+	// calling this still points at whatever DATABASE_URL is in the
+	// environment. The real guard is the `env` block in vite.config.ts's server
+	// project, which rewrites DATABASE_URL before any module loads. Do not rely
+	// on this line for that — it is here only so a test that lazily imports
+	// auth AFTER setup resolves the same URL as the migrator.
+
 	// Ensure the test DB exists. Connect to admin DB to issue DDL.
 	const admin = postgres(adminUrl(testUrl), { max: 1, onnotice: () => {} });
 	try {
@@ -149,7 +157,15 @@ export async function resetTestDb(client: postgres.Sql): Promise<void> {
 			exercises,
 			program_draft_requests,
 			workout_log_imports,
-			imported_workouts
+			imported_workouts,
+			-- Better Auth's four tables, child-first. Without these a test that
+			-- creates a user leaves it behind and the next run's "already
+			-- exists" assertion fails for the wrong reason. Qualified because
+			-- they live in a different Postgres schema.
+			"auth"."verification",
+			"auth"."account",
+			"auth"."session",
+			"auth"."user"
 		RESTART IDENTITY CASCADE
 	`;
 }

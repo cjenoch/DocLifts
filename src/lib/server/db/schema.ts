@@ -42,6 +42,20 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { ImportedLine } from '$lib/imported-workout';
 
+// Better Auth's four tables live in the `auth` Postgres schema (see
+// auth-schema.ts). Re-exported HERE, not from db/index.ts, because
+// drizzle.config.ts points `schema:` at this one file — drizzle-kit does not
+// follow db/index.ts, so without this the generate step would see no auth
+// tables and emit an empty migration.
+export {
+	authSchema,
+	authUsers,
+	authSessions,
+	authAccounts,
+	authVerifications,
+	authTables
+} from './auth-schema';
+
 // Historical source records are separate from progression inputs so unknown
 // dates and estimates need not masquerade as measured performance.
 export const workoutLogImports = pgTable('workout_log_imports', {

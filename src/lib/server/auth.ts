@@ -1,0 +1,134 @@
+/**
+ * Better Auth configuration. Phase 1: email + password only, no OAuth, no
+ * passkeys, no social login.
+ *
+ * Read the installed library's own types before changing this — the option
+ * names below were verified against better-auth 1.7.6's
+ * `BetterAuthOptions` and `DrizzleAdapterConfig`, not from memory. See
+ * db/auth-schema.ts for the table-naming rationale.
+ */
+import { betterAuth } from 'better-auth';
+import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { env } from '$env/dynamic/private';
+import { db } from './db';
+import { authTables } from './db/auth-schema';
+
+/**
+ * Resolved lazily, not at module import.
+ *
+ * An import-time throw would break `pnpm build`, CI, and the Dockerfile
+ * builder stage, which each import the server graph with a placeholder
+ * DATABASE_URL and no secret at all. Failing on first use instead keeps the
+ * build secret-free and still makes a missing secret a loud, early failure —
+ * the first request that touches auth throws before doing any work.
+ */
+function requireSecret(): string {
+	const secret = env.BETTER_AUTH_SECRET;
+	if (!secret) {
+		throw new Error(
+			'BETTER_AUTH_SECRET not set — check .env (generate with: openssl rand -base64 32)'
+		);
+	}
+	return secret;
+}
+
+export const auth = betterAuth({
+	/**
+	 * Same origin the app is served from. Also drives cookie domain and
+	 * the Secure flag: an http:// baseURL means non-Secure cookies, which is
+	 * the current tailnet deployment. See WORKORDER T6 — the public
+	 * deployment must be https or sign-in silently fails to persist.
+	 */
+	baseURL: env.PUBLIC_ORIGIN ?? 'http://127.0.0.1:3000',
+
+	secret: requireSecret(),
+
+	database: drizzleAdapter(db, {
+		provider: 'pg',
+		/**
+		 * Postgres schema, not a table prefix. Produces `auth.user` etc.,
+		 * isolating Better Auth's tables from `public.sessions` (workout).
+		 */
+		schemaName: 'auth',
+		/** Resolve models by key against our renamed exports. */
+		schema: authTables
+		/**
+		 * COLUMN NAMING — read the generator, not the option name.
+		 *
+		 * @better-auth/drizzle-adapter/dist/generate-drizzle-schema-*.mjs:
+		 *   function convertToSnakeCase(str, camelCase) {
+		 *     if (camelCase) return str;        // ← true KEEPS camelCase
+		 *     return str.replace(...).toLowerCase();
+		 *   }
+		 *
+		 * So the DEFAULT (camelCase unset/false) is what emits snake_case
+		 * columns. `camelCase: true` would keep camelCase. We want
+		 * snake_case — every other table in this database is snake_case —
+		 * so the option is deliberately left UNSET.
+		 *
+		 * The option is read by the schema generator and relations-v2, not
+		 * by the runtime query builder (`camelCase` does not appear in the
+		 * adapter's own index.mjs). At runtime the column names come from
+		 * each field's `fieldName`, set by hand above. T1b's real sign-in
+		 * is what proves the mapping end to end.
+		 */
+		// (deliberately unset — see above)
+	}),
+
+	/**
+	 * NO modelName renames, deliberately.
+	 *
+	 * An earlier draft set user/session/account/verification to
+	 * `auth_user` etc. That was the Path 1 mechanism (a table PREFIX).
+	 * Path 2 replaced it with a Postgres SCHEMA — `pgSchema('auth')` — and
+	 * the two compose into a table with three different names: model
+	 * `auth_user`, schema-map key `auth_user`, physical `auth.user`. It
+	 * works, but it is indirection with no purpose, and changing one of
+	 * the three independently would be a very confusing bug.
+	 *
+	 * So: model name = physical table name = the Better Auth defaults,
+	 * living in the `auth` schema. The only place these tables carry a
+	 * different name is the TypeScript export (`authUsers`), which is the
+	 * only place it ever mattered. See db/auth-schema.ts.
+	 *
+	 * (For the record, `modelName` is read off the TOP-LEVEL options, not
+	 * the adapter: @better-auth/core 1.7.6 get-tables.mjs has
+	 * `modelName: options.user?.modelName || "user"`.)
+	 */
+	session: {
+		expiresIn: 60 * 60 * 24 * 30,
+		updateAge: 60 * 60 * 24
+	},
+
+	emailAndPassword: {
+		enabled: true,
+		/**
+		 * D2: sign-up is closed by default. Accounts are created by
+		 * `pnpm user:bootstrap` / `pnpm user:create`, or by /signup when
+		 * DOCLIFTS_OPEN_SIGNUP=1. This is a policy toggle, not an
+		 * auth-off toggle — there is no auth-off mode.
+		 */
+		disableSignUp: env.DOCLIFTS_OPEN_SIGNUP !== '1',
+		minPasswordLength: 12
+	},
+
+	/**
+	 * T1 requirement. Rate limiting is on the auth endpoints (sign-in,
+	 * sign-up, password). Enabled for both storage modes: the default
+	 * in-memory limiter, and the database one if DOCLIFTS_RATE_LIMIT_STORAGE
+	 * is set (multi-instance deployments need it — in-memory state is
+	 * per-process).
+	 */
+	rateLimit: {
+		enabled: true,
+		...(env.DOCLIFTS_RATE_LIMIT_STORAGE === 'database' ? { storage: 'database' as const } : {})
+	},
+
+	advanced: {
+		defaultCookieAttributes: {
+			sameSite: 'lax'
+		}
+	}
+});
+
+export type Auth = typeof auth;

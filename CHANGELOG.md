@@ -4,6 +4,8 @@
 
 Behavior changes since 0.1.0 that a user would notice:
 
+- License changed from Apache-2.0 to the Functional Source License, Version 1.1, ALv2 Future License (FSL-1.1-ALv2). Self-hosting, internal use, and non-commercial use are unaffected; offering DocLifts as a competing commercial service is not permitted until each version's two-year conversion to Apache-2.0. Release 0.1.0 and everything before it stay Apache-2.0. `CONTRIBUTING.md` now carries DCO sign-off and contribution license terms; `.mailmap` normalizes author identities.
+
 - Progression judges every working set against its own rep range and RIR target, not position 1's. An exercise that previously advanced can now hold when a later position misses its own range.
 - Backoff and top rows on secondary/isolation exercises hold at their last load and say so ("held: no progression rule applies to this set"). One target-resolution helper now serves all three prefill paths, so a null rep-range top on the machine-bound path no longer clears on reps automatically.
 - Plate snap returns 0, not the empty bar, for a zero or negative target.

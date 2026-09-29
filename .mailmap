@@ -1,0 +1,19 @@
+# Canonical author identities. `git shortlog -sne` and `git log --use-mailmap`
+# collapse the historical variants below into these entries.
+#
+# Every commit in this repository was authored by Chris Enoch, either directly
+# or through automated coding agents running under his direction on his own
+# infrastructure. Copyright in all commits is held by Enoch AI LLC. No outside
+# contributors as of 2026-09-29.
+
+Chris Enoch <chris@enoch.ai> cjenoch <chrisenoch@gmail.com>
+Chris Enoch <chris@enoch.ai> cjenoch <chris@enoch.ai>
+Chris Enoch <chris@enoch.ai> Chris Enoch <chris.enoch@gmail.com>
+Chris Enoch <chris@enoch.ai> cjenoch <88288685+cjenoch@users.noreply.github.com>
+
+# Agent-authored commits keep the agent's name for provenance but resolve to
+# the same owner and address.
+Chris Enoch (via Hermes) <chris@enoch.ai> Hermes VPS <chris@enochvps>
+Chris Enoch (via Codex) <chris@enoch.ai> Codex <codex@users.noreply.github.com>
+Chris Enoch (via muse) <chris@enoch.ai> muse <muse@localhost>
+Chris Enoch (via Marge) <chris@enoch.ai> Marge <marge@local>

@@ -14,7 +14,7 @@ docker compose -f compose.demo.yml up --build -d
 
 Open **http://localhost:4179** after initialization. This separate, temporary stack contains fictional workouts and equipment. It needs no `.env` or access to the author's VPS, and never mounts a production database. [Demo setup, reset, and troubleshooting](docs/demo.md).
 
-DocLifts is licensed under **Apache-2.0**. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [contribution guidance](CONTRIBUTING.md).
+DocLifts is source-available under the **Functional Source License, Version 1.1, ALv2 Future License** (FSL-1.1-ALv2). Internal use, self-hosting, non-commercial use, and professional services are permitted; offering it as a competing commercial product or service is not. Each version becomes Apache-2.0 two years after release. Versions 0.1.0 and earlier remain Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [contribution guidance](CONTRIBUTING.md).
 
 ## Features and engineering
 
@@ -159,4 +159,4 @@ Integration tests create/use the separate test database and reset its tables. Ne
 
 ## License
 
-Copyright 2026 Enoch AI LLC. Licensed under the [Apache License, Version 2.0](./LICENSE). See [NOTICE](./NOTICE) for attribution.
+Copyright 2026 Enoch AI LLC. Licensed under the [Functional Source License, Version 1.1, ALv2 Future License](./LICENSE) (FSL-1.1-ALv2). Each version converts to the Apache License, Version 2.0 on the second anniversary of its release. Versions 0.1.0 and earlier were released under Apache-2.0 and remain so. See [NOTICE](./NOTICE) for attribution.

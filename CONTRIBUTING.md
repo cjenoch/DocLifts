@@ -1,6 +1,19 @@
 # Contributing to DocLifts
 
-DocLifts is licensed under Apache-2.0. Contributions should include appropriate tests and preserve workout history, machine identity, and the separation between suggestions and recorded performance.
+DocLifts is licensed under the Functional Source License, Version 1.1, ALv2 Future License (FSL-1.1-ALv2); see [LICENSE](LICENSE). Contributions should include appropriate tests and preserve workout history, machine identity, and the separation between suggestions and recorded performance.
+
+## Contribution license terms
+
+By submitting a contribution (pull request, patch, or commit) you certify the [Developer Certificate of Origin 1.1](https://developercertificate.org/) for that contribution and you agree that:
+
+1. your contribution is licensed to Enoch AI LLC and to all recipients under the same FSL-1.1-ALv2 terms as the rest of the repository, including the grant of a future Apache-2.0 license; and
+2. Enoch AI LLC may relicense the repository, including your contribution, under other terms in a future release. This is what allows the project to be offered under a different license later without contacting every past contributor.
+
+Sign off each commit with `git commit -s` to record the DCO certification. Contributions without a sign-off will be asked to add one before merge.
+
+## Commit identity
+
+Commits made by automated coding agents on behalf of a maintainer use the maintainer's name and email as the author, and add a `Co-authored-by:` trailer naming the agent (for example `Co-authored-by: Hermes <hermes@agents.local>`). `.mailmap` normalizes historical agent identities; keep it current when an agent's identity changes.
 
 Use fictional fixtures only. Do not commit database dumps, `.env` files, real workout logs, credentials, or private host configuration. Report suspected vulnerabilities privately through the repository's security reporting feature if available; avoid posting secrets in public issues.
 

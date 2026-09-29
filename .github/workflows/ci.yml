@@ -20,6 +20,12 @@ jobs:
     # clear message. Bump both together.
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
+    # Inside a container job the runner picks `sh` for `run` steps unless told
+    # otherwise; dash's printf has no \x escapes and other bashisms break
+    # silently. Pin bash so steps behave as they did on the bare runner.
+    defaults:
+      run:
+        shell: bash
     services:
       postgres:
         image: postgres:16
@@ -28,7 +34,7 @@ jobs:
           POSTGRES_PASSWORD: doclifts
           POSTGRES_DB: doclifts_test
         options: >-
-          --health-cmd "pg_isready -U doclifts"
+          --health-cmd "pg_isready -U doclifts -d doclifts_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -64,11 +70,11 @@ jobs:
             console.log(`playwright ${version} -> ${p}`);
           '
 
-      # Build DB URLs at runtime to keep the password out of YAML (CI tooling pipelines
-      # sometimes redact the literal token form). drizzle.config.ts reads DATABASE_URL
-      # (dotenv/config); test-db.ts reads TEST_DATABASE_URL. Same target DB in CI.
-      # Inside a container job the service is reached by its service name, not
-      # localhost.
+      # Build DB URLs at runtime so no literal `user:password@host` URL sits in
+      # YAML (CI tooling pipelines sometimes redact that token form).
+      # drizzle.config.ts reads DATABASE_URL (dotenv/config); test-db.ts reads
+      # TEST_DATABASE_URL. Same target DB in CI. Inside a container job the
+      # service is reached by its service name, not localhost.
       - name: Export DB URLs
         run: |
           USER="doclifts"
@@ -76,8 +82,7 @@ jobs:
           HOST="postgres"
           PORT="5432"
           DB="doclifts_test"
-          AT=$(printf '\x40')
-          URL="postgresql://${USER}:${PW}${AT}${HOST}:${PORT}/${DB}"
+          URL="postgresql://${USER}:${PW}@${HOST}:${PORT}/${DB}"
           echo "DATABASE_URL=${URL}" >> "$GITHUB_ENV"
           echo "TEST_DATABASE_URL=${URL}" >> "$GITHUB_ENV"
 

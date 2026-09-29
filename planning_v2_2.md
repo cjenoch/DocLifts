@@ -1,6 +1,6 @@
 # Lifting App — Planning Lock (v2.2)
 
-*Minor text patch over v2.1. Three small corrections from the v2.1 cross-LLM review (ChatGPT). No schema changes, no scope changes. Read v2.1 for the full document; this patch describes only what changed.*
+_Minor text patch over v2.1. Three small corrections from the v2.1 cross-LLM review (ChatGPT). No schema changes, no scope changes. Read v2.1 for the full document; this patch describes only what changed._
 
 ---
 

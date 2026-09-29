@@ -13,6 +13,7 @@ The hot-path progression wiring bug is fixed: SECONDARY/ISOLATION now gate progr
 ## What changed (PC delta plan closure)
 
 ### N1 — Tier-correct prefill assembly + warmup guard ✅
+
 - **File:** `src/lib/server/sessions.ts`
 - **Fixes:**
   - non-MAIN progression decision now uses all working sets for an exercise
@@ -21,6 +22,7 @@ The hot-path progression wiring bug is fixed: SECONDARY/ISOLATION now gate progr
 - **Engine functions unchanged** (`suggestNextLoad` remains caller-assembled as intended)
 
 ### N2 — Provenance threading (reasoning persisted and shown) ✅
+
 - **Schema:** `sets.suggestion_reasoning` nullable text
 - **Files:**
   - `src/lib/server/db/schema.ts`
@@ -31,18 +33,22 @@ The hot-path progression wiring bug is fixed: SECONDARY/ISOLATION now gate progr
 - Behavior: engine-driven rows show persisted rationale; warmup/cold-start rows stay null (no empty label spam)
 
 ### N3 — Regex increment heuristic replaced by schema column ✅
+
 - **Schema:** `exercises.is_lower_body` boolean (default false)
 - **Runtime:** increment now derives from `isLowerBody`, not exercise name regex
 - **Seed:** explicit `exerciseMeta` map now sets both `equipmentType` and `isLowerBody`
 
 ### N4 — `.env.example` mismatch ✅
+
 - `.env.example` now uses `doclifts:dev` to match `docker-compose.yml`
 
 ### L1 — UUID route validation ✅
+
 - `programs/[id]` and `sessions/[id]` entry points validate UUIDs and return 4xx for malformed ids
 - start-session action validates `dayId` UUID before DB access
 
 ### M3 — CI gate expansion ✅ (with one pragmatic adjustment)
+
 - CI now includes: lint signal, check, server tests, build, prod-audit signal
 - Lint is currently **non-blocking signal** because repo has broad historical prettier drift unrelated to this patch set
 

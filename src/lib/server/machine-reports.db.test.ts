@@ -57,19 +57,17 @@ it('reports physical identity and conventions separately using snapshot names', 
 				progressionPolicy: 'standard'
 			})
 			.returning();
-		await db
-			.insert(s.sets)
-			.values({
-				sessionId: session.id,
-				sessionExerciseId: o.id,
-				exerciseId: e.id,
-				gymEquipmentId: m.id,
-				loadConvention: 'plates_per_side',
-				position: 1,
-				setRole: 'working',
-				executedLoad: 50,
-				executedReps: 10
-			});
+		await db.insert(s.sets).values({
+			sessionId: session.id,
+			sessionExerciseId: o.id,
+			exerciseId: e.id,
+			gymEquipmentId: m.id,
+			loadConvention: 'plates_per_side',
+			position: 1,
+			setRole: 'working',
+			executedLoad: 50,
+			executedReps: 10
+		});
 	}
 	await db.update(s.gymEquipment).set({ localLabel: 'Changed' });
 	await db.update(s.exercises).set({ name: 'Renamed' }).where(eq(s.exercises.id, e.id));

@@ -67,9 +67,7 @@ describe('SetRow component', () => {
 
 		await expect.element(page.getByText('Target: 100 × 3–5 · 1 RIR')).toBeInTheDocument();
 		await expect.element(page.getByText('Last: 95 × 5 · 1 RIR')).toBeInTheDocument();
-		await expect
-			.element(page.getByText('+5: top set hit 5 reps at RIR 1'))
-			.toBeInTheDocument();
+		await expect.element(page.getByText('+5: top set hit 5 reps at RIR 1')).toBeInTheDocument();
 		await expect.element(page.getByRole('button', { name: 'Save' })).toBeInTheDocument();
 	});
 

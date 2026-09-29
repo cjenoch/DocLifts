@@ -111,7 +111,13 @@ describe('reports consistency', () => {
 		const [openCount] = await db
 			.select({ count: count(sessions.id) })
 			.from(sessions)
-			.where(and(eq(sessions.id, openStarted.sessionId), isNull(sessions.endedAt), isNull(sessions.deletedAt)));
+			.where(
+				and(
+					eq(sessions.id, openStarted.sessionId),
+					isNull(sessions.endedAt),
+					isNull(sessions.deletedAt)
+				)
+			);
 		expect(Number(openCount.count)).toBe(1);
 	});
 });

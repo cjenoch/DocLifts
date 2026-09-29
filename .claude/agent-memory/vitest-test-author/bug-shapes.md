@@ -9,7 +9,7 @@ metadata:
 
 **What:** A `prescribed_sets` row is mutated after a session is started. If `startSessionForDay` didn't copy values into the `sets` row at session-start time, re-reading the sets row would reflect the new template values rather than the values in force when the session was created.
 
-**Test:** Updates `targetRepsMin`, `targetRepsMax`, `initialLoad` on the originating `prescribed_sets` row, re-reads the `sets` row, asserts the prescribed* columns are unchanged.
+**Test:** Updates `targetRepsMin`, `targetRepsMax`, `initialLoad` on the originating `prescribed_sets` row, re-reads the `sets` row, asserts the prescribed\* columns are unchanged.
 
 **File:** `sessions.test.ts`, describe: `'startSessionForDay: snapshot immutability after template edit'`
 

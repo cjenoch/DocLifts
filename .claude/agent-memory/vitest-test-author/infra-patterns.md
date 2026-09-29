@@ -15,9 +15,13 @@ metadata:
 ## seedProgram helper
 
 Defined inside `sessions.test.ts` (not a shared module). Returns `ProgramFixture`:
+
 ```ts
-{ programId, dayId, dayExerciseId, exerciseId, prescribedSetId }
+{
+	(programId, dayId, dayExerciseId, exerciseId, prescribedSetId);
+}
 ```
+
 Options: `{ programName?, exerciseName?, initialLoad?, tier? }`. Default `initialLoad: 100`, default tier `'main'`, default targetRepsMin/Max: 3/5. Builds: program → day (position 1) → exercise → dayExercise (position 1) → 1 prescribedSet (position 1, setRole 'top').
 
 If you need multiple exercises or non-standard positions, build raw inserts inline (that's what all the multi-exercise tests do).

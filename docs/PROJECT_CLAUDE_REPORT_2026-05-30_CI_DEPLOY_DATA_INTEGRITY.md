@@ -1,6 +1,7 @@
 # DocLifts Follow-up Report for Project Claude — 2026-05-30
 
 ## Executive summary
+
 We processed PC feedback and executed the high-priority reliability items directly:
 
 1. **Deploy discipline fixed at script level**: deploy now enforces build → migrate → restart → readiness verification in one command path (`pnpm redeploy`).
@@ -13,9 +14,11 @@ We processed PC feedback and executed the high-priority reliability items direct
 ## What changed (code + behavior)
 
 ### A) Deploy gate (schema-before-serve)
+
 **Problem addressed:** prior production incident came from code shipping before migration (`deleted_at` missing). Readiness checks alone only detect breakage after it happens.
 
 **Implemented:**
+
 - Added `scripts/deploy-safe.sh`:
   1. `pnpm build`
   2. `pnpm db:migrate`
@@ -31,9 +34,11 @@ We processed PC feedback and executed the high-priority reliability items direct
 ---
 
 ### B) Destructive-path / soft-delete correctness
+
 **Problem addressed:** ended-session editing had opt-in support; needed explicit guarantee that soft-deleted sessions cannot be edited via helper path.
 
 **Implemented:**
+
 - `src/lib/server/sessions.ts`
   - `updateSetInSession()` now loads session with `isNull(sessions.deletedAt)` guard.
   - Soft-deleted sessions are treated as `404 Session not found`.
@@ -47,10 +52,13 @@ We processed PC feedback and executed the high-priority reliability items direct
 ---
 
 ### C) CI reconciliation and closure
+
 #### Initial state
+
 - Feedback correctly flagged CI/package-manager mismatch risk and runner drift.
 
 #### Changes made
+
 1. Switched workflow to pnpm/frozen lockfile discipline:
    - Node 24 via `actions/setup-node@v6`
    - `corepack enable && corepack prepare pnpm@11.3.0 --activate`
@@ -64,10 +72,12 @@ We processed PC feedback and executed the high-priority reliability items direct
    - This keeps critical app/data regression coverage running while removing CI flake/hang source.
 
 #### Final CI status
+
 - **Green run:** `26678924300` (commit `da4708f`) ✅
 - URL: https://github.com/cjenoch/DocLifts/actions/runs/26678924300
 
 #### Notable prior runs for traceability
+
 - `26673868756` (`6c9f65b`) failed due Node24 incompat in `pnpm/action-setup@v4` path.
 - `26673886563` (`1138489`) switched to corepack, then hung on Playwright install step.
 - `26678308419` (`fd035b4`) timed out at 30m in Playwright install step.
@@ -76,9 +86,11 @@ We processed PC feedback and executed the high-priority reliability items direct
 ---
 
 ## Reporting filter audit (PC concern #2)
+
 Reviewed `src/routes/reports/+page.server.ts`.
 
 Findings:
+
 - Deleted sessions are excluded where relevant via `isNull(sessions.deletedAt)`.
 - Ended-session analytics use `isNotNull(sessions.endedAt)` where relevant.
 - Completed row metrics require both:
@@ -91,6 +103,7 @@ Conclusion: current report queries are aligned with soft-delete and open-session
 ---
 
 ## Commits in this follow-up slice
+
 - `6c9f65b` — harden deploy path + pnpm CI alignment + deleted-session edit guard/test
 - `1138489` — CI: corepack pnpm setup for Node24 compatibility
 - `fd035b4` — CI attempt to reduce Playwright install overhead
@@ -101,6 +114,7 @@ Current HEAD: `da4708f`
 ---
 
 ## Local verification performed
+
 - `pnpm run check` ✅
 - `pnpm test` ✅ (109/109 at that point)
 - `pnpm run build` ✅
@@ -110,6 +124,7 @@ Current HEAD: `da4708f`
 ---
 
 ## Outstanding / recommended next actions
+
 1. **Systemd-level enforcement (optional stronger guarantee):**
    - Current guard is script-level (`pnpm redeploy`).
    - If desired, add `ExecStartPre` migration gating or a dedicated deployment unit for stronger ops invariants independent of operator command choice.
@@ -127,4 +142,5 @@ Current HEAD: `da4708f`
 ---
 
 ## Artifact path
+
 `/home/chris/code/DocLifts/PROJECT_CLAUDE_REPORT_2026-05-30_CI_DEPLOY_DATA_INTEGRITY.md`

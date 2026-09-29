@@ -4,7 +4,7 @@ import { env } from '$env/dynamic/private';
 import * as schema from './schema';
 
 if (!env.DATABASE_URL) {
-  throw new Error('DATABASE_URL not set — check .env');
+	throw new Error('DATABASE_URL not set — check .env');
 }
 
 const client = postgres(env.DATABASE_URL, { max: 10 });

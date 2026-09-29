@@ -9,6 +9,7 @@ Status: Ready for execution
 Incrementally move remaining non-generated JavaScript/config surfaces to TypeScript while keeping CI green at every step.
 
 Out of scope:
+
 - `.svelte-kit/**` generated artifacts
 - third-party tool internals
 
@@ -21,6 +22,7 @@ Out of scope:
 ## Plan (small, shippable steps)
 
 ### 1) Convert `svelte.config.js` to `svelte.config.ts`
+
 - [ ] Rename file to `svelte.config.ts`
 - [ ] Keep existing adapter/csrf/alias config behavior unchanged
 - [ ] Ensure exported config is typed (`import type { Config } from '@sveltejs/kit'`)
@@ -28,7 +30,9 @@ Out of scope:
 - [ ] Commit
 
 ### 2) Add explicit typing pass for server helpers (tightening only)
+
 Files:
+
 - `src/lib/server/sessions.ts`
 - `src/lib/server/progression.ts`
 - `src/lib/server/plates.ts`
@@ -40,7 +44,9 @@ Files:
 - [ ] Commit
 
 ### 3) Type boundary hardening for route actions/loaders
+
 Files:
+
 - `src/routes/+page.server.ts`
 - `src/routes/programs/[id]/+page.server.ts`
 - `src/routes/sessions/[id]/+page.server.ts`
@@ -52,6 +58,7 @@ Files:
 - [ ] Commit
 
 ### 4) Cleanup + guardrails
+
 - [ ] Add short "TS posture" section to README (strict mode, migration policy)
 - [ ] Keep generated paths out of manual migration effort (`.svelte-kit/**`)
 - [ ] Final verification: `npm run check && npm run test && npm run build`

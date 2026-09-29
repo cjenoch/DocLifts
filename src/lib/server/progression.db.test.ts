@@ -10,14 +10,7 @@
 import { and, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type postgres from 'postgres';
-import {
-	dayExercises,
-	days,
-	exercises,
-	programs,
-	sessions,
-	sets
-} from './db/schema';
+import { dayExercises, days, exercises, programs, sessions, sets } from './db/schema';
 import { computeConsecutiveBackwards, getLastCompletedSet } from './progression';
 import { resetTestDb, setupTestDb, type TestDb } from './test-db';
 
@@ -47,16 +40,19 @@ beforeEach(async () => {
 	const [prog] = await db.insert(programs).values({ name: 'test program' }).returning();
 	programId = prog.id;
 
-	const [day] = await db
-		.insert(days)
-		.values({ programId, name: 'Day 1', position: 1 })
-		.returning();
+	const [day] = await db.insert(days).values({ programId, name: 'Day 1', position: 1 }).returning();
 	dayId = day.id;
 
-	const [ex] = await db.insert(exercises).values({ name: 'Bench Press', equipmentType: 'bodyweight' }).returning();
+	const [ex] = await db
+		.insert(exercises)
+		.values({ name: 'Bench Press', equipmentType: 'bodyweight' })
+		.returning();
 	exerciseId = ex.id;
 
-	const [otherEx] = await db.insert(exercises).values({ name: 'Squat', equipmentType: 'bodyweight' }).returning();
+	const [otherEx] = await db
+		.insert(exercises)
+		.values({ name: 'Squat', equipmentType: 'bodyweight' })
+		.returning();
 	otherExerciseId = otherEx.id;
 
 	await db.insert(dayExercises).values({
@@ -145,10 +141,7 @@ describe('getLastCompletedSet: history filter', () => {
 	it('returns null when session is soft-deleted', async () => {
 		const sId = await addSession({ ended: true });
 		await addSet({ sessionId: sId, executedLoad: 100, executedReps: 5 });
-		await db
-			.update(sessions)
-			.set({ deletedAt: new Date() })
-			.where(eq(sessions.id, sId));
+		await db.update(sessions).set({ deletedAt: new Date() }).where(eq(sessions.id, sId));
 
 		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
 		expect(result).toBeNull();
@@ -276,13 +269,7 @@ describe('getLastCompletedSet: history filter', () => {
 		expect(unfiltered?.executedLoad).toBe(110);
 
 		// With exclusion: returns the older session's set.
-		const filtered = await getLastCompletedSet(
-			db,
-			exerciseId,
-			'top',
-			1,
-			currentSession
-		);
+		const filtered = await getLastCompletedSet(db, exerciseId, 'top', 1, currentSession);
 		expect(filtered?.executedLoad).toBe(100);
 	});
 
@@ -290,13 +277,7 @@ describe('getLastCompletedSet: history filter', () => {
 		const onlySession = await addSession({ ended: true });
 		await addSet({ sessionId: onlySession, executedLoad: 100 });
 
-		const result = await getLastCompletedSet(
-			db,
-			exerciseId,
-			'top',
-			1,
-			onlySession
-		);
+		const result = await getLastCompletedSet(db, exerciseId, 'top', 1, onlySession);
 		expect(result).toBeNull();
 	});
 
@@ -385,17 +366,13 @@ describe('computeConsecutiveBackwards: history filter', () => {
 	it('respects the lookback parameter', async () => {
 		// 10 stalled sessions → with lookback=3, sees 3 rows → 2 backwards pairs.
 		await seedSessions(Array(10).fill(100));
-		expect(
-			await computeConsecutiveBackwards(db, exerciseId, 'top', 1, 3)
-		).toBe(2);
+		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1, 3)).toBe(2);
 	});
 
 	it('does not cross exercises', async () => {
 		await seedSessions([100, 100, 100]);
 		// Stalls on the wrong exercise → 0 backwards.
-		expect(
-			await computeConsecutiveBackwards(db, otherExerciseId, 'top', 1)
-		).toBe(0);
+		expect(await computeConsecutiveBackwards(db, otherExerciseId, 'top', 1)).toBe(0);
 	});
 });
 
@@ -409,15 +386,12 @@ describe('consistency 14-day query semantics', () => {
 
 		const deleted = await addSession({ ended: true });
 		await addSet({ sessionId: deleted, executedLoad: 120, executedReps: 5, loggedAt: new Date() });
-		await db
-			.update(sessions)
-			.set({ deletedAt: new Date() })
-			.where(eq(sessions.id, deleted));
+		await db.update(sessions).set({ deletedAt: new Date() }).where(eq(sessions.id, deleted));
 
 		const rows = await db
 			.select({
 				dateKey: sql<string>`to_char(${sessions.startedAt} at time zone 'UTC', 'YYYY-MM-DD')`,
-				count: count(sessions.id),
+				count: count(sessions.id)
 			})
 			.from(sessions)
 			.where(

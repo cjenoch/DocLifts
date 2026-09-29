@@ -8,8 +8,9 @@
  *   programs and the snapshot/prefill flow.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { and, asc, eq, isNull, QueryPromise } from 'drizzle-orm';
+import { PgDeleteBase } from 'drizzle-orm/pg-core';
 import type postgres from 'postgres';
 import {
 	dayExercises,
@@ -2532,6 +2533,56 @@ describe('soft-delete and hard-delete session guards', () => {
 				suggestionReasoning: 'held: no progression rule applies to this set'
 			}
 		]);
+	});
+
+	it('purge deletes only the sessions counted at confirmation, not one trashed mid-purge', async () => {
+		// Regression for the delete-by-id fix (c6d4774). FOR UPDATE locks the
+		// rows that matched at count time; a predicate delete would still
+		// match a session trashed AFTER the count and purge it unconfirmed.
+		// Reproduced deterministically: the first awaited DELETE inside the
+		// purge transaction first trashes session B on a separate pool
+		// connection, then runs. B was never in the confirmed count, so it
+		// must survive.
+		const fixture = await seedProgram();
+		const a = await startSessionForDay(db, fixture.dayId);
+		expect(a.ok).toBe(true);
+		if (!a.ok) return;
+		await endSession(db, a.sessionId);
+		await softDeleteEndedSession(db, a.sessionId);
+		const b = await startSessionForDay(db, fixture.dayId);
+		expect(b.ok).toBe(true);
+		if (!b.ok) return;
+		await endSession(db, b.sessionId);
+
+		let injected = false;
+		const originalThen = QueryPromise.prototype.then;
+		const spy = vi.spyOn(QueryPromise.prototype, 'then').mockImplementation(function (
+			this: QueryPromise<unknown>,
+			onFulfilled,
+			onRejected
+		) {
+			if (this instanceof PgDeleteBase && !injected) {
+				injected = true;
+				return softDeleteEndedSession(db, b.sessionId).then(() =>
+					originalThen.call(this, onFulfilled, onRejected)
+				);
+			}
+			return originalThen.call(this, onFulfilled, onRejected);
+		});
+		try {
+			const result = await purgeDeletedSessionsForProgram(db, fixture.programId, 1);
+			expect(result).toEqual({ ok: true, purged: 1 });
+		} finally {
+			spy.mockRestore();
+		}
+		expect(injected).toBe(true);
+
+		const remaining = await db
+			.select({ id: sessions.id, deletedAt: sessions.deletedAt })
+			.from(sessions)
+			.where(eq(sessions.programId, fixture.programId));
+		// A (confirmed) is gone; B (trashed mid-purge) is still in the trash.
+		expect(remaining).toEqual([{ id: b.sessionId, deletedAt: expect.any(Date) }]);
 	});
 
 	it('hardDeleteSession refuses (409) when the session is restored between check and delete', async () => {

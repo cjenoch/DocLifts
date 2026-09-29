@@ -61,15 +61,35 @@ Prerequisites: Docker Engine with Compose, an active Tailscale connection, and p
 
 `docker-compose.yml` is configured for the existing VPS: its web port binding contains that machine's tailnet IP. On a different host, change the binding to that host's Tailscale IP and update the trusted origins. Do not replace the binding with `0.0.0.0`.
 
-Create an uncommitted `.env` for a **new** installation. Preserve an existing deployment's credentials; do not overwrite its `.env` with the development example.
+Production's env file is created **outside the repository** — by default
+`/srv/doclifts/.env`, overridable with `DOCLIFTS_PROD_ENV`. Never create it in
+the checkout and never symlink the checkout's `.env` to it: the checkout is the
+working copy for tests and tooling, and a symlink makes every tool run here read
+production credentials by default.
+
+```sh
+sudo install -m 600 -o "$USER" /dev/null /srv/doclifts/.env
+sudoedit /srv/doclifts/.env
+```
 
 ```dotenv
 POSTGRES_PASSWORD=REPLACE_WITH_A_STRONG_URL_SAFE_PASSWORD
-DATABASE_URL=postgresql://doclifts:REPLACE_WITH_THE_SAME_PASSWORD@db:5432/doclifts
 PUBLIC_ORIGIN=http://YOUR_TAILSCALE_HOSTNAME:3000
 ```
 
-Use the same password in both values. The Compose web service constructs its own database URL from `POSTGRES_PASSWORD`; the separate `DATABASE_URL` above is used by migration commands. `db` resolves inside the Compose network, not from a host development process. Protect `.env` with restrictive file permissions and never commit it.
+Use the same password in both values. The Compose web service constructs its
+own database URL from `POSTGRES_PASSWORD`; `scripts/migrate-prod.sh` constructs
+the same URL for migration commands, so **no `DATABASE_URL` needs to be present
+in this file or exported by hand.** `db` resolves inside the Compose network,
+not from a host development process.
+
+The development checkout has its own `.env`, created from `.env.example`. It
+points at the development and test databases and deliberately omits
+`POSTGRES_PASSWORD`, so a bare `docker compose` run from the checkout fails on
+the missing variable instead of silently reusing production's.
+
+Protect the production env file with restrictive file permissions (mode 600) and
+never commit it.
 
 Changing `POSTGRES_PASSWORD` in `.env` does not change the password of an already-initialized PostgreSQL volume. Coordinate database credential changes separately.
 
@@ -78,12 +98,15 @@ Changing `POSTGRES_PASSWORD` in `.env` does not change the password of an alread
 For a new empty installation:
 
 ```sh
-docker compose -p doclifts up -d --wait db
-docker build --target builder -t doclifts-migrations:local .
-docker run --rm --network doclifts_default --env-file .env \
-  doclifts-migrations:local pnpm db:migrate
-docker compose -p doclifts up -d --build --wait web
+scripts/compose-prod.sh up -d --wait db
+scripts/migrate-prod.sh
+scripts/compose-prod.sh up -d --build --wait web
 ```
+
+Both scripts pass the production env file explicitly, so the checkout's `.env`
+is never consulted. `scripts/migrate-prod.sh` takes a verified pre-migrate dump
+before it applies anything, and refuses to migrate if that dump fails or cannot
+be parsed.
 
 The migration runner uses the builder image because the slim web runtime does not include the migration tooling or source migration directory. Run migrations through Drizzle so its migration journal stays consistent. Startup does not automatically migrate, seed, or import personal history.
 
@@ -93,12 +116,22 @@ The VPS migration used the legacy Docker builder to work around a host build-env
 
 ### Updating an existing deployment
 
-1. Save and verify a fresh backup before schema/data changes.
-2. Check `git status`, preserve concurrent work, and use `git pull --ff-only` to obtain the intended release.
-3. Build the web image with `docker compose -p doclifts build web` while the existing app runs.
-4. If there are new migrations, rebuild the builder image and run the migration command above. Review compatibility with the running app before applying schema changes.
-5. Switch the web container with `docker compose -p doclifts up -d --no-deps --no-build --wait web`.
-6. Verify health, open the app from an actual tailnet device, and check the affected user flow.
+1. Check `git status`, preserve concurrent work, and use `git pull --ff-only` to obtain the intended release.
+2. If there are new migrations, run `scripts/migrate-prod.sh` — it dumps and verifies a backup first, then applies them. Review compatibility with the running app before applying schema changes.
+3. Build the web image with `scripts/compose-prod.sh build web` while the existing app runs.
+4. Switch the web container with `scripts/compose-prod.sh up -d --no-deps --no-build --wait web`.
+5. Verify health, open the app from an actual tailnet device, and check the affected user flow.
+
+Rollback is a documented manual step, not automatic:
+
+```sh
+docker exec -i doclifts-db pg_restore --clean --if-exists --no-owner --no-privileges \
+  -U doclifts -d doclifts < /srv/doclifts/backups/predeploy-<timestamp>.dump
+```
+
+`--clean` drops only objects present in the dump, so objects a migration
+_created_ (the `auth` schema, the ownership columns) survive a restore and need
+explicit drops — see `docs/migrations.md`.
 
 A Git push does not itself establish that the VPS has rebuilt. The checked-in GitHub workflows run CI; follow the deployment steps unless a separate deployment trigger has been configured and verified.
 

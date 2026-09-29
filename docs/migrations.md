@@ -105,3 +105,46 @@ chain is checked on every push. Locally, pass `DATABASE_URL` explicitly.
 `program-builder.ts` quick-add does `onConflictDoNothing({ target: exercises.name })`,
 which throws at runtime unless the global unique exists. 0010 drops it once T3
 has rewritten that call site.
+
+## Restoring from a pre-migrate dump
+
+`scripts/migrate-prod.sh` takes a custom-format dump to
+`/srv/doclifts/backups/predeploy-<timestamp>.dump` (mode 600) before applying
+anything, and refuses to migrate if the dump fails or will not parse. It keeps
+the newest 14.
+
+Restore is **manual and deliberate**, not automatic:
+
+```sh
+docker exec -i doclifts-db pg_restore --clean --if-exists --no-owner --no-privileges \
+  -U doclifts -d doclifts < /srv/doclifts/backups/predeploy-<timestamp>.dump
+```
+
+**`--clean` only drops objects that are present in the dump.** Anything a
+migration _created_ is not in the dump, so it survives the restore and must be
+dropped explicitly. For the ownership chain that means:
+
+```sql
+-- Revert 0009 + 0008. Order matters: drop the FKs before the columns.
+DROP SCHEMA IF EXISTS auth CASCADE;   -- 0008, and the 0009 FKs with it
+```
+
+`DROP SCHEMA ... CASCADE` removes the nine `user_id` / `owner_user_id`
+constraints and columns with it, because they depend on `auth."user"`. The
+`workout_log_imports` and `exercises` unique constraints created by 0009 also go
+with their columns, but **the global uniques 0009 dropped do not come back** —
+re-add them if the pre-0009 shape is required:
+
+```sql
+ALTER TABLE exercises ADD CONSTRAINT exercises_name_unique UNIQUE (name);
+ALTER TABLE workout_log_imports
+  ADD CONSTRAINT workout_log_imports_source_sha256_unique UNIQUE (source_sha256);
+```
+
+0010 does not exist yet. When it does, its revert is **not** a restore: the
+backfill is lossy (every row points at the sentinel), so reverting 0010 means
+restoring a dump taken before it.
+
+Automated rollback is deliberately absent. Rolling back the database without
+rolling back the web image leaves the two on different schemas, and image
+orchestration is a separate concern from this script.

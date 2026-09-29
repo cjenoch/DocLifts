@@ -14,7 +14,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: doclifts
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in the production env file; use scripts/compose-prod.sh}
       POSTGRES_DB: doclifts
     # Bind to the compose service only (no host port). Web reaches it by
     # service name; nothing exposes 5432 off the docker network on the VPS.
@@ -43,7 +43,7 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 3000
-      DATABASE_URL: postgresql://doclifts:${POSTGRES_PASSWORD:?set in .env}@db:5432/doclifts
+      DATABASE_URL: postgresql://doclifts:${POSTGRES_PASSWORD:?set in the production env file; use scripts/compose-prod.sh}@db:5432/doclifts
       # adapter-node CSRF/cookie origin: must match a trustedOrigins entry in
       # svelte.config.js. Tailnet IP + MagicDNS hostname both allowed.
       ORIGIN: ${PUBLIC_ORIGIN:-http://100.118.77.26:3000}

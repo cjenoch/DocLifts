@@ -162,7 +162,8 @@ pnpm db:seed                      # Demo seed (fictional data): requires DOCLIFT
 
 # Daily
 pnpm dev                          # Vite dev for local development
-pnpm redeploy                     # Build release + migrate + atomic symlink swap + restart + verify
+scripts/compose-prod.sh up -d --build --wait web   # Build + recreate the web container
+scripts/migrate-prod.sh                            # Verified dump, then apply migrations
                                   # (fails closed; auto-rolls back to previous release on failed restart/health)
 pnpm test                         # Full suite, ~10s
 pnpm test --project server        # Server tests only, ~5s
@@ -180,7 +181,14 @@ pnpm db:migrate                   # Apply to dev DB
 
 Generated migration files in `drizzle/` are committed to the repo.
 
-`pnpm redeploy` now runs the guarded deploy script (`scripts/deploy-safe.sh`): build to `build/` → copy to a versioned release directory (`releases/<timestamp>/build`) → migrate → atomic `releases/current` symlink swap → restart service → readiness verification. If restart/readiness fails, the script automatically rolls back `releases/current` to the previous release and re-restarts.
+Deployment is Compose-based. `scripts/compose-prod.sh` is the only sanctioned way to run
+it: it passes the production env file (`/srv/doclifts/.env`, outside the repository)
+explicitly, so the checkout's `.env` is never consulted. `scripts/migrate-prod.sh`
+applies migrations and takes a verified pre-migrate dump first.
+
+The former systemd path (unit + release symlink + `pnpm redeploy`) is removed. It is
+described in historical reports under `docs/`; those records are left as they were
+written and do not describe the current deployment.
 
 For a stronger ops invariant independent of operator behavior, run `scripts/apply-doclifts-systemd-override.sh` (sudo) once on the host. It installs a systemd drop-in with `ExecStartPre=pnpm db:migrate` and `ExecStart=/usr/bin/node /home/chris/code/DocLifts/releases/current`.
 

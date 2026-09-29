@@ -1,23 +1,52 @@
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
+import { loadEnv } from 'vite';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 // Point the app's `db` singleton at the test database for every vitest
 // project, at config-load time — before any test module is imported.
 //
-// db/index.ts builds the client at MODULE IMPORT from DATABASE_URL. A test
-// that imports `auth` therefore binds whatever DATABASE_URL is in the
-// environment, and on the VPS that is the PRODUCTION database: auth tables
-// get created and user rows written there by a test run. A project's `env`
-// block does not reliably do this (the value is read when the config is
-// resolved, and SvelteKit's env handling wins), so assign the process
-// variable directly. It is the earliest point available.
+// db/index.ts builds the client at MODULE IMPORT from DATABASE_URL, so a test
+// that imports `auth` binds whatever DATABASE_URL is in the environment. This
+// is an OVERRIDE, not a default: on this host a stale DATABASE_URL exported in
+// the shell for migration runs has pointed at a real Postgres on
+// 127.0.0.1:5432, and a default would do nothing about it. A project's `env`
+// block did not apply reliably (SvelteKit's env handling wins), so assign the
+// process variable directly — the earliest point available.
 //
-// The fallback matches test-db.ts's own secretless default. The URL contains
-// no credential — TEST_DATABASE_URL carries the password when one is needed.
-process.env.DATABASE_URL ??=
-	process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_test';
+// VITEST is set by vitest before the config is loaded. Guard on it so a normal
+// `vite dev` / `vite build` still gets a real DATABASE_URL.
+//
+// VITE loads `.env` into `import.meta.env` / SvelteKit's private env module,
+// NOT into `process.env`, and it does that AFTER this config is evaluated. So
+// `process.env.TEST_DATABASE_URL` is empty here unless the shell exported it,
+// and the bare fallback would silently drop the credential. `loadEnv` reads the
+// same file Vite will, with the same mode rules, and is the supported way to
+// read a .env value at config time. If it finds nothing, the secretless default
+// applies, which then fails loudly with a Postgres auth error rather than
+// connecting to the wrong database.
+if (process.env.VITEST) {
+	const fromFile = loadEnv(
+		process.env.NODE_ENV === 'production' ? 'production' : 'development',
+		process.cwd(),
+		''
+	);
+	const testUrl =
+		process.env.TEST_DATABASE_URL ??
+		fromFile.TEST_DATABASE_URL ??
+		'postgresql://localhost/doclifts_test';
+	// BOTH variables. test-db.ts reads TEST_DATABASE_URL directly and
+	// post-process.env, not Vite's env module — so setting only DATABASE_URL
+	// leaves the migrator connecting with no credential at all, which
+	// postgres-js answers by guessing the OS user and failing with
+	// 'password authentication failed for user "<you>"'.
+	process.env.TEST_DATABASE_URL = testUrl;
+	process.env.DATABASE_URL = testUrl;
+} else {
+	process.env.DATABASE_URL ??=
+		process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_test';
+}
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],

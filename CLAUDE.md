@@ -194,8 +194,19 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/request-id.ts` — idempotency token helpers (client generates a per-submit UUID; server keys on it so a double-submit can't double-append).
 - `src/lib/server/gym-config.ts` — plate inventory config (single-gym hardcoded; superseded for equipment picking by the shipped `gyms`/`gym_equipment` tables, but still the plate-snap inventory source)
 - `src/lib/server/test-db.ts` — integration-test DB bootstrap. Not imported by production code.
-- `scripts/backup-db.sh` — daily `pg_dump` to `~/backups/doclifts/`, 30-day rotation. Installed in user crontab (`0 3 * * *`). Cron log at `~/backups/doclifts/cron.log`.
-- `deploy/doclifts.service` — authoritative systemd unit (releases/current runtime). Matches the installed unit on the host; the older `scripts/apply-doclifts-systemd-override.sh` form is superseded and removed.
+- `scripts/backup-db.sh` — daily `pg_dump` to `/srv/backups/doclifts/`, 30-day rotation. Installed in user crontab (`0 3 * * *`). Cron log at `/srv/backups/doclifts/cron.log`.
+- `scripts/compose-prod.sh` — the ONLY sanctioned way to run production Compose. It passes
+  `/srv/doclifts/.env` explicitly via `--env-file`, so the checkout's own `.env` is never
+  consulted. Production's env file lives outside the repository and must never be
+  symlinked into it.
+- `scripts/migrate-prod.sh` — applies pending migrations to production, with a verified
+  pre-migrate `pg_dump` (custom format, mode 600, verified with `pg_restore --list`) and
+  a refuse-to-migrate failure path. Builds `DATABASE_URL` from `POSTGRES_PASSWORD`; never
+  require a hand-exported one.
+- The systemd / release-symlink deployment path (unit, `deploy-safe.sh`,
+  `verify-doclifts-up.sh`, `pnpm redeploy`) is REMOVED. The unit was `not-found` on the
+  host; production runs through Compose. Its one unique feature — the pre-migrate dump —
+  now lives in `scripts/migrate-prod.sh`.
 - `drizzle/` — generated migration files (committed to repo)
 - `drizzle.config.ts` — Drizzle Kit config. `drizzle-kit check` requires `DATABASE_URL` and does **not** fail loudly without it, so it is wired into `ci.yml` rather than left to a local run. Run it locally with an explicit `DATABASE_URL`; a silent skip reads as a pass.
 

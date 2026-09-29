@@ -480,6 +480,12 @@ export const sessions = pgTable(
 			t.startedAt.desc().nullsLast()
 		),
 		programIdIdx: index('sessions_program_id_idx').on(t.programId),
+		/**
+		 * Every scoped history/progression query filters sessions by owner
+		 * without joining. History is append-only and unbounded, so this is
+		 * the most-used new index in the migration.
+		 */
+		userIdIdx: index('sessions_user_id_idx').on(t.userId),
 		// At most one open session per day. Partial unique index — closes the
 		// double-submit race in `startSessionForDay` (the app-layer check there
 		// covers the common case; this catches true concurrent inserts).
@@ -597,6 +603,12 @@ export const sets = pgTable(
 	},
 	(t) => ({
 		sessionIdIdx: index('sets_session_id_idx').on(t.sessionId),
+		/**
+		 * Owner filter for scoped set queries (history, progression, reports).
+		 * The existing `sets_identity_idx` leads with exercise_id and is used
+		 * by a different access path, so it cannot serve this filter.
+		 */
+		userIdIdx: index('sets_user_id_idx').on(t.userId),
 		occurrenceIdx: index('sets_session_exercise_idx').on(t.sessionExerciseId),
 		machineIdx: index('sets_machine_idx').on(t.gymEquipmentId),
 		identityIdx: index('sets_identity_idx').on(
@@ -692,6 +704,7 @@ export const painEvents = pgTable(
 			t.occurredAt.desc().nullsLast()
 		),
 		sessionIdIdx: index('pain_events_session_id_idx').on(t.sessionId),
+		userIdIdx: index('pain_events_user_id_idx').on(t.userId),
 		setIdIdx: index('pain_events_set_id_idx').on(t.setId),
 		severityCheck: check(
 			'pain_events_severity_check',

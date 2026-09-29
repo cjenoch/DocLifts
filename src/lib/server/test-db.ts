@@ -84,9 +84,53 @@ export async function setupTestDb(): Promise<{
 }
 
 /**
- * Truncate all application tables. Cascades clean up child rows.
- * Call from beforeEach for a clean slate per test.
+ * Fail if any ownership-scoped row has a NULL user_id.
+ *
+ * WHY THIS EXISTS: between 0009 and 0010 the `user_id` columns are NULLABLE
+ * in the TS schema, so the compiler cannot catch an insert that forgets an
+ * owner. T3's modules write and filter `user_id`; an insert that omits it
+ * would create a row that every scoped query silently skips. The type system
+ * takes over when 0010 applies `notNull()` — delete this then.
+ *
+ * Call from `afterEach` of every `*.db.test.ts` from the first T3 module
+ * onward. It is a no-op (returns) on tables that do not exist yet, so it is
+ * safe to wire in before 0009 has been applied to the test DB.
  */
+export async function assertNoUnownedRows(client: postgres.Sql): Promise<void> {
+	const scoped = [
+		'programs',
+		'gyms',
+		'exercises',
+		'sessions',
+		'sets',
+		'pain_events',
+		'workout_log_imports',
+		'program_draft_requests'
+	];
+
+	// Only check tables that actually have the column — before 0009 the test
+	// DB has no user_id at all, and a missing table is not a test failure.
+	const present = await client<{ exists: number }[]>`
+		SELECT count(*)::int AS exists
+		FROM information_schema.columns
+		WHERE table_schema = 'public' AND column_name = 'user_id'
+	`;
+	if (!present[0]?.exists) return;
+
+	for (const table of scoped) {
+		const rows = await client.unsafe<{ n: number }[]>(
+			`SELECT count(*)::int AS n FROM "${table}" WHERE user_id IS NULL`
+		);
+		const n = rows[0]?.n ?? 0;
+		if (n > 0) {
+			throw new Error(
+				`assertNoUnownedRows: ${table} has ${n} row(s) with user_id NULL. ` +
+					`Every insert in a T3-scoped module must supply the owner.`
+			);
+		}
+	}
+}
+
 export async function resetTestDb(client: postgres.Sql): Promise<void> {
 	await client`
 		TRUNCATE

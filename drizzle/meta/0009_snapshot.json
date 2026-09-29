@@ -1,5 +1,5 @@
 {
-  "id": "6bc02ce6-7e9a-4460-8fd5-f645c707556f",
+  "id": "479d4132-fa57-4649-922d-29241b9a4175",
   "prevId": "aeb14e1a-bb02-463a-a628-cb2472225892",
   "version": "7",
   "dialect": "postgresql",
@@ -1388,6 +1388,21 @@
           "method": "btree",
           "with": {}
         },
+        "pain_events_user_id_idx": {
+          "name": "pain_events_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "pain_events_set_id_idx": {
           "name": "pain_events_set_id_idx",
           "columns": [
@@ -2149,6 +2164,21 @@
           "method": "btree",
           "with": {}
         },
+        "sessions_user_id_idx": {
+          "name": "sessions_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "sessions_one_open_per_day": {
           "name": "sessions_one_open_per_day",
           "columns": [
@@ -2367,6 +2397,21 @@
           "columns": [
             {
               "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sets_user_id_idx": {
+          "name": "sets_user_id_idx",
+          "columns": [
+            {
+              "expression": "user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
-import { setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
+import { createTestUser, setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
 import { startSessionForDay } from '$lib/server/sessions';
 import { createGym, createMachine } from '$lib/server/machines';
 
@@ -26,31 +26,45 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
 	await resetTestDb(harness.client);
+	userId = await createTestUser(harness.db, 'sessions-route');
 });
 afterAll(async () => {
 	await harness?.end();
 });
 
 type ActionEvent = Parameters<(typeof actions)['updateSet']>[0];
+
+// One fixture user for the whole file. The route actions call requireUser(locals),
+// so every posted event carries it — the same shape hooks.server.ts populates
+// for a signed-in request. Created in beforeEach because resetTestDb() truncates
+// auth.user between tests.
+let userId: string;
+const locals = () => ({ user: { id: userId } }) as App.Locals;
 const post = (id: string, form: Record<string, string>): ActionEvent => {
 	const fd = new FormData();
 	for (const [k, v] of Object.entries(form)) fd.append(k, v);
 	return {
 		request: new Request('http://test.local/', { method: 'POST', body: fd }),
-		params: { id }
+		params: { id },
+		locals: locals()
 	} as unknown as ActionEvent;
 };
 
 async function startWorkout() {
 	const db = testDb.db!;
-	const [program] = await db.insert(s.programs).values({ name: 'P' }).returning();
+	const [program] = await db.insert(s.programs).values({ name: 'P', userId }).returning();
 	const [day] = await db
 		.insert(s.days)
 		.values({ programId: program.id, name: 'D', position: 1 })
 		.returning();
 	const [exercise] = await db
 		.insert(s.exercises)
-		.values({ name: 'Press', canonicalMovement: 'chest_press', equipmentType: 'machine-plate' })
+		.values({
+			name: 'Press',
+			canonicalMovement: 'chest_press',
+			equipmentType: 'machine-plate',
+			userId
+		})
 		.returning();
 	const [dx] = await db
 		.insert(s.dayExercises)
@@ -69,6 +83,10 @@ async function startWorkout() {
 	);
 	const started = await startSessionForDay(db, day.id);
 	if (!started.ok) throw new Error(started.message);
+	// sessions.ts does not set user_id until T4; the machine actions reach
+	// lockActive(), which filters on it.
+	await db.update(s.sessions).set({ userId }).where(eq(s.sessions.id, started.sessionId));
+	await db.update(s.sets).set({ userId }).where(eq(s.sets.sessionId, started.sessionId));
 	const rows = await db
 		.select()
 		.from(s.sets)
@@ -246,8 +264,8 @@ it('bindMachine maps a malformed occurrence id to 400', async () => {
 it('bindMachine binds a machine and redirects back to the session', async () => {
 	const db = testDb.db!;
 	const { sessionId } = await startWorkout();
-	const gym = await createGym(db, { name: 'G' });
-	const machine = await createMachine(db, {
+	const gym = await createGym(db, userId, { name: 'G' });
+	const machine = await createMachine(db, userId, {
 		gymId: gym.id,
 		localLabel: 'Press',
 		equipmentType: 'machine-plate'

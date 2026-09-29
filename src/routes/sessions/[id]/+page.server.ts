@@ -25,10 +25,11 @@ import {
 } from '$lib/server/machines';
 import type { Actions, PageServerLoad } from './$types';
 import { appendWorkoutSet, removeEmptyLastSet } from '$lib/server/workout-sets';
+import { requireUser } from '$lib/server/request-user';
 
 const uuidParamSchema = z.string().uuid();
 
-export const load: PageServerLoad = async ({ params, url }) => {
+export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const parsedSessionId = uuidParamSchema.safeParse(params.id);
 	if (!parsedSessionId.success) {
 		error(400, 'Invalid session id');
@@ -157,7 +158,13 @@ export const load: PageServerLoad = async ({ params, url }) => {
 
 	const allowEndedSessionEdit = session.endedAt != null && url.searchParams.get('edit') === '1';
 
-	return { session, day, groups, allowEndedSessionEdit, choices: await machineChoices(db) };
+	return {
+		session,
+		day,
+		groups,
+		allowEndedSessionEdit,
+		choices: await machineChoices(db, requireUser(locals).id)
+	};
 };
 
 const reopenEndedSessionSchema = z.object({
@@ -199,13 +206,14 @@ export const actions: Actions = {
 			throw e;
 		}
 	},
-	addExercise: async ({ request, params }) => {
+	addExercise: async ({ request, params, locals }) => {
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid session id', setId: null });
 		}
 		try {
 			const added = await addSessionExercise(
 				db,
+				requireUser(locals).id,
 				params.id,
 				Object.fromEntries(await request.formData())
 			);
@@ -219,13 +227,19 @@ export const actions: Actions = {
 			throw e;
 		}
 	},
-	bindMachine: async ({ request, params }) => {
+	bindMachine: async ({ request, params, locals }) => {
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid session id', setId: null });
 		}
 		const form = Object.fromEntries(await request.formData());
 		try {
-			await bindSessionMachine(db, params.id, String(form.occurrenceId), form);
+			await bindSessionMachine(
+				db,
+				requireUser(locals).id,
+				params.id,
+				String(form.occurrenceId),
+				form
+			);
 		} catch (e) {
 			if (e instanceof z.ZodError || e instanceof MachineInputError)
 				return fail(400, { message: e.message, setId: null });

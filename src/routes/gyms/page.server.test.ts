@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
+import {
+	createTestUser,
+	setupTestDb,
+	resetTestDb,
+	withTwoUsers,
+	type TestDb
+} from '$lib/server/test-db';
 
 const testDb = vi.hoisted(() => ({ db: null as TestDb | null }));
 vi.mock('$lib/server/db', async () => {
@@ -24,20 +30,30 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
 	await resetTestDb(harness.client);
+	userId = await createTestUser(harness.db, 'gyms-route');
 });
 afterAll(async () => {
 	await harness?.end();
 });
 
 type ActionEvent = Parameters<(typeof actions)['createGym']>[0];
-const post = (form: Record<string, string>): ActionEvent => {
-	const fd = new FormData();
-	for (const [k, v] of Object.entries(form)) fd.append(k, v);
-	return {
-		request: new Request('http://test.local/', { method: 'POST', body: fd }),
-		params: {}
-	} as unknown as ActionEvent;
-};
+
+// The actions call requireUser(locals), so every posted event carries a signed-in
+// user — the same shape hooks.server.ts populates. Recreated per test because
+// resetTestDb() truncates auth.user.
+let userId: string;
+const postAs =
+	(as: string) =>
+	(form: Record<string, string>): ActionEvent => {
+		const fd = new FormData();
+		for (const [k, v] of Object.entries(form)) fd.append(k, v);
+		return {
+			request: new Request('http://test.local/', { method: 'POST', body: fd }),
+			params: {},
+			locals: { user: { id: as } } as App.Locals
+		} as unknown as ActionEvent;
+	};
+const post = (form: Record<string, string>): ActionEvent => postAs(userId)(form);
 
 it('createGym creates a gym and confirms', async () => {
 	const result = await actions.createGym(post({ name: 'Downtown' }));
@@ -79,4 +95,33 @@ it('createMachine creates a machine and confirms', async () => {
 		.where(eq(s.gymEquipment.gymId, gym.id));
 	expect(rows).toHaveLength(1);
 	expect(rows[0].localLabel).toBe('Lat Pulldown');
+});
+
+// Cross-tenant: another user's gym is reported exactly as a nonexistent one —
+// 'Gym not found', the module's existing message. No 403, no distinct wording
+// (D6), so a caller cannot probe for the existence of someone else's gym.
+it("createMachine treats another user's gym as not found", async () => {
+	const { alice, bob } = await withTwoUsers(harness.db);
+	const created = await actions.createGym(postAs(alice)({ name: 'Alice Gym' }));
+	expect(created).toEqual({ message: 'Gym created' });
+	const [gym] = await testDb.db!.select().from(s.gyms).where(eq(s.gyms.name, 'Alice Gym'));
+
+	const result = await actions.createMachine(
+		postAs(bob)({ gymId: gym.id, localLabel: 'Sneaky', equipmentType: 'machine-plate' })
+	);
+	expect(result).toMatchObject({ status: 400, data: { message: 'Gym not found' } });
+
+	// Same message as a gym that never existed, and nothing written.
+	const missing = await actions.createMachine(
+		postAs(bob)({ gymId: randomUUID(), localLabel: 'Sneaky', equipmentType: 'machine-plate' })
+	);
+	expect(result).toEqual(missing);
+	expect(await testDb.db!.select().from(s.gymEquipment)).toHaveLength(0);
+});
+
+it('createGym writes the caller as the owner', async () => {
+	const { alice } = await withTwoUsers(harness.db);
+	await actions.createGym(postAs(alice)({ name: 'Owned' }));
+	const [gym] = await testDb.db!.select().from(s.gyms).where(eq(s.gyms.name, 'Owned'));
+	expect(gym.userId).toBe(alice);
 });

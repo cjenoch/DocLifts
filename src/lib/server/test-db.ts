@@ -33,6 +33,7 @@ import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import * as schema from './db/schema';
+import { authUsers } from './db/schema';
 
 export type TestDb = PostgresJsDatabase<typeof schema>;
 
@@ -137,6 +138,53 @@ export async function assertNoUnownedRows(client: postgres.Sql): Promise<void> {
 			);
 		}
 	}
+}
+
+/**
+ * A bare `auth.user` row, no credential.
+ *
+ * T3 modules scope reads and writes by userId, so tests need real users that
+ * exist in the auth schema for the FK. They do NOT need a password: nothing
+ * here signs in over HTTP, and Better Auth's password tables are only
+ * exercised by the sign-in path, which uses `createUser` from users.ts.
+ *
+ * Asserts the test-DB guard before inserting — this must never be reachable
+ * with a production URL.
+ */
+export async function createTestUser(db: TestDb, label = 'fixture'): Promise<string> {
+	const url = process.env.TEST_DATABASE_URL ?? DEFAULT_TEST_URL;
+	const name = dbNameFromUrl(url);
+	if (!name.endsWith('_test')) {
+		throw new Error(
+			`createTestUser refuses to run against "${name}": only a *_test database is allowed.`
+		);
+	}
+	const [row] = await db
+		.insert(authUsers)
+		.values({
+			// auth."user".id has NO database default — Better Auth mints it in
+			// application code, so the drizzle column types it as required and
+			// the test must supply it. This is a fixture, not a sign-in: no
+			// credential row is created, so nothing here can authenticate.
+			id: crypto.randomUUID(),
+			// email must be unique; label + randomness keeps parallel/repeat
+			// runs from colliding on a 23505.
+			email: `${label}-${Math.random().toString(36).slice(2, 10)}@test.local`,
+			name: label,
+			emailVerified: true
+		})
+		.returning();
+	return row.id;
+}
+
+/**
+ * Two distinct users, for cross-tenant assertions. Named for intent at the
+ * call site: `const { alice, bob } = await withTwoUsers(db)`.
+ */
+export async function withTwoUsers(db: TestDb): Promise<{ alice: string; bob: string }> {
+	const alice = await createTestUser(db, 'alice');
+	const bob = await createTestUser(db, 'bob');
+	return { alice, bob };
 }
 
 export async function resetTestDb(client: postgres.Sql): Promise<void> {

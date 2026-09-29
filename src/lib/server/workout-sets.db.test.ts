@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { setupTestDb, resetTestDb } from './test-db';
+import { createTestUser, setupTestDb, resetTestDb } from './test-db';
 import * as s from './db/schema';
 import { appendWorkoutSet, removeEmptyLastSet } from './workout-sets';
 import { addSessionExercise } from './machines';
@@ -17,22 +17,27 @@ afterAll(async () => {
 });
 async function fixture() {
 	const db = handle.db;
-	const [program] = await db.insert(s.programs).values({ name: 'Test' }).returning();
+	// One owner for the whole fixture. addSessionExercise is T3-scoped, so the
+	// session and the exercise must carry the owner or lockActive() reports
+	// 'Session not found' — sessions.ts does not set it until T4.
+	const userId = await createTestUser(db, 'workout-sets');
+	const [program] = await db.insert(s.programs).values({ name: 'Test', userId }).returning();
 	const [day] = await db
 		.insert(s.days)
 		.values({ programId: program.id, name: 'Push', position: 1 })
 		.returning();
 	const [exercise] = await db
 		.insert(s.exercises)
-		.values({ name: 'DB press', equipmentType: 'dumbbell' })
+		.values({ name: 'DB press', equipmentType: 'dumbbell', userId })
 		.returning();
 	const [session] = await db
 		.insert(s.sessions)
-		.values({ programId: program.id, dayId: day.id })
+		.values({ programId: program.id, dayId: day.id, userId })
 		.returning();
 	const [source] = await db
 		.insert(s.sets)
 		.values({
+			userId,
 			sessionId: session.id,
 			exerciseId: exercise.id,
 			position: 2,
@@ -46,10 +51,10 @@ async function fixture() {
 			prescribedRir: 1
 		})
 		.returning();
-	return { db, session, source, exercise };
+	return { db, userId, session, source, exercise };
 }
 it('appends to legacy groups without changing saved data and deduplicates concurrent retries', async () => {
-	const { db, session, source } = await fixture();
+	const { db, userId, session, source } = await fixture();
 	const input = { sourceSetId: source.id, requestId: randomUUID(), setRole: 'working' };
 	const [a, b] = await Promise.all([
 		appendWorkoutSet(db, session.id, input),
@@ -69,7 +74,7 @@ it('appends to legacy groups without changing saved data and deduplicates concur
 	expect(await db.select().from(s.sets)).toHaveLength(2);
 });
 it('rejects cross-workout sources and ended workouts', async () => {
-	const { db, session, source } = await fixture();
+	const { db, userId, session, source } = await fixture();
 	await expect(
 		appendWorkoutSet(db, session.id, {
 			sourceSetId: randomUUID(),
@@ -90,7 +95,7 @@ it('rejects cross-workout sources and ended workouts', async () => {
 	).rejects.toThrow('no longer active');
 });
 it('removes only the last unlogged set without renumbering or deleting logged data', async () => {
-	const { db, session, source } = await fixture();
+	const { db, userId, session, source } = await fixture();
 	const added = await appendWorkoutSet(db, session.id, {
 		sourceSetId: source.id,
 		requestId: randomUUID(),
@@ -101,7 +106,7 @@ it('removes only the last unlogged set without renumbering or deleting logged da
 	expect(await db.select().from(s.sets)).toEqual([source]);
 });
 it('creates equipment inline atomically and retains machine identity on added sets', async () => {
-	const { db, session, exercise } = await fixture();
+	const { db, userId, session, exercise } = await fixture();
 	const input = {
 		requestId: randomUUID(),
 		exerciseId: exercise.id,
@@ -116,8 +121,8 @@ it('creates equipment inline atomically and retains machine identity on added se
 		tier: 'secondary',
 		progressionPolicy: 'standard'
 	};
-	const occurrence = await addSessionExercise(db, session.id, input);
-	const retry = await addSessionExercise(db, session.id, input);
+	const occurrence = await addSessionExercise(db, userId, session.id, input);
+	const retry = await addSessionExercise(db, userId, session.id, input);
 	expect(retry.id).toBe(occurrence.id);
 	expect(await db.select().from(s.gyms)).toHaveLength(1);
 	const [source] = await db
@@ -138,7 +143,7 @@ it('creates equipment inline atomically and retains machine identity on added se
 		executedLoad: null
 	});
 	await expect(
-		addSessionExercise(db, session.id, {
+		addSessionExercise(db, userId, session.id, {
 			...input,
 			requestId: randomUUID(),
 			equipmentType: 'barbell',

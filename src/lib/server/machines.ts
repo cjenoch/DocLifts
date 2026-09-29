@@ -1,4 +1,4 @@
-import { and, asc, eq, max } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, max, or } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	equipmentModels,
@@ -80,26 +80,42 @@ const addSchema = z
 	.refine((v) => v.repsMin <= v.repsMax, { message: 'Minimum reps must not exceed maximum' });
 
 export class MachineInputError extends Error {}
-export async function createGym(db: Database, input: unknown) {
+export async function createGym(db: Database, userId: string, input: unknown) {
 	const value = z.object({ name }).parse(input);
-	const [gym] = await db.insert(gyms).values(value).returning();
+	const [gym] = await db
+		.insert(gyms)
+		.values({ ...value, userId })
+		.returning();
 	return gym;
 }
-export async function createMachine(db: Database, input: unknown) {
+export async function createMachine(db: Database, userId: string, input: unknown) {
 	const value = machineSchema.parse(input);
 	if (Boolean(value.manufacturer) !== Boolean(value.modelName))
 		throw new MachineInputError('Provide both manufacturer and model name, or leave both unknown');
 	return db.transaction(async (tx) => {
-		const [gym] = await tx.select().from(gyms).where(eq(gyms.id, value.gymId));
+		// Ownership is part of the lookup, not a pre-check that could race:
+		// another user's gym is indistinguishable from a missing one.
+		const [gym] = await tx
+			.select()
+			.from(gyms)
+			.where(and(eq(gyms.id, value.gymId), eq(gyms.userId, userId)));
 		if (!gym) throw new MachineInputError('Gym not found');
 		let modelId = value.equipmentModelId;
 		if (modelId && value.modelName)
 			throw new MachineInputError('Choose existing model or enter a new one, not both');
 		if (modelId) {
+			// A model is usable when it is global (owner_user_id IS NULL) or
+			// belongs to this user. Anything else is not found as far as this
+			// user is concerned — no 403, no distinct message.
 			const [model] = await tx
 				.select()
 				.from(equipmentModels)
-				.where(eq(equipmentModels.id, modelId));
+				.where(
+					and(
+						eq(equipmentModels.id, modelId),
+						or(isNull(equipmentModels.ownerUserId), eq(equipmentModels.ownerUserId, userId))
+					)
+				);
 			if (!model || model.loadingType !== value.equipmentType)
 				throw new MachineInputError('Model loading type does not match machine');
 		} else if (value.manufacturer && value.modelName) {
@@ -108,7 +124,8 @@ export async function createMachine(db: Database, input: unknown) {
 				.values({
 					manufacturer: value.manufacturer,
 					name: value.modelName,
-					loadingType: value.equipmentType
+					loadingType: value.equipmentType,
+					ownerUserId: userId
 				})
 				.returning();
 			modelId = model.id;
@@ -125,33 +142,68 @@ export async function createMachine(db: Database, input: unknown) {
 		return machine;
 	});
 }
-export async function machineChoices(db: Database) {
+export async function machineChoices(db: Database, userId: string) {
+	// gym_equipment has no owner column of its own — it belongs to whoever owns
+	// the gym, so it is reached by an INNER JOIN on an already-scoped gyms row
+	// rather than by a separate filter.
 	return {
-		gyms: await db.select().from(gyms).orderBy(asc(gyms.name)),
-		machines: await db.select().from(gymEquipment).orderBy(asc(gymEquipment.localLabel)),
-		models: await db.select().from(equipmentModels).orderBy(asc(equipmentModels.name)),
-		exercises: await db.select().from(exercises).orderBy(asc(exercises.name))
+		gyms: await db.select().from(gyms).where(eq(gyms.userId, userId)).orderBy(asc(gyms.name)),
+		// Membership in the user's gyms, expressed as a subquery rather than a
+		// join. A drizzle multi-table select returns rows NESTED BY TABLE
+		// ({gym_equipment: {...}, gyms: {...}}), which would silently break the
+		// flat shape callers already use — machines.filter(m => m.gymId === …)
+		// in AddWorkoutExercise.svelte and gyms/+page.svelte. inArray against a
+		// subquery keeps this a single-table select, so the rows stay flat.
+		machines: await db
+			.select()
+			.from(gymEquipment)
+			.where(
+				inArray(
+					gymEquipment.gymId,
+					db.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
+				)
+			)
+			.orderBy(asc(gymEquipment.localLabel)),
+		models: await db
+			.select()
+			.from(equipmentModels)
+			.where(or(isNull(equipmentModels.ownerUserId), eq(equipmentModels.ownerUserId, userId)))
+			.orderBy(asc(equipmentModels.name)),
+		exercises: await db
+			.select()
+			.from(exercises)
+			.where(eq(exercises.userId, userId))
+			.orderBy(asc(exercises.name))
 	};
 }
-async function lockActive(db: Database, sessionId: string) {
+// userId is part of the row lock's WHERE, not a filter applied after it.
+// Another user's session is 'not found' here, identically to a nonexistent
+// one — no 403, no different message (D6).
+async function lockActive(db: Database, userId: string, sessionId: string) {
 	z.string().uuid().parse(sessionId);
 	const [session] = await db
 		.select()
 		.from(sessions)
-		.where(eq(sessions.id, sessionId))
+		.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
 		.for('update');
 	if (!session || session.deletedAt) throw new MachineInputError('Session not found');
 	if (session.endedAt) throw new MachineInputError('Session has ended');
 	return session;
 }
-async function machineSnapshot(db: Database, input: unknown) {
+async function machineSnapshot(db: Database, userId: string, input: unknown) {
 	const value = identitySchema.parse(input);
 	const [row] = await db
 		.select({ machine: gymEquipment, gym: gyms, model: equipmentModels })
 		.from(gymEquipment)
 		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
 		.leftJoin(equipmentModels, eq(equipmentModels.id, gymEquipment.equipmentModelId))
-		.where(and(eq(gymEquipment.id, value.gymEquipmentId), eq(gymEquipment.gymId, value.gymId)));
+		.where(
+			and(
+				eq(gymEquipment.id, value.gymEquipmentId),
+				eq(gymEquipment.gymId, value.gymId),
+				eq(gyms.userId, userId)
+			)
+		);
 	if (!row) throw new MachineInputError('Machine not found in selected gym');
 	if (value.loadConvention === 'plates_per_side' && row.machine.equipmentType !== 'machine-plate')
 		throw new MachineInputError('Per-side plates require a plate-loaded machine');
@@ -306,6 +358,7 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 }
 export async function bindSessionMachine(
 	db: Database,
+	userId: string,
 	sessionId: string,
 	occurrenceId: string,
 	input: unknown
@@ -313,7 +366,7 @@ export async function bindSessionMachine(
 	z.object({ confirm: z.literal('CHANGE') }).parse(input);
 	z.string().uuid().parse(occurrenceId);
 	return db.transaction(async (tx) => {
-		await lockActive(tx, sessionId);
+		await lockActive(tx, userId, sessionId);
 		const [occurrence] = await tx
 			.select()
 			.from(sessionExercises)
@@ -328,7 +381,7 @@ export async function bindSessionMachine(
 			throw new MachineInputError(
 				'Cannot change machine after any values are logged; add a separate exercise instead'
 			);
-		const snapshot = await machineSnapshot(tx, input);
+		const snapshot = await machineSnapshot(tx, userId, input);
 		if (snapshot.equipmentType !== occurrence.equipmentType)
 			throw new MachineInputError('Machine equipment type must match exercise');
 		const [updated] = await tx
@@ -340,10 +393,15 @@ export async function bindSessionMachine(
 		return updated;
 	});
 }
-export async function addSessionExercise(db: Database, sessionId: string, input: unknown) {
+export async function addSessionExercise(
+	db: Database,
+	userId: string,
+	sessionId: string,
+	input: unknown
+) {
 	const value = addSchema.parse(input);
 	return db.transaction(async (tx) => {
-		const activeSession = await lockActive(tx, sessionId);
+		const activeSession = await lockActive(tx, userId, sessionId);
 		if (value.requestId) {
 			const [existing] = await tx
 				.select()
@@ -358,11 +416,11 @@ export async function addSessionExercise(db: Database, sessionId: string, input:
 		let gymId = value.gymId;
 		let gymEquipmentId = value.gymEquipmentId;
 		if (!gymId && value.newGymName) {
-			const gym = await createGym(tx, { name: value.newGymName });
+			const gym = await createGym(tx, userId, { name: value.newGymName });
 			gymId = gym.id;
 		}
 		if (!gymEquipmentId && gymId && value.newMachineName) {
-			const machine = await createMachine(tx, {
+			const machine = await createMachine(tx, userId, {
 				gymId,
 				localLabel: value.newMachineName,
 				equipmentType: value.equipmentType
@@ -371,19 +429,26 @@ export async function addSessionExercise(db: Database, sessionId: string, input:
 		}
 		if (!gymId || !gymEquipmentId)
 			throw new MachineInputError('Choose or name your gym and equipment.');
-		const snapshot = await machineSnapshot(tx, { ...value, gymId, gymEquipmentId });
+		const snapshot = await machineSnapshot(tx, userId, { ...value, gymId, gymEquipmentId });
 		if (snapshot.equipmentType !== value.equipmentType)
 			throw new MachineInputError('Machine equipment type must match exercise');
 		let exercise;
 		if (value.exerciseId) {
-			[exercise] = await tx.select().from(exercises).where(eq(exercises.id, value.exerciseId));
+			[exercise] = await tx
+				.select()
+				.from(exercises)
+				.where(and(eq(exercises.id, value.exerciseId), eq(exercises.userId, userId)));
 			if (!exercise || exercise.equipmentType !== value.equipmentType)
 				throw new MachineInputError('Exercise equipment type mismatch');
 		} else {
+			// The duplicate-name guard is scoped to this user as well. Left
+			// global, user B naming their bench "Bench Press" after user A had
+			// created one would be refused — the checklist requires that call
+			// to SUCCEED with B's own row.
 			const existing = await tx
 				.select()
 				.from(exercises)
-				.where(eq(exercises.name, value.exerciseName!));
+				.where(and(eq(exercises.name, value.exerciseName!), eq(exercises.userId, userId)));
 			if (existing.length)
 				throw new MachineInputError('Exercise name already exists; select it from the list');
 			[exercise] = await tx
@@ -392,7 +457,8 @@ export async function addSessionExercise(db: Database, sessionId: string, input:
 					name: value.exerciseName!,
 					equipmentType: value.equipmentType,
 					canonicalMovement: value.canonicalMovement,
-					isLowerBody: value.isLowerBody
+					isLowerBody: value.isLowerBody,
+					userId
 				})
 				.returning();
 		}
@@ -419,6 +485,7 @@ export async function addSessionExercise(db: Database, sessionId: string, input:
 			.returning();
 		await tx.insert(sets).values(
 			Array.from({ length: value.setCount }, (_, i) => ({
+				userId,
 				sessionId,
 				sessionExerciseId: occurrence.id,
 				exerciseId: exercise.id,

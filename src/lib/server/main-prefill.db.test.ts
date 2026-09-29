@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
-import { setupTestDb, resetTestDb, type TestDb } from './test-db';
+import { createTestUser, setupTestDb, resetTestDb, type TestDb } from './test-db';
 import * as s from './db/schema';
 import { createGym, createMachine, bindSessionMachine, addSessionExercise } from './machines';
 import { startSessionForDay, endSession, updateSetInSession } from './sessions';
@@ -19,14 +19,21 @@ beforeEach(async () => {
 });
 
 async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' = 'standard') {
-	const [program] = await db.insert(s.programs).values({ name: 'MAIN regression' }).returning();
+	// Owner for every row this fixture creates. machines.ts scopes by userId as
+	// of T3; programs/sessions do not take one until T4, so the session is
+	// stamped after start (see start() below) rather than at insert.
+	const userId = await createTestUser(db, 'main-prefill');
+	const [program] = await db
+		.insert(s.programs)
+		.values({ name: 'MAIN regression', userId })
+		.returning();
 	const [day] = await db
 		.insert(s.days)
 		.values({ programId: program.id, name: 'Day', position: 1 })
 		.returning();
 	const [exercise] = await db
 		.insert(s.exercises)
-		.values({ name: 'Press', equipmentType: 'machine-stack' })
+		.values({ name: 'Press', equipmentType: 'machine-stack', userId })
 		.returning();
 	const [dx] = await db
 		.insert(s.dayExercises)
@@ -49,8 +56,8 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 			initialLoad: [30, 50, 40][i]
 		}))
 	);
-	const gym = await createGym(db, { name: 'Gym' });
-	const machine = await createMachine(db, {
+	const gym = await createGym(db, userId, { name: 'Gym' });
+	const machine = await createMachine(db, userId, {
 		gymId: gym.id,
 		localLabel: 'Unknown press',
 		equipmentType: 'machine-stack'
@@ -64,11 +71,17 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 	async function start() {
 		const result = await startSessionForDay(db, day.id);
 		if (!result.ok) throw new Error(result.message);
+		// startSessionForDay does not set user_id until T4; lockActive() filters
+		// on it, so stamp it here or every bind below reports 'Session not found'.
+		await db.update(s.sessions).set({ userId }).where(eq(s.sessions.id, result.sessionId));
+		// startSessionForDay also creates the `sets` rows and does not stamp an
+		// owner until T4.
+		await db.update(s.sets).set({ userId }).where(eq(s.sets.sessionId, result.sessionId));
 		const [occurrence] = await db
 			.select()
 			.from(s.sessionExercises)
 			.where(eq(s.sessionExercises.sessionId, result.sessionId));
-		if (bound) await bindSessionMachine(db, result.sessionId, occurrence.id, binding);
+		if (bound) await bindSessionMachine(db, userId, result.sessionId, occurrence.id, binding);
 		const rows = await db
 			.select()
 			.from(s.sets)
@@ -97,7 +110,7 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 		}
 		await endSession(db, run.sessionId);
 	}
-	return { start, completed, binding, exercise };
+	return { userId, start, completed, binding, exercise };
 }
 
 describe.each([false, true])('MAIN caller contract (machine bound=%s)', (bound) => {
@@ -174,7 +187,7 @@ describe.each([false, true])('MAIN caller contract (machine bound=%s)', (bound) 
 it('quick-added MAIN has one top followed by backoffs', async () => {
 	const f = await fixture(true);
 	const run = await f.start();
-	const occurrence = await addSessionExercise(db, run.sessionId, {
+	const occurrence = await addSessionExercise(db, f.userId, run.sessionId, {
 		...f.binding,
 		exerciseId: f.exercise.id,
 		equipmentType: 'machine-stack',

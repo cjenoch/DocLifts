@@ -78,7 +78,7 @@ The hot-path progression wiring bug is fixed: SECONDARY/ISOLATION now gate progr
 ## Current operational state
 
 - App build and tests are green locally.
-- CI + Browser CI are green on latest commit.
+- CI is green on the latest commit. The separate Browser CI workflow was removed on 2026-09-29: GitHub had auto-disabled it for repository inactivity on 2026-08-02, so the component suite had not run in CI for any commit since. Its job now runs as a step of the single CI workflow.
 - Deploy converged: `doclifts.service` runs from `releases/current` (committed `deploy/doclifts.service` matches the installed host unit; superseded override script removed).
 - Rollback drilled end-to-end on the host (`DOCLIFTS_DEPLOY_FAIL_AFTER_MIGRATE=1`): forced post-migrate failure restored the pre-migrate `pg_dump`, repointed `current` to the prior release, restarted, and passed readiness (`exit 91`). Session data round-tripped intact (14 → 14). Two issues surfaced and fixed during the drill: a missing NOPASSWD sudoers entry for `systemctl` (host config, see below), and a readiness-check race where the listening probe fired before the swap loop — fixed in `scripts/verify-doclifts-up.sh` (commit `5217735`).
 - Migrations run only inside `deploy-safe.sh` (the live unit has no `ExecStartPre` migrate), so every migration is preceded by the pre-migrate dump. A bare `systemctl restart` never migrates.

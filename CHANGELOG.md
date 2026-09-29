@@ -15,6 +15,7 @@ Behavior changes since 0.1.0 that a user would notice:
 - `/imported-history` labels the estimated-set count and the search as covering only the records shown when the 500-record cap is in effect.
 - The favicon is served from `static/` instead of being inlined as a `data:` URI, which the Content-Security-Policy blocked on every page.
 - CI: Prettier is a blocking check, and an end-to-end Chromium pass against the production build fails on any Content-Security-Policy violation.
+- CI runs as one workflow inside the Playwright container image, including the component tests that the separate Browser CI workflow had silently stopped running after GitHub disabled it for inactivity on 2026-08-02. No browser install step; the image tag must match the `playwright` version.
 
 ## 0.1.0 — 2026-09-15
 

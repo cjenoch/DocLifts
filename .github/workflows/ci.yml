@@ -4,11 +4,22 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual runs, e.g. to validate a workflow change on a branch before merging.
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The whole job runs inside the Playwright image so the browser suites
+    # (vitest browser project + the e2e CSP pass) need no install step: the
+    # image carries Chromium, the headless shell and every OS library. The
+    # tag MUST match the `playwright` version in pnpm-lock.yaml — Playwright
+    # looks for the browser revision its own version expects, and a mismatch
+    # fails at launch. The "Verify browser" step below turns that into a
+    # clear message. Bump both together.
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble
     services:
       postgres:
         image: postgres:16
@@ -16,8 +27,6 @@ jobs:
           POSTGRES_USER: doclifts
           POSTGRES_PASSWORD: doclifts
           POSTGRES_DB: doclifts_test
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U doclifts"
           --health-interval 10s
@@ -40,14 +49,31 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Verify browser matches Playwright version
+        run: |
+          node -e '
+            const { chromium } = require("playwright");
+            const fs = require("node:fs");
+            const version = require("playwright/package.json").version;
+            const p = chromium.executablePath();
+            if (!fs.existsSync(p)) {
+              console.error(`playwright ${version} expects ${p}, which the container image lacks.`);
+              console.error("Bump the mcr.microsoft.com/playwright image tag in ci.yml to v" + version + ".");
+              process.exit(1);
+            }
+            console.log(`playwright ${version} -> ${p}`);
+          '
+
       # Build DB URLs at runtime to keep the password out of YAML (CI tooling pipelines
       # sometimes redact the literal token form). drizzle.config.ts reads DATABASE_URL
       # (dotenv/config); test-db.ts reads TEST_DATABASE_URL. Same target DB in CI.
+      # Inside a container job the service is reached by its service name, not
+      # localhost.
       - name: Export DB URLs
         run: |
           USER="doclifts"
           PW="$USER"
-          HOST="localhost"
+          HOST="postgres"
           PORT="5432"
           DB="doclifts_test"
           AT=$(printf '\x40')
@@ -67,8 +93,14 @@ jobs:
       # svelte-kit sync + svelte-check.
       - run: pnpm run check
 
-      # CI currently runs server project only (browser project has dedicated Browser CI workflow).
-      - run: pnpm run test:unit --project server
+      - name: Server tests (Postgres integration)
+        run: pnpm run test:unit --project server
+
+      # Component tests in a real Chromium via vitest browser mode. Formerly a
+      # separate Browser CI workflow, which GitHub auto-disabled for repo
+      # inactivity on 2026-08-02 and which then silently never ran again.
+      - name: Client tests (vitest browser mode)
+        run: pnpm run test:unit --project client
 
       - run: pnpm run build
 
@@ -76,9 +108,6 @@ jobs:
       # Chromium and fails on any Content-Security-Policy violation. The unit
       # suites cannot see the CSP header, which is how the 2026-09-28 CSP
       # change shipped with a visibly broken /reports page.
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
       - name: End-to-end (CSP + page render)
         run: pnpm run test:e2e
 

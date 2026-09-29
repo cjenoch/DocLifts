@@ -26,7 +26,7 @@ DocLifts is licensed under **Apache-2.0**. See [LICENSE](LICENSE), [NOTICE](NOTI
 - Workout history editing, soft deletion, and restoration.
 - A searchable imported-history archive at `/imported-history`. Original notes, recalled estimates, and uncertain dates are preserved. Archive records do not feed progression or operational workout-report totals. The September 2026 import added 107 records without changing the existing 31 sessions and 467 sets. Personal import payloads are not distributed in this repository.
 - Session-start concurrency protection in the interface, server, and database, backed by an integration test.
-- Server tests against PostgreSQL and a separate browser/component CI workflow. Consult the workflows and their results for current coverage rather than a fixed test-count claim.
+- One CI workflow, run inside the Playwright container image: Prettier, svelte-check, server tests against PostgreSQL, component tests in Chromium, a production build, and an end-to-end Content-Security-Policy pass against that build. Consult the workflow and its results for current coverage rather than a fixed test-count claim.
 
 ## Current deployment
 

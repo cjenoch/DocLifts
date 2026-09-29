@@ -16,7 +16,10 @@ export const load: PageServerLoad = async () => {
 		db
 			.select()
 			.from(importedWorkouts)
-			.orderBy(sql`${importedWorkouts.workoutDate} DESC NULLS LAST`, desc(importedWorkouts.sourceLine))
+			.orderBy(
+				sql`${importedWorkouts.workoutDate} DESC NULLS LAST`,
+				desc(importedWorkouts.sourceLine)
+			)
 			.limit(IMPORT_LIMIT),
 		db.select({ total: count() }).from(importedWorkouts)
 	]);

@@ -82,12 +82,15 @@
 							<span class="text-zinc-300">{new Date(session.startedAt).toLocaleString()}</span>
 							<span class="font-mono text-zinc-100">{session.completionPct}%</span>
 						</div>
-						<div class="mt-1 h-1.5 rounded bg-zinc-800">
-							<div
-								class="h-1.5 rounded bg-indigo-500"
-								style={`width: ${Math.max(0, Math.min(100, session.completionPct))}%`}
-							></div>
-						</div>
+						<!-- <progress>, not a width-styled div: the strict CSP (style-src
+						     'self', no style-src-attr) blocks inline style attributes, which
+						     drew every bar at the same width in production (review, 2026-09-29). -->
+						<progress
+							class="mt-1"
+							value={session.completedSets}
+							max={Math.max(session.totalSets, 1)}
+							aria-label="Session completion"
+						></progress>
 						<div class="mt-1 text-xs text-zinc-500">
 							{session.completedSets}/{session.totalSets} sets completed
 						</div>
@@ -97,3 +100,24 @@
 		{/if}
 	</section>
 </div>
+
+<style>
+	progress {
+		width: 100%;
+		height: 6px;
+		display: block;
+		border: 0;
+		border-radius: 4px;
+		overflow: hidden;
+		background: #27272a;
+	}
+	progress::-webkit-progress-bar {
+		background: #27272a;
+	}
+	progress::-webkit-progress-value {
+		background: #6366f1;
+	}
+	progress::-moz-progress-bar {
+		background: #6366f1;
+	}
+</style>

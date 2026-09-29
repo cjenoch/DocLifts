@@ -1682,7 +1682,6 @@ describe('updateSetInSession', () => {
 	});
 });
 
-
 // ---------- Test 1: Snapshot immutability after template edit ----------
 
 describe('startSessionForDay: snapshot immutability after template edit', () => {
@@ -1720,7 +1719,6 @@ describe('startSessionForDay: snapshot immutability after template edit', () => 
 		expect(afterEdit.prescribedRepsMax).toBe(5);
 	});
 });
-
 
 // ---------- Test 3: startSessionForDay with initialLoad: null cold start ----------
 
@@ -1859,7 +1857,6 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		expect(s.suggestionReasoning).toContain('+10');
 	});
 });
-
 
 // ---------- Test 5: Multi-exercise pairwise prescribedSetId + prescribedLoad correctness ----------
 
@@ -2421,6 +2418,119 @@ describe('soft-delete and hard-delete session guards', () => {
 				suggestionReasoning: 'held: incomplete history on this exercise'
 			},
 			{ position: 2, prescribedLoad: 90, suggestionReasoning: null }
+		]);
+	});
+
+	it('backoff row on a SECONDARY exercise holds with the no-rule reasoning, not "incomplete history"', async () => {
+		const [prog] = await db.insert(programs).values({ name: 'secondary backoff text' }).returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: prog.id, name: 'Day 1', position: 1 })
+			.returning();
+		const [ex] = await db
+			.insert(exercises)
+			.values({ name: 'Backoff Text Row', equipmentType: 'cable' })
+			.returning();
+		const [dx] = await db
+			.insert(dayExercises)
+			.values({
+				dayId: day.id,
+				exerciseId: ex.id,
+				position: 1,
+				tier: 'secondary',
+				progressionPolicy: 'standard'
+			})
+			.returning();
+		await db.insert(prescribedSets).values([
+			{
+				dayExerciseId: dx.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 100
+			},
+			{
+				dayExerciseId: dx.id,
+				position: 2,
+				setRole: 'backoff',
+				targetMetric: 'reps',
+				targetRepsMin: 8,
+				targetRepsMax: 10,
+				targetRir: 1,
+				initialLoad: 80
+			}
+		]);
+
+		// Prior session: the working set clears (advance is legitimate); the
+		// backoff row was executed too, so the exercise's history is COMPLETE.
+		const [prior] = await db
+			.insert(sessions)
+			.values({
+				dayId: day.id,
+				programId: prog.id,
+				startedAt: new Date(Date.now() - 120_000),
+				endedAt: new Date(Date.now() - 90_000)
+			})
+			.returning();
+		await db.insert(sets).values([
+			{
+				sessionId: prior.id,
+				exerciseId: ex.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				executedLoad: 100,
+				executedReps: 10,
+				executedRir: 1,
+				prescribedRepsMax: 10,
+				prescribedRir: 1
+			},
+			{
+				sessionId: prior.id,
+				exerciseId: ex.id,
+				position: 2,
+				setRole: 'backoff',
+				targetMetric: 'reps',
+				executedLoad: 80,
+				executedReps: 10,
+				executedRir: 2,
+				prescribedRepsMax: 10,
+				prescribedRir: 1
+			}
+		]);
+
+		const result = await startSessionForDay(db, day.id);
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+
+		const rows = await db
+			.select({
+				position: sets.position,
+				prescribedLoad: sets.prescribedLoad,
+				suggestionReasoning: sets.suggestionReasoning
+			})
+			.from(sets)
+			.where(eq(sets.sessionId, result.sessionId))
+			.orderBy(asc(sets.position));
+
+		// Working set advances on its own merit. The backoff row is never judged
+		// on a non-main tier: it holds at its last load, and its provenance says
+		// so — not "incomplete history", which was false here (history is complete)
+		// and told the user there was a gap to close.
+		expect(rows).toEqual([
+			{
+				position: 1,
+				prescribedLoad: 105,
+				suggestionReasoning: '+5: all working sets at top of range'
+			},
+			{
+				position: 2,
+				prescribedLoad: 80,
+				suggestionReasoning: 'held: no progression rule applies to this set'
+			}
 		]);
 	});
 

@@ -145,14 +145,11 @@ it('purgeTrash empties the trash when the count matches', async () => {
 		post(programId, { confirmPurge: 'PURGE', expectedCount: '1' })
 	);
 	expect(result).toMatchObject({ ok: true, purged: 1 });
-	const remaining = await testDb.db!
-		.select()
+	const remaining = await testDb
+		.db!.select()
 		.from(s.sessions)
 		.where(isNotNull(s.sessions.deletedAt));
 	expect(remaining).toHaveLength(0);
-	const active = await testDb.db!
-		.select()
-		.from(s.sessions)
-		.where(isNull(s.sessions.deletedAt));
+	const active = await testDb.db!.select().from(s.sessions).where(isNull(s.sessions.deletedAt));
 	expect(active).toHaveLength(0);
 });

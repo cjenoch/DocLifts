@@ -31,19 +31,17 @@ async function fixture() {
 		.insert(s.dayExercises)
 		.values({ dayId: day.id, exerciseId: exercise.id, position: 1, tier: 'secondary' })
 		.returning();
-	await db
-		.insert(s.prescribedSets)
-		.values(
-			[1, 2].map((position) => ({
-				dayExerciseId: dx.id,
-				position,
-				setRole: 'working' as const,
-				targetRepsMin: 8,
-				targetRepsMax: 10,
-				targetRir: 1,
-				initialLoad: 50
-			}))
-		);
+	await db.insert(s.prescribedSets).values(
+		[1, 2].map((position) => ({
+			dayExerciseId: dx.id,
+			position,
+			setRole: 'working' as const,
+			targetRepsMin: 8,
+			targetRepsMax: 10,
+			targetRir: 1,
+			initialLoad: 50
+		}))
+	);
 	const gym = await createGym(db, { name: 'Gym A' });
 	const gymB = await createGym(db, { name: 'Gym B' });
 	const [model] = await db
@@ -97,21 +95,19 @@ describe('physical machine identity', () => {
 		const run = await start(f.day.id);
 		await bindSessionMachine(db, run.sessionId, run.occurrence.id, binding(f.gym.id, f.machine.id));
 		const [source] = await db.select().from(s.sets).where(eq(s.sets.sessionId, run.sessionId));
-		await db
-			.insert(s.sets)
-			.values(
-				[1, 2, 3].map((i) => ({
-					sessionId: run.sessionId,
-					exerciseId: f.exercise.id,
-					gymEquipmentId: f.machine.id,
-					loadConvention: 'plates_per_side' as const,
-					position: source.position,
-					setRole: source.setRole,
-					executedLoad: 60,
-					executedReps: 10,
-					loggedAt: new Date(1780000000000 + i * 1000)
-				}))
-			);
+		await db.insert(s.sets).values(
+			[1, 2, 3].map((i) => ({
+				sessionId: run.sessionId,
+				exerciseId: f.exercise.id,
+				gymEquipmentId: f.machine.id,
+				loadConvention: 'plates_per_side' as const,
+				position: source.position,
+				setRole: source.setRole,
+				executedLoad: 60,
+				executedReps: 10,
+				loggedAt: new Date(1780000000000 + i * 1000)
+			}))
+		);
 		await endSession(db, run.sessionId);
 		expect(
 			await computeConsecutiveBackwards(db, f.exercise.id, source.setRole, source.position, 10, {
@@ -410,7 +406,7 @@ describe('physical machine identity', () => {
 				position: 3,
 				setRole: 'backoff',
 				prescribedLoad: 95,
-				suggestionReasoning: 'held: non-working set on non-main tier'
+				suggestionReasoning: 'held: no progression rule applies to this set'
 			}
 		]);
 	});
@@ -454,7 +450,7 @@ describe('physical machine identity', () => {
 			{ position: 2, setRole: 'backoff', prescribedLoad: null, suggestionReasoning: null }
 		]);
 	});
-	it("reserves the missing-history text for genuinely ambiguous MAIN history (L7)", async () => {
+	it('reserves the missing-history text for genuinely ambiguous MAIN history (L7)', async () => {
 		const f = await fixture();
 		const machine = await createMachine(db, {
 			gymId: f.gym.id,

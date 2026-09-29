@@ -66,7 +66,7 @@
 					confirmation="Move this workout to Trash? You can restore it later."
 					confirmationField="confirmDelete"
 					confirmationValue="d"
-					class="trash"
+					destructive
 				/>
 			{:else}
 				<span class="muted">Completed workout</span>
@@ -420,10 +420,6 @@
 		margin-bottom: 20px;
 		color: #c7d2fe;
 		font-size: 14px;
-	}
-	.trash {
-		color: #fda4af;
-		min-height: 44px;
 	}
 	.error {
 		color: #fda4af;

@@ -365,7 +365,10 @@ export const sessions = pgTable(
 		notes: text('notes')
 	},
 	(t) => ({
-		dayStartedAtIdx: index('sessions_day_started_at_idx').on(t.dayId, t.startedAt.desc().nullsLast()),
+		dayStartedAtIdx: index('sessions_day_started_at_idx').on(
+			t.dayId,
+			t.startedAt.desc().nullsLast()
+		),
 		programIdIdx: index('sessions_program_id_idx').on(t.programId),
 		// At most one open session per day. Partial unique index — closes the
 		// double-submit race in `startSessionForDay` (the app-layer check there

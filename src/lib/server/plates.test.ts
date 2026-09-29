@@ -107,7 +107,7 @@ describe('snapForEquipment router', () => {
 	});
 
 	it.each(['machine-stack', 'cable', 'dumbbell', 'smith', 'bodyweight', 'band'] as const)(
-		"passes %s through unchanged (load IS the displayed value)",
+		'passes %s through unchanged (load IS the displayed value)',
 		(equipment) => {
 			const r = snapForEquipment(73.5, equipment);
 			expect(r).toEqual({ achievable: 73.5, platesUsed: [] });

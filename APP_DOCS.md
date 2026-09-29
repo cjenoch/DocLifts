@@ -13,6 +13,7 @@ The runtime model is a SvelteKit app talking to a local Postgres in Docker. The 
 **Open the app at the gym.** You see a list of programs (typically one active program).
 
 **Pick a program.** You see the program's days in order. Each day is either:
+
 - **Startable** — no open session for that day exists. A "Start" button appears.
 - **Resumable** — an open session for that day exists. A "Resume" button takes you back to it.
 
@@ -57,16 +58,16 @@ Each day_exercise has many **prescribed_sets** — the actual rows of the workou
 
 Tables, in dependency order:
 
-| Table | Notes |
-|---|---|
-| `programs` | Self-FK `sourceProgramId` for duplicate-on-edit lineage. `isActive` flag. |
-| `days` | Belongs to a program. `position` unique within program. Optional `alternateGroupId`. |
-| `exercises` | Master list. `name` unique. `equipmentType` is the dispatch key for plate snap. |
-| `day_exercises` | Pivot: a day's exercises in order. Carries tier + progression policy. |
-| `prescribed_sets` | Per day_exercise, structural prescription + `initialLoad`. Range rep columns. |
-| `sessions` | One per workout instance. `programId` denormalized from `days.programId`. `endedAt` nullable. |
-| `sets` | The actual logged rows. Snapshotted from prescribed_sets at session-start. Carries both prescribed (snapshot) and executed (user input) columns. |
-| `pain_events` | Optional rows linked to a session, set, or exercise. CHECK requires at least one parent FK non-null. |
+| Table             | Notes                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `programs`        | Self-FK `sourceProgramId` for duplicate-on-edit lineage. `isActive` flag.                                                                        |
+| `days`            | Belongs to a program. `position` unique within program. Optional `alternateGroupId`.                                                             |
+| `exercises`       | Master list. `name` unique. `equipmentType` is the dispatch key for plate snap.                                                                  |
+| `day_exercises`   | Pivot: a day's exercises in order. Carries tier + progression policy.                                                                            |
+| `prescribed_sets` | Per day_exercise, structural prescription + `initialLoad`. Range rep columns.                                                                    |
+| `sessions`        | One per workout instance. `programId` denormalized from `days.programId`. `endedAt` nullable.                                                    |
+| `sets`            | The actual logged rows. Snapshotted from prescribed_sets at session-start. Carries both prescribed (snapshot) and executed (user input) columns. |
+| `pain_events`     | Optional rows linked to a session, set, or exercise. CHECK requires at least one parent FK non-null.                                             |
 
 **Numeric columns** use `mode: 'number'` (loads are bounded under 1000 lb; JS-number precision is safe). **All FK columns have explicit indexes** — Drizzle does not auto-index FKs and neither does Postgres. **Position columns** have unique constraints with their parent so accidental dup-position rows fail loudly.
 
@@ -96,13 +97,13 @@ This filter prevents **blank-row poisoning** — a newly-created session has pre
 
 **Plate snap** (`snapForEquipment`, `plates.ts`): equipment-aware router. Dispatches to the right math based on the exercise's `equipmentType`:
 
-| Equipment | Behavior |
-|---|---|
-| `barbell` | Subtract bar (44 lb), halve, snap plates per side, double back |
-| `barbell-ez` | Same with EZ bar (25 lb) |
-| `machine-plate` | Snap directly on per-side plate sums (no bar) |
-| `machine-stack`, `cable`, `dumbbell`, `smith`, `bodyweight`, `band` | Pass-through |
-| anything else | Pass-through |
+| Equipment                                                           | Behavior                                                       |
+| ------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `barbell`                                                           | Subtract bar (44 lb), halve, snap plates per side, double back |
+| `barbell-ez`                                                        | Same with EZ bar (25 lb)                                       |
+| `machine-plate`                                                     | Snap directly on per-side plate sums (no bar)                  |
+| `machine-stack`, `cable`, `dumbbell`, `smith`, `bodyweight`, `band` | Pass-through                                                   |
+| anything else                                                       | Pass-through                                                   |
 
 The router exists because callers shouldn't have to remember which math each equipment uses. Never call `snapToAchievable` directly from the pipeline.
 
@@ -128,12 +129,12 @@ When a program is edited (UI not built yet), the model is to **deep-copy** the p
 
 Four actions across three pages. All four extract their business logic into helpers in `$lib/server/sessions.ts` so the logic is unit-testable independent of the HTTP layer.
 
-| Action | Page | Helper | What it does |
-|---|---|---|---|
-| `startSession` | `programs/[id]/+page.server.ts` | `startSessionForDay(db, dayId)` | Creates a session for a day, snapshots prescribed sets, applies dumb prefill. Returns 404 if the day doesn't exist. |
-| `endSession` | `sessions/[id]/+page.server.ts` | `endSession(db, sessionId)` | Idempotently stamps `endedAt` if null. Returns `{updated: boolean}` for testability. |
-| `updateSet` | `sessions/[id]/+page.server.ts` | `updateSetInSession(db, sessionId, setId, input)` | Validates input via Zod, writes one `sets` row. Returns 404 (no session), 409 (ended session, stale-tab guard), 400 (Zod fail) with field errors, or success. The UPDATE is scoped by `(setId, sessionId)` so cross-session injection silently no-ops. |
-| Loaders | All three | inline | Read-only page data: programs list, program detail with open-session badges, session view with per-set history. |
+| Action         | Page                            | Helper                                            | What it does                                                                                                                                                                                                                                           |
+| -------------- | ------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `startSession` | `programs/[id]/+page.server.ts` | `startSessionForDay(db, dayId)`                   | Creates a session for a day, snapshots prescribed sets, applies dumb prefill. Returns 404 if the day doesn't exist.                                                                                                                                    |
+| `endSession`   | `sessions/[id]/+page.server.ts` | `endSession(db, sessionId)`                       | Idempotently stamps `endedAt` if null. Returns `{updated: boolean}` for testability.                                                                                                                                                                   |
+| `updateSet`    | `sessions/[id]/+page.server.ts` | `updateSetInSession(db, sessionId, setId, input)` | Validates input via Zod, writes one `sets` row. Returns 404 (no session), 409 (ended session, stale-tab guard), 400 (Zod fail) with field errors, or success. The UPDATE is scoped by `(setId, sessionId)` so cross-session injection silently no-ops. |
+| Loaders        | All three                       | inline                                            | Read-only page data: programs list, program detail with open-session badges, session view with per-set history.                                                                                                                                        |
 
 ---
 

@@ -1,6 +1,7 @@
 import {
 	computeConsecutiveBackwards,
 	defaultIncrement,
+	resolveTargets,
 	round05,
 	suggestNextLoad,
 	type Database,
@@ -46,11 +47,9 @@ export async function mainPrefills(
 							position: top.position,
 							load: baseline,
 							reps: h.executedReps!,
-							rir: h.executedRir ?? top.targetRir ?? h.prescribedRir ?? 0,
+							rir: h.executedRir ?? resolveTargets(top, h).targetRir,
 							// M2 (2026-09-28): the top set carries its own targets.
-							targetRepsMax:
-								top.targetRepsMax ?? h.prescribedRepsMax ?? top.targetRepsMin ?? 0,
-							targetRir: top.targetRir ?? h.prescribedRir ?? 0
+							...resolveTargets(top, h)
 						}
 					],
 					increment: defaultIncrement(isLowerBody),
@@ -76,8 +75,7 @@ export async function mainPrefills(
 				// the reasoning stays null like every other cold-start path.
 				// This text is reserved for genuinely ambiguous history: a
 				// real (non-null) load with no usable top-set decision.
-				reasoning:
-					load == null ? null : 'held: missing or ambiguous MAIN top-set history'
+				reasoning: load == null ? null : 'held: missing or ambiguous MAIN top-set history'
 			});
 		} else if (slot === top) {
 			result.set(slot.position, { load: decision.load, reasoning: decision.reasoning });

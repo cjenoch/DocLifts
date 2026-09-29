@@ -15,6 +15,8 @@ import {
 	computeConsecutiveBackwards,
 	defaultIncrement,
 	getLastCompletedSet,
+	HELD_NO_RULE_REASONING,
+	resolveTargets,
 	round05,
 	suggestNextLoad,
 	type Database,
@@ -230,14 +232,23 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 			policy: occurrence.progressionPolicy,
 			// M2 (2026-09-28): each position carries its own rep range / RIR
 			// target — no more judging every position against position 1's.
-			relevantSets: working.map((v) => ({
-				position: v.r.position,
-				load: v.h!.executedLoad!,
-				reps: v.h!.executedReps!,
-				rir: v.h!.executedRir ?? v.r.prescribedRir ?? 0,
-				targetRepsMax: v.r.prescribedRepsMax ?? 0,
-				targetRir: v.r.prescribedRir ?? 0
-			})),
+			relevantSets: working.map((v) => {
+				const targets = resolveTargets(
+					{
+						targetRepsMax: v.r.prescribedRepsMax,
+						targetRepsMin: v.r.prescribedRepsMin,
+						targetRir: v.r.prescribedRir
+					},
+					v.h
+				);
+				return {
+					position: v.r.position,
+					load: v.h!.executedLoad!,
+					reps: v.h!.executedReps!,
+					rir: v.h!.executedRir ?? targets.targetRir,
+					...targets
+				};
+			}),
 			increment: defaultIncrement(exercise.isLowerBody),
 			consecutiveBackwards: Math.min(...backwards)
 		});
@@ -270,7 +281,7 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 				// their last executed load. Calling the engine per-row here would
 				// let a single clearing row advance past the all-sets-clear gate —
 				// the same trap sessions.ts's per-row fallback deliberately avoids.
-				reasoning = 'held: non-working set on non-main tier';
+				reasoning = HELD_NO_RULE_REASONING;
 			}
 		}
 		await db

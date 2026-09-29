@@ -63,6 +63,34 @@ export type ExecutedSet = {
 	targetRir: number;
 };
 
+/**
+ * Resolves the rep-range top and RIR target a set is judged against.
+ *
+ * One chain for every caller (sessions.ts, main-prefill.ts, machines.ts):
+ * the slot's own target first, then the target snapshotted on the last
+ * completed execution, then the slot's rep-range floor, then 0. Before this
+ * helper the machine-bound path skipped the middle two steps, so a null
+ * rep-range top there was judged against 0 and always cleared on reps.
+ */
+export function resolveTargets(
+	slot: { targetRepsMax: number | null; targetRepsMin: number | null; targetRir: number | null },
+	history: { prescribedRepsMax: number | null; prescribedRir: number | null } | null | undefined
+): { targetRepsMax: number; targetRir: number } {
+	return {
+		targetRepsMax: slot.targetRepsMax ?? history?.prescribedRepsMax ?? slot.targetRepsMin ?? 0,
+		targetRir: slot.targetRir ?? history?.prescribedRir ?? 0
+	};
+}
+
+/**
+ * Provenance text for a set the engine deliberately does not judge: a
+ * backoff/top row on a secondary or isolation exercise. Non-main tiers are
+ * decided from their working sets only (CLAUDE.md §SECONDARY/ISOLATION), so
+ * these rows hold at their last executed load. Shared so sessions.ts and
+ * machines.ts cannot drift apart.
+ */
+export const HELD_NO_RULE_REASONING = 'held: no progression rule applies to this set';
+
 export type ProgressionInput = {
 	tier: Tier;
 	policy: ProgressionPolicy;

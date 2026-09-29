@@ -181,7 +181,9 @@ it('removeSet removes a freshly appended empty set', async () => {
 it('removeSet refuses a logged set with 400', async () => {
 	const { sessionId, sets } = await startWorkout();
 	const last = sets[sets.length - 1];
-	await actions.updateSet(post(sessionId, { setId: last.id, executedLoad: '100', executedReps: '8' }));
+	await actions.updateSet(
+		post(sessionId, { setId: last.id, executedLoad: '100', executedReps: '8' })
+	);
 	const result = await actions.removeSet(post(sessionId, { setId: last.id }));
 	expect(result).toMatchObject({
 		status: 400,
@@ -220,8 +222,8 @@ it('addExercise creates an occurrence for a named exercise', async () => {
 	);
 	expect(result).toMatchObject({ addedExerciseId: expect.any(String) });
 	const addedId = (result as { addedExerciseId: string }).addedExerciseId;
-	const [occurrence] = await testDb.db!
-		.select()
+	const [occurrence] = await testDb
+		.db!.select()
 		.from(s.sessionExercises)
 		.where(eq(s.sessionExercises.id, addedId));
 	expect(occurrence).toBeDefined();
@@ -235,7 +237,9 @@ it('bindMachine rejects a malformed session id with 400', async () => {
 
 it('bindMachine maps a malformed occurrence id to 400', async () => {
 	const { sessionId } = await startWorkout();
-	const result = await actions.bindMachine(post(sessionId, { occurrenceId: 'bad', confirm: 'CHANGE' }));
+	const result = await actions.bindMachine(
+		post(sessionId, { occurrenceId: 'bad', confirm: 'CHANGE' })
+	);
 	expect(result).toMatchObject({ status: 400 });
 });
 

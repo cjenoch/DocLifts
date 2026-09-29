@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { defaultIncrement, suggestNextLoad, type ProgressionInput } from './progression';
+import {
+	defaultIncrement,
+	suggestNextLoad,
+	type ProgressionInput,
+	resolveTargets
+} from './progression';
 
 function makeInput(overrides: Partial<ProgressionInput> = {}): ProgressionInput {
 	return {
 		tier: 'main',
 		policy: 'standard',
-		relevantSets: [
-			{ position: 1, load: 100, reps: 5, rir: 1, targetRepsMax: 5, targetRir: 1 }
-		],
+		relevantSets: [{ position: 1, load: 100, reps: 5, rir: 1, targetRepsMax: 5, targetRir: 1 }],
 		increment: 5,
 		consecutiveBackwards: 0,
 		...overrides
@@ -19,9 +22,7 @@ describe('suggestNextLoad: policy gating', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				policy: 'hold',
-				relevantSets: [
-					{ position: 1, load: 405, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 1 }
-				]
+				relevantSets: [{ position: 1, load: 405, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 1 }]
 			})
 		);
 		expect(r.load).toBe(405);
@@ -32,9 +33,7 @@ describe('suggestNextLoad: policy gating', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				policy: 'cautious',
-				relevantSets: [
-					{ position: 1, load: 100, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 1 }
-				]
+				relevantSets: [{ position: 1, load: 100, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 1 }]
 			})
 		);
 		expect(r.load).toBe(100);
@@ -66,9 +65,7 @@ describe('suggestNextLoad: deload trigger', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				consecutiveBackwards: 2,
-				relevantSets: [
-					{ position: 1, load: 105, reps: 4, rir: 3, targetRepsMax: 5, targetRir: 1 }
-				]
+				relevantSets: [{ position: 1, load: 105, reps: 4, rir: 3, targetRepsMax: 5, targetRir: 1 }]
 			})
 		);
 		expect(r.kind).toBe('deload');
@@ -86,9 +83,7 @@ describe('suggestNextLoad: deload trigger', () => {
 		const r = suggestNextLoad(
 			makeInput({
 				consecutiveBackwards: 2,
-				relevantSets: [
-					{ position: 1, load: 105, reps: 5, rir: 1, targetRepsMax: 5, targetRir: 1 }
-				]
+				relevantSets: [{ position: 1, load: 105, reps: 5, rir: 1, targetRepsMax: 5, targetRir: 1 }]
 			})
 		);
 		expect(r.load).toBe(94.5);
@@ -110,9 +105,7 @@ describe('suggestNextLoad: MAIN tier', () => {
 	it('+2*increment when top set is crushed (RIR ≥ 2 below target)', () => {
 		const r = suggestNextLoad(
 			makeInput({
-				relevantSets: [
-					{ position: 1, load: 100, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 2 }
-				]
+				relevantSets: [{ position: 1, load: 100, reps: 5, rir: 0, targetRepsMax: 5, targetRir: 2 }]
 			})
 		);
 		expect(r.load).toBe(110);
@@ -122,9 +115,7 @@ describe('suggestNextLoad: MAIN tier', () => {
 	it('holds when top set missed target reps', () => {
 		const r = suggestNextLoad(
 			makeInput({
-				relevantSets: [
-					{ position: 1, load: 100, reps: 3, rir: 1, targetRepsMax: 5, targetRir: 1 }
-				]
+				relevantSets: [{ position: 1, load: 100, reps: 3, rir: 1, targetRepsMax: 5, targetRir: 1 }]
 			})
 		);
 		expect(r.load).toBe(100);
@@ -134,9 +125,7 @@ describe('suggestNextLoad: MAIN tier', () => {
 	it('holds when top set hit reps but RIR is above target', () => {
 		const r = suggestNextLoad(
 			makeInput({
-				relevantSets: [
-					{ position: 1, load: 100, reps: 5, rir: 3, targetRepsMax: 5, targetRir: 1 }
-				]
+				relevantSets: [{ position: 1, load: 100, reps: 5, rir: 3, targetRepsMax: 5, targetRir: 1 }]
 			})
 		);
 		expect(r.load).toBe(100);
@@ -281,11 +270,38 @@ describe('suggestNextLoad: per-position targets (M2)', () => {
 	});
 });
 
+describe('resolveTargets', () => {
+	it('prefers the slot target over the snapshotted history target', () => {
+		expect(
+			resolveTargets(
+				{ targetRepsMax: 12, targetRepsMin: 8, targetRir: 2 },
+				{ prescribedRepsMax: 10, prescribedRir: 1 }
+			)
+		).toEqual({ targetRepsMax: 12, targetRir: 2 });
+	});
+
+	it('falls back to the history snapshot when the slot target is null', () => {
+		expect(
+			resolveTargets(
+				{ targetRepsMax: null, targetRepsMin: 8, targetRir: null },
+				{ prescribedRepsMax: 10, prescribedRir: 1 }
+			)
+		).toEqual({ targetRepsMax: 10, targetRir: 1 });
+	});
+
+	it('falls back to the rep-range floor, then 0, when slot and history are both null', () => {
+		expect(
+			resolveTargets({ targetRepsMax: null, targetRepsMin: 8, targetRir: null }, null)
+		).toEqual({ targetRepsMax: 8, targetRir: 0 });
+		expect(
+			resolveTargets({ targetRepsMax: null, targetRepsMin: null, targetRir: null }, undefined)
+		).toEqual({ targetRepsMax: 0, targetRir: 0 });
+	});
+});
+
 describe('suggestNextLoad: edge cases', () => {
 	it('throws when relevantSets is empty', () => {
-		expect(() => suggestNextLoad(makeInput({ relevantSets: [] }))).toThrow(
-			/relevantSets/
-		);
+		expect(() => suggestNextLoad(makeInput({ relevantSets: [] }))).toThrow(/relevantSets/);
 	});
 });
 

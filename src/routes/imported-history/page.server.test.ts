@@ -26,7 +26,8 @@ type ImportedHistoryData = {
 };
 const callLoad = async (): Promise<ImportedHistoryData> => {
 	const result = await load({} as Parameters<typeof load>[0]);
-	if (!result || typeof result !== 'object') throw new Error('imported-history load returned nothing');
+	if (!result || typeof result !== 'object')
+		throw new Error('imported-history load returned nothing');
 	return result as unknown as ImportedHistoryData;
 };
 

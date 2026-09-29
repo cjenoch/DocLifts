@@ -73,8 +73,8 @@ it('createMachine creates a machine and confirms', async () => {
 		post({ gymId: gym.id, localLabel: 'Lat Pulldown', equipmentType: 'cable' })
 	);
 	expect(result).toEqual({ message: 'Machine created' });
-	const rows = await testDb.db!
-		.select()
+	const rows = await testDb
+		.db!.select()
 		.from(s.gymEquipment)
 		.where(eq(s.gymEquipment.gymId, gym.id));
 	expect(rows).toHaveLength(1);

@@ -24,6 +24,8 @@ import {
 	computeConsecutiveBackwards,
 	defaultIncrement,
 	getLastCompletedSet,
+	HELD_NO_RULE_REASONING,
+	resolveTargets,
 	round05,
 	suggestNextLoad,
 	type Database
@@ -174,9 +176,7 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 		// range / RIR target — position 1's target no longer applies
 		// exercise-wide.
 		const relevantSets = sorted.map((row) => {
-			const targetRepsMax =
-				row.p.targetRepsMax ?? row.history?.prescribedRepsMax ?? row.p.targetRepsMin ?? 0;
-			const targetRir = row.p.targetRir ?? row.history?.prescribedRir ?? 0;
+			const { targetRepsMax, targetRir } = resolveTargets(row.p, row.history);
 			return {
 				position: row.p.setPosition,
 				load: row.history?.executedLoad ?? 0,
@@ -270,17 +270,23 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 
 			// Per-row fallback (no exercise-level decision): dumb prefill only.
 			//
-			// A non-main tier that reaches this point either had no working rows
-			// (warmups/backoffs handled above) or lacked history on some working
-			// position. Calling suggestNextLoad per-row here with a single-element
-			// relevantSets would let ONE clearing position advance the exercise —
-			// violating the all-sets-clear rule (review finding, 2026-09-26). So:
-			// no engine call for non-main tiers on this path; hold at last load.
+			// A non-main tier reaches this point in two cases: a working row on an
+			// exercise where some working position lacked history, or a
+			// backoff/top row, which non-main tiers never judge. Calling
+			// suggestNextLoad per-row here with a single-element relevantSets
+			// would let ONE clearing position advance the exercise — violating
+			// the all-sets-clear rule (review finding, 2026-09-26). So: no engine
+			// call for non-main tiers on this path; hold at last load. The two
+			// cases get distinct provenance text because the first is a history
+			// gap the user can close and the second is permanent.
 			// (Control-flow note: the `if (p.tier === 'main')` branch above has
 			// already returned, so only non-main tiers reach here.)
 			return {
 				load: snapForEquipment(history.executedLoad, p.equipmentType).achievable,
-				reasoning: 'held: incomplete history on this exercise'
+				reasoning:
+					p.setRole === 'working'
+						? 'held: incomplete history on this exercise'
+						: HELD_NO_RULE_REASONING
 			};
 		})
 	);
@@ -719,4 +725,3 @@ export async function updateSetInSession(
 		return { ok: true, setId };
 	});
 }
-

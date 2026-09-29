@@ -14,16 +14,18 @@
  * when the build or the browser is missing. In CI (`CI` env var set) both
  * are required and a missing prerequisite fails the run.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import { setupTestDb, resetTestDb } from '$lib/server/test-db';
+import {
+	BUILD_ENTRY,
+	freshTestDb,
+	seedTestUser,
+	signInAs,
+	startTestServer
+} from '$lib/server/test-auth-helpers';
 import * as s from '$lib/server/db/schema';
-
-const BUILD_ENTRY = 'build/index.js';
-const TEST_URL = process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_test';
 
 function chromiumPath(): string | undefined {
 	if (process.env.PW_EXECUTABLE_PATH) return process.env.PW_EXECUTABLE_PATH;
@@ -49,36 +51,32 @@ if (missing.length) {
 	console.warn(`[e2e] skipped — missing ${missing.join('; ')}`);
 }
 
-async function freePort(): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const srv = createServer();
-		srv.listen(0, '127.0.0.1', () => {
-			const address = srv.address();
-			const port = typeof address === 'object' && address ? address.port : 0;
-			srv.close(() => (port ? resolve(port) : reject(new Error('no port'))));
-		});
-	});
-}
-
-async function waitForServer(origin: string, child: ChildProcess): Promise<void> {
-	const deadline = Date.now() + 30_000;
-	while (Date.now() < deadline) {
-		if (child.exitCode !== null) throw new Error(`server exited early (${child.exitCode})`);
-		try {
-			const res = await fetch(origin + '/');
-			if (res.status < 500) return;
-		} catch {
-			/* not up yet */
-		}
-		await new Promise((r) => setTimeout(r, 200));
-	}
-	throw new Error('server did not come up within 30s');
-}
-
 declare global {
 	interface Window {
 		__cspViolations: string[];
 	}
+}
+
+/**
+ * A page carrying the session cookie from the shared sign-in helper.
+ *
+ * The cookie is split on the FIRST '=' only: a Better Auth session token is
+ * `name.signature` percent-encoded, so the value itself contains '%3D' and a
+ * naive `split('=')` truncates it into an invalid token that authenticates
+ * nobody.
+ */
+async function authenticatedPage(browser: Browser, cookie: string, _origin: string) {
+	const page = await browser.newPage();
+	const eq = cookie.indexOf('=');
+	await page.context().addCookies([
+		{
+			name: cookie.slice(0, eq),
+			value: decodeURIComponent(cookie.slice(eq + 1)),
+			domain: '127.0.0.1',
+			path: '/'
+		}
+	]);
+	return page;
 }
 
 run('production build: CSP and page render', () => {
@@ -86,14 +84,21 @@ run('production build: CSP and page render', () => {
 	let server: ChildProcess;
 	let serverLog = '';
 	let origin: string;
+	let cookie: string;
 	let browser: Browser;
 	let programId: string;
 	let sessionId: string;
 
 	beforeAll(async () => {
-		harness = await setupTestDb();
-		await resetTestDb(harness.client);
+		harness = await freshTestDb();
 		const db = harness.db;
+
+		// The crawl is AUTHENTICATED. Since T2 every page except /login is
+		// guarded, so an unauthenticated crawl would 303 to the login screen
+		// and pass by measuring nothing. The user is created through the
+		// operator path (createUser), never Better Auth's sign-up endpoint,
+		// which stays disabled.
+		await seedTestUser(db);
 
 		// Minimal fixture that exercises every page: one program, one day, one
 		// exercise, an ENDED session with 2 sets of which exactly 1 is
@@ -178,21 +183,12 @@ run('production build: CSP and page render', () => {
 			}
 		]);
 
-		const port = await freePort();
-		origin = `http://127.0.0.1:${port}`;
-		server = spawn(process.execPath, [BUILD_ENTRY], {
-			env: {
-				...process.env,
-				HOST: '127.0.0.1',
-				PORT: String(port),
-				ORIGIN: origin,
-				DATABASE_URL: TEST_URL
-			},
-			stdio: ['ignore', 'pipe', 'pipe']
-		});
-		server.stdout?.on('data', (d) => (serverLog += d));
-		server.stderr?.on('data', (d) => (serverLog += d));
-		await waitForServer(origin, server);
+		const started = await startTestServer();
+		origin = started.origin;
+		server = started.server;
+		serverLog = started.log();
+
+		cookie = await signInAs(origin);
 
 		browser = await chromium.launch({ executablePath });
 	});
@@ -204,7 +200,10 @@ run('production build: CSP and page render', () => {
 	});
 
 	async function visit(path: string) {
-		const page = await browser.newPage();
+		// The crawl is AUTHENTICATED. Since T2 every page except /login is
+		// guarded, so an unauthenticated crawl would 303 to the login screen
+		// and pass while measuring nothing at all.
+		const page = await authenticatedPage(browser, cookie, origin);
 		const consoleErrors: string[] = [];
 		page.on('console', (msg) => {
 			if (msg.type() === 'error') consoleErrors.push(msg.text());
@@ -309,5 +308,85 @@ run('production build: CSP and page render', () => {
 		// The fixture session shows as 50% in the text next to the bar.
 		await expect.poll(() => page.locator('text=50%').count()).toBeGreaterThan(0);
 		await page.close();
+	});
+
+	// A separate top-level suite: the guard's user-facing behaviour, proven in
+	// a real browser rather than by calling a helper.
+	//
+	// Without authentication the crawl above would 303 every page and pass
+	// while measuring nothing at all. This is the assertion that the guard is
+	// actually protecting the app, and that logging out really ends the
+	// session rather than only redirecting once.
+	describe('auth guard', () => {
+		it('redirects an anonymous visitor to /login', async () => {
+			const page = await browser.newPage();
+			const res = await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
+			expect(res?.status()).toBe(200); // the followed redirect lands on /login
+			expect(page.url()).toContain('/login');
+			await page.close();
+		});
+
+		it('serves a protected page to a signed-in visitor', async () => {
+			const page = await authenticatedPage(browser, cookie, origin);
+			await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
+			expect(page.url(), 'a signed-in visitor must not be bounced to /login').not.toContain(
+				'/login'
+			);
+			await page.close();
+		});
+
+		it('POST /logout ends the session, so the next request 303s again', async () => {
+			const page = await authenticatedPage(browser, cookie, origin);
+			await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
+			expect(page.url()).not.toContain('/login');
+
+			// POST exactly as the header control does. Playwright's request
+			// context shares the page's cookie jar, so this is a real
+			// authenticated request rather than an in-page fetch that CSP or
+			// the CSRF origin check would reject before the action runs.
+			//
+			// Two headers are load-bearing, both found the hard way:
+			//   `origin` — SvelteKit's CSRF check compares it to the request's
+			//              own origin; without it the POST is a 403.
+			//   `accept` — without `text/html` SvelteKit answers a form POST
+			//              with a JSON envelope at HTTP 200, not a real 303.
+			const res = await page.request.post(origin + '/logout', {
+				headers: { accept: 'text/html', origin },
+				form: {},
+				maxRedirects: 0
+			});
+			expect(res.status()).toBe(303);
+			expect(res.headers()['location']).toContain('/login');
+
+			// The session is gone, not merely redirected.
+			const after = await page.request.get(origin + '/history', { maxRedirects: 0 });
+			expect(after.status(), 'the guard must redirect after sign-out').toBe(303);
+			await page.close();
+		});
+
+		it('GET /logout is refused and leaves the session intact', async () => {
+			// A prefetch, a crawler, or an <img> tag must never end a session.
+			// This is the whole reason logout is POST-only, so it gets its own
+			// page and a FRESH sign-in: the previous test already destroyed its
+			// session, and reusing it would assert against a 303 for the wrong
+			// reason and pass by accident.
+			// A FRESH sign-in: the previous test destroyed its session, so
+			// reusing that cookie would bounce to /login for the wrong reason
+			// and this test would pass without testing anything.
+			const fresh = await signInAs(origin);
+			const page = await authenticatedPage(browser, fresh, origin);
+			await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
+			expect(page.url()).not.toContain('/login');
+
+			const res = await page.request.get(origin + '/logout', { maxRedirects: 0 });
+			expect(res.status()).toBe(405);
+			expect(res.headers()['allow']).toBe('POST');
+
+			// The claim under test: the session SURVIVED the GET. Checked
+			// directly, not inferred from which page came back.
+			const after = await page.request.get(origin + '/history', { maxRedirects: 0 });
+			expect(after.status(), 'a GET /logout must not have ended the session').toBe(200);
+			await page.close();
+		});
 	});
 });

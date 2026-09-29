@@ -52,12 +52,34 @@ const emailSchema = z
 	.transform((v) => v.toLowerCase());
 
 /**
- * Mirrors auth.ts's `minPasswordLength: 12`. Duplicated deliberately: this
- * is a server-side guard for a server-only path, and reading the value out of
- * the auth config object would mean reaching through `auth.options` for a
- * number that has to stay in sync by review anyway. Keep the two in step.
+ * Password limits, read from Better Auth's own resolved config.
+ *
+ * The earlier version hard-coded 12 to match auth.ts, which meant the CLI and
+ * the sign-up endpoint could drift apart silently — raise the config value and
+ * `createUser` keeps accepting passwords the endpoint would reject.
+ *
+ * The values come from `ctx.password.config`, not from `auth.options`. That is
+ * where the validators read them too, so this cannot drift from what
+ * sign-up/sign-in actually enforce:
+ *
+ *   dist/context/create-context.mjs
+ *     password: { config: {
+ *       minPasswordLength: options.emailAndPassword?.minPasswordLength || 8,
+ *       maxPasswordLength: options.emailAndPassword?.maxPasswordLength || 128
+ *     }}
+ *
+ *   dist/utils/password.mjs
+ *     assertPasswordNotTooLong: password.length > ctx.context.password.config.maxPasswordLength
+ *
+ * `maxPasswordLength` is absent from the `emailAndPassword` options TYPE even
+ * though the runtime honours it, which is why this reads the resolved context.
+ * Resolved lazily: it is async because `auth.$context` is, and because an
+ * import-time call would break the secret-free build.
  */
-const MIN_PASSWORD_LENGTH = 12;
+async function passwordLimits(): Promise<{ min: number; max: number }> {
+	const { minPasswordLength, maxPasswordLength } = (await auth.$context).password.config;
+	return { min: minPasswordLength, max: maxPasswordLength };
+}
 
 export type CreatedUser = { id: string; email: string; name: string };
 
@@ -65,12 +87,14 @@ export async function createUser(
 	db: Database,
 	input: { email: string; password: string; name: string }
 ): Promise<CreatedUser> {
+	const limits = await passwordLimits();
 	const value = z
 		.object({
 			email: emailSchema,
 			password: z
 				.string()
-				.min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters`),
+				.min(limits.min, `Password must be at least ${limits.min} characters`)
+				.max(limits.max, `Password must be at most ${limits.max} characters`),
 			name: z.string().trim().min(1).max(120)
 		})
 		.parse(input);
@@ -93,9 +117,13 @@ export async function createUser(
 		{
 			email: value.email,
 			name: value.name,
-			// Never email-verified. The bootstrap account is created this way
-			// and must not be able to receive mail.
-			emailVerified: false
+			// True, not false. Every account made here is operator-created
+			// (the bootstrap CLI, `pnpm user:create`, the e2e fixture) and
+			// there is no email flow to complete: no verification mail is
+			// sent and no address is confirmed by anyone. Marking them
+			// unverified bought nothing and would lock every one of them out
+			// the moment `requireEmailVerification` is ever switched on.
+			emailVerified: true
 		},
 		{ method: 'email-password' }
 	);

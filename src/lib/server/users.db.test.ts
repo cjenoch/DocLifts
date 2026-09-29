@@ -38,7 +38,39 @@ describe('createUser', () => {
 		expect(acct.password).not.toBe('correct-horse-battery-staple');
 
 		const [u] = await db.select().from(authUsers).where(eq(authUsers.id, created.id));
-		expect(u.emailVerified).toBe(false); // never email-verified
+		// Operator-created accounts ARE email-verified: there is no email flow
+		// to complete, so unverified would only mean locked out later.
+		expect(u.emailVerified).toBe(true);
+	});
+
+	it('parity with signUpEmail: mixed-case email signs in lowercase', async () => {
+		// signUpEmail normalizes (`normalizedEmail = email.toLowerCase()`),
+		// and sign-in looks up the same form. createUser must agree or an
+		// operator-created account cannot log in.
+		const created = await createUser(db, {
+			email: 'Chris@Enoch.AI',
+			password: 'correct-horse-battery-staple',
+			name: 'MixedCase'
+		});
+		expect(created.email).toBe('chris@enoch.ai');
+		expect(await findUserByEmail(db, 'chris@enoch.ai')).toBe(created.id);
+
+		const { auth } = await import('./auth');
+		const r = await auth.api.signInEmail({
+			body: { email: 'chris@enoch.ai', password: 'correct-horse-battery-staple' },
+			headers: new Headers()
+		});
+		expect(r.user.id).toBe(created.id);
+	});
+
+	it('enforces the configured maximum password length', async () => {
+		await expect(
+			createUser(db, {
+				email: 'long@test.local',
+				password: 'x'.repeat(200),
+				name: 'Long'
+			})
+		).rejects.toThrow(/at most/);
 	});
 
 	it('rejects a duplicate email', async () => {

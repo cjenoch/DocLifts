@@ -1,5 +1,13 @@
 import { env } from '$env/dynamic/private';
 
-export function load() {
-	return { demoMode: env.DOCLIFTS_DEMO === '1' };
+/**
+ * Supplies page data only. The auth GUARD is in src/hooks.server.ts `handle`,
+ * not here: a form action executes before any `load`, so a guard in the
+ * layout runs after every write has already happened. See hooks.server.ts.
+ */
+export function load({ locals }: { locals: App.Locals }) {
+	return {
+		demoMode: env.DOCLIFTS_DEMO === '1',
+		user: locals.user ?? null
+	};
 }

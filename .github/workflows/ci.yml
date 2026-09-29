@@ -98,6 +98,13 @@ jobs:
       # svelte-kit sync + svelte-check.
       - run: pnpm run check
 
+      # Snapshot-chain check. `drizzle-kit check` reads DATABASE_URL and
+      # exits 0 WITHOUT saying anything when it is unset, so a local run can
+      # look like a pass that never happened. CI has the Postgres service
+      # URL exported above, which is what makes this a real gate.
+      - name: Drizzle snapshot check
+        run: pnpm exec drizzle-kit check
+
       - name: Server tests (Postgres integration)
         run: pnpm run test:unit --project server
 

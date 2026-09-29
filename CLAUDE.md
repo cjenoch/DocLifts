@@ -135,6 +135,34 @@ Never call `snapToAchievable` directly from the pipeline. Always go through the 
 - **The gate is `pnpm test:e2e`** (`e2e/csp.e2e.ts`). It serves the production build, loads every route plus a client-side navigation in Chromium, and fails on any CSP violation or any app element carrying a `style` attribute. Run it after any change to the CSP, to `app.html`, or to dependencies that render UI. It needs `pnpm build` first and a Chromium Playwright can launch (`PW_EXECUTABLE_PATH` if not the bundled one). **Locally it skips itself, with one warning line, when either is missing; set `CI=1` to make that a failure.** CI always runs it in required mode.
 - **One tolerated exception, by name:** SvelteKit's own `#svelte-announcer` live region raises a `style-src-attr` violation on every page. The framework hides it through the CSS object model anyway, so it has no visible effect. The e2e test ignores that single violation and asserts the announcer stays visually hidden after navigation. Do not widen the CSP for it, and do not add a second exception without the same proof.
 
+### Migrations: name everything, apply before you trust it
+
+Three rules, all from the 0009 round where three separate defects were
+invisible in the SQL and obvious only after applying it.
+
+**1. Every constraint is explicitly named, and names stay under 63 bytes.**
+In hand-written migration SQL, never write an inline `UNIQUE` or rely on
+Postgres's default name. In TS, give the constraint an explicit name wherever
+drizzle-kit allows one (`unique('...')`, `index('...')`) so the snapshot and
+Postgres agree by construction. The 63-byte ceiling is a silent trap:
+Postgres truncates identifiers without warning, and drizzle-kit does not
+check, so the snapshot and the database disagree from the first apply.
+`exercise_equipment_map`'s FK is already in this state.
+
+**2. Migrations are append-only once applied anywhere real.** The migrator's
+"already applied" check reads only the most recently applied row's
+`created_at` and compares it to each file's timestamp — a renamed, renumbered,
+or back-dated migration is silently _skipped_, not rejected. An unapplied
+migration may be deleted and regenerated freely; an applied one may not be
+edited. Fix a wrong-but-unapplied file by regenerating, never by patching
+old migrations.
+
+**3. A generated migration is verified by applying it, not by reading it.**
+Apply the full chain to a fresh `pg_dump` of production, then confirm the
+resulting schema against the intended change: tables, columns, constraints
+_by name_, indexes, and row counts. Two of the three defects in the 0009 round
+were syntactically fine and semantically absent.
+
 ## Schema discipline
 
 - Volume aggregates (when added post-MVP) MUST filter `target_metric = 'reps'` to avoid mixing planks (seconds) into weight × reps math.
@@ -169,7 +197,7 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `scripts/backup-db.sh` — daily `pg_dump` to `~/backups/doclifts/`, 30-day rotation. Installed in user crontab (`0 3 * * *`). Cron log at `~/backups/doclifts/cron.log`.
 - `deploy/doclifts.service` — authoritative systemd unit (releases/current runtime). Matches the installed unit on the host; the older `scripts/apply-doclifts-systemd-override.sh` form is superseded and removed.
 - `drizzle/` — generated migration files (committed to repo)
-- `drizzle.config.ts` — Drizzle Kit config
+- `drizzle.config.ts` — Drizzle Kit config. `drizzle-kit check` requires `DATABASE_URL` and does **not** fail loudly without it, so it is wired into `ci.yml` rather than left to a local run. Run it locally with an explicit `DATABASE_URL`; a silent skip reads as a pass.
 
 ## When in doubt
 

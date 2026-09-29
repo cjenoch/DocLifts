@@ -246,14 +246,11 @@ export const actions: Actions = {
 			return fail(400, { message: 'Type PURGE and confirm count to empty trash' });
 		}
 
-		const deleted = await listDeletedSessionsForProgram(db, params.id, 1000);
-		if (deleted.length !== parsed.data.expectedCount) {
-			return fail(409, {
-				message: `Trash count changed. Expected ${parsed.data.expectedCount}, found ${deleted.length}.`
-			});
+		// Count check and delete are one transaction inside the helper.
+		const purged = await purgeDeletedSessionsForProgram(db, params.id, parsed.data.expectedCount);
+		if (!purged.ok) {
+			return fail(purged.status, { message: purged.message });
 		}
-
-		const purged = await purgeDeletedSessionsForProgram(db, params.id);
 		return { ok: true, purged: purged.purged };
 	}
 };

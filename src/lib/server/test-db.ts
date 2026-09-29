@@ -15,6 +15,15 @@
  * secretless local URL, so set `TEST_DATABASE_URL` (e.g. in `.env`) for your
  * real test database rather than relying on the default.
  *
+ * Record correction (2026-09-29): commit 9101e91 replaced a `doclifts:dev`
+ * default and described it as "not matching any documented setup". That was
+ * wrong — `doclifts:dev` is the documented dev credential in `.env.example`
+ * and the README. The secretless default is still the right call (no
+ * password in source), but note what it assumes: with no user in the URL,
+ * postgres-js connects as your OS user, so a bare `pnpm test` fails with
+ * "password authentication failed for user <you>" unless that role exists.
+ * Set `TEST_DATABASE_URL` and it does not matter.
+ *
  * Parallelism note: vitest runs test FILES in parallel by default. Only one
  * DB integration test file exists today; if you add a second, either force
  * server-project file serialization or scope each file to its own DB.

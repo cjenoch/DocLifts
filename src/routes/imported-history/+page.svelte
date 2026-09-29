@@ -35,12 +35,17 @@
 <main class="mx-auto max-w-2xl px-4 py-6 pb-20">
 	<a href="/" class="text-sm text-indigo-300">← Programs</a>
 	<h1 class="mt-3 text-2xl font-semibold">Your training history</h1>
+	<!-- `total` is the whole table; `estimatedCount` and the search below only
+	     cover the capped `workouts` slice, so both are labelled as such when
+	     the cap is in effect (review, 2026-09-29). -->
 	<p class="mt-2 text-sm text-zinc-400">
-		{data.total} imported workout records · {estimatedCount} estimated sets
+		{data.total} imported workout records · {estimatedCount} estimated sets{#if data.total > data.limit}
+			in the {data.workouts.length} shown{/if}
 	</p>
 	{#if data.total > data.limit}
 		<p class="mt-1 text-sm text-amber-200">
-			Showing the {data.limit} most recent records — older imports are kept but not listed here.
+			Showing the {data.limit} most recent records — {data.total - data.limit} older imports are kept
+			but not listed or searched here.
 		</p>
 	{/if}
 	<p class="mt-3 text-sm leading-relaxed text-zinc-300">
@@ -106,7 +111,9 @@
 		</details>
 	{:else}
 		<p class="rounded-lg border border-zinc-800 p-5 text-zinc-400">
-			No imported workouts match this search.
+			No imported workouts match this search.{#if data.total > data.limit}
+				Only the {data.limit} most recent records were searched; {data.total - data.limit} older imports
+				were not.{/if}
 		</p>
 	{/each}
 </main>

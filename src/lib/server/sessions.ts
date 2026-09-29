@@ -558,19 +558,45 @@ export async function hardDeleteSession(
 	return { ok: true };
 }
 
+export type PurgeResult =
+	| { ok: true; purged: number }
+	| { ok: false; status: 409; message: string; found: number };
+
+/**
+ * Permanently deletes every trashed session in a program.
+ *
+ * `expectedCount` is the trash size the user confirmed against. The count
+ * and the delete run in ONE transaction with the trashed rows locked, so a
+ * session trashed or restored between the confirmation screen and the
+ * submit is caught (409) instead of purged unchecked. Previously the route
+ * re-counted outside the transaction with a 1000-row cap, which both raced
+ * the delete and made a trash of >1000 rows un-purgeable (review, 2026-09-29).
+ */
 export async function purgeDeletedSessionsForProgram(
 	db: Database,
-	programId: string
-): Promise<{ purged: number }> {
-	const purged = await db.transaction(async (tx) => {
+	programId: string,
+	expectedCount?: number
+): Promise<PurgeResult> {
+	return db.transaction(async (tx) => {
+		const trashed = await tx
+			.select({ id: sessions.id })
+			.from(sessions)
+			.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
+			.for('update');
+		if (expectedCount !== undefined && trashed.length !== expectedCount) {
+			return {
+				ok: false as const,
+				status: 409 as const,
+				message: `Trash count changed. Expected ${expectedCount}, found ${trashed.length}.`,
+				found: trashed.length
+			};
+		}
 		const deleted = await tx
 			.delete(sessions)
 			.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
 			.returning({ id: sessions.id });
-		return deleted.length;
+		return { ok: true as const, purged: deleted.length };
 	});
-
-	return { purged };
 }
 
 /**

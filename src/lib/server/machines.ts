@@ -284,6 +284,12 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 				reasoning = HELD_NO_RULE_REASONING;
 			}
 		}
+		// Snapshot-semantics exception, on purpose: this rewrites prescribed_load
+		// and suggestion_reasoning on a live session's already-snapshotted rows.
+		// Rebinding changes which history the prescription must come from, so
+		// the load is re-derived. bindSessionMachine guards it (no executed
+		// values or notes saved, session not ended); reps/RIR/role/metric are
+		// left alone. Documented in CLAUDE.md §Snapshot semantics.
 		await db
 			.update(sets)
 			.set({

@@ -31,6 +31,7 @@ These are locked from planning v2.1/v2.2 and reflect substantive design decision
 
 - Past sessions preserve what was prescribed at the time. History is append-only and immutable in effect.
 - When a session starts, prescribed values (`prescribed_load`, `prescribed_reps_min`, `prescribed_reps_max`, `prescribed_rir`, `set_role`, `target_metric`) are copied from `prescribed_sets` into the `sets` row. Once written, they don't change — even if the program template is later edited.
+- **One deliberate exception:** binding or rebinding a machine to an occurrence in a _live_ session (`prefillOccurrence` in `machines.ts`) rewrites `prescribed_load` and `suggestion_reasoning` on that occurrence's sets, because the prescription must come from that machine's own history. It is gated: refused once any executed value or note is saved on those sets, and never on an ended session. Rep range, RIR, role and metric are still never rewritten. Don't "fix" this path back to immutable (see `docs/machine-identity.md`).
 
 ### Programs are duplicate-on-edit, not mutate-in-place
 
@@ -67,7 +68,7 @@ The engine is **wired into the runtime prefill** (`startSessionForDay`) as of MV
 
 - **MAIN**: top-set-driven. The caller passes only the top set to `suggestNextLoad`.
 - **SECONDARY / ISOLATION**: all-sets-driven. The caller gathers all working positions for the exercise and calls the engine once with the full set array. The rule requires ALL working sets to clear top of range before advancing; a single clearing position must NOT advance the exercise.
-- **Warmups DO NOT use the progression engine.** Warmups bypass `suggestNextLoad` entirely. Their prefill uses the last completed `executed_load` for the slot (filtered per the history-filter rule), falling back to `initialLoad` when no history exists — the same source as working-set dumb prefill, without the engine on top. The invariant that matters is *no engine progression on warmups*, not the source of the number. (Earlier revisions said warmups "always use `initialLoad`"; tightened so warmup prefill tracks the actual last warmup load instead of resetting to cold-start each session.)
+- **Warmups DO NOT use the progression engine.** Warmups bypass `suggestNextLoad` entirely. Their prefill uses the last completed `executed_load` for the slot (filtered per the history-filter rule), falling back to `initialLoad` when no history exists — the same source as working-set dumb prefill, without the engine on top. The invariant that matters is _no engine progression on warmups_, not the source of the number. (Earlier revisions said warmups "always use `initialLoad`"; tightened so warmup prefill tracks the actual last warmup load instead of resetting to cold-start each session.)
 
 ### Engine returns a typed decision; callers read it, never re-derive it
 
@@ -103,18 +104,18 @@ This order is locked. The engine produces an ideal raw load; plate snap reduces 
 
 The pipeline calls **`snapForEquipment(load, equipmentType)`**, not `snapToAchievable` directly. The router dispatches to the correct math:
 
-| `equipmentType`     | Snap behavior                                                  |
-|---------------------|---------------------------------------------------------------|
-| `barbell`           | Subtract bar (44 lb), halve, snap plates per side, double back |
-| `barbell-ez`        | Same as barbell with EZ bar weight (25 lb)                     |
-| `machine-plate`     | Snap directly on per-side plate sums (no bar)                  |
-| `machine-stack`     | Pass-through (load IS the displayed value)                     |
-| `cable`             | Pass-through                                                   |
-| `dumbbell`          | Pass-through (post-MVP could snap to gym DB inventory)         |
-| `smith`             | Pass-through                                                   |
-| `bodyweight`        | Pass-through                                                   |
-| `band`              | Pass-through                                                   |
-| (anything else)     | Pass-through                                                   |
+| `equipmentType` | Snap behavior                                                  |
+| --------------- | -------------------------------------------------------------- |
+| `barbell`       | Subtract bar (44 lb), halve, snap plates per side, double back |
+| `barbell-ez`    | Same as barbell with EZ bar weight (25 lb)                     |
+| `machine-plate` | Snap directly on per-side plate sums (no bar)                  |
+| `machine-stack` | Pass-through (load IS the displayed value)                     |
+| `cable`         | Pass-through                                                   |
+| `dumbbell`      | Pass-through (post-MVP could snap to gym DB inventory)         |
+| `smith`         | Pass-through                                                   |
+| `bodyweight`    | Pass-through                                                   |
+| `band`          | Pass-through                                                   |
+| (anything else) | Pass-through                                                   |
 
 Never call `snapToAchievable` directly from the pipeline. Always go through the router. (See `planning_v2_2.md` patch notes.)
 

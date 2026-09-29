@@ -11,6 +11,10 @@ Behavior changes since 0.1.0 that a user would notice:
 - "Move to Trash" on an ended session uses the destructive button style again.
 - `/history` lists sessions across all programs, including archived ones, by month. `/imported-history` shows the 500 most recent imports and discloses the cap.
 - Strict nonce-based Content-Security-Policy on every response.
+- Emptying a program's Trash checks the confirmed count and deletes in one transaction. A session trashed or restored in between now returns a count-changed error instead of being purged unchecked, and a Trash larger than 1000 sessions can be emptied.
+- `/imported-history` labels the estimated-set count and the search as covering only the records shown when the 500-record cap is in effect.
+- The favicon is served from `static/` instead of being inlined as a `data:` URI, which the Content-Security-Policy blocked on every page.
+- CI: Prettier is a blocking check, and an end-to-end Chromium pass against the production build fails on any Content-Security-Policy violation.
 
 ## 0.1.0 — 2026-09-15
 

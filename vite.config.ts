@@ -48,6 +48,20 @@ export default defineConfig({
 					// is small and avoids per-file partitioning gymnastics.
 					fileParallelism: false
 				}
+			},
+
+			{
+				extends: './vite.config.ts',
+				test: {
+					name: 'e2e',
+					environment: 'node',
+					include: ['e2e/**/*.e2e.ts'],
+					// Serves a production build and drives it with Playwright; one
+					// server + one test database, so strictly serial.
+					fileParallelism: false,
+					testTimeout: 60_000,
+					hookTimeout: 60_000
+				}
 			}
 		]
 	}

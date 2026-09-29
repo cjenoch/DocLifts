@@ -2172,7 +2172,7 @@ describe('soft-delete and hard-delete session guards', () => {
 		await endSession(db, b.sessionId);
 
 		const result = await purgeDeletedSessionsForProgram(db, fixture.programId);
-		expect(result.purged).toBe(1);
+		expect(result).toEqual({ ok: true, purged: 1 });
 
 		const all = await db
 			.select({ id: sessions.id, deletedAt: sessions.deletedAt })

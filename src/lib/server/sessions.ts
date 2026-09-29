@@ -9,7 +9,7 @@
  * derived from the day row, never accepted as a parameter.
  */
 
-import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	dayExercises,
@@ -571,6 +571,11 @@ export type PurgeResult =
  * submit is caught (409) instead of purged unchecked. Previously the route
  * re-counted outside the transaction with a 1000-row cap, which both raced
  * the delete and made a trash of >1000 rows un-purgeable (review, 2026-09-29).
+ *
+ * The delete targets the counted ids, not the predicate: `FOR UPDATE` locks
+ * the rows that matched at count time, but a row trashed AFTER the count
+ * would still match a predicate delete and be purged without ever having
+ * been confirmed. Deleting by id purges exactly the set the user saw.
  */
 export async function purgeDeletedSessionsForProgram(
 	db: Database,
@@ -591,9 +596,18 @@ export async function purgeDeletedSessionsForProgram(
 				found: trashed.length
 			};
 		}
+		if (trashed.length === 0) return { ok: true as const, purged: 0 };
 		const deleted = await tx
 			.delete(sessions)
-			.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
+			.where(
+				and(
+					inArray(
+						sessions.id,
+						trashed.map((t) => t.id)
+					),
+					isNotNull(sessions.deletedAt)
+				)
+			)
 			.returning({ id: sessions.id });
 		return { ok: true as const, purged: deleted.length };
 	});

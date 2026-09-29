@@ -10,7 +10,7 @@ Read `CLAUDE.md` for architectural rules. Run `pnpm check`, `pnpm lint` and `pnp
 
 `pnpm build` needs `DATABASE_URL` set, even though the build never connects: the DB module throws at import time if it is missing. Any syntactically valid URL works for a build-only run (the Dockerfile uses a placeholder for the same reason).
 
-`pnpm test:e2e` runs a browser end-to-end pass against a production build served locally (Content-Security-Policy violations, page rendering). It needs `pnpm build` first, a Chromium that Playwright can find, and the same test database as the server tests. Locally it skips itself when either the build or the browser is missing; in CI it is required.
+`pnpm test:e2e` runs a browser end-to-end pass against a production build served locally (Content-Security-Policy violations, page rendering). It needs `pnpm build` first, a Chromium that Playwright can find, and the same test database as the server tests. Locally it skips itself when either the build or the browser is missing, printing one `[e2e] skipped` line, and the run still reports green. A green local run therefore does not prove CSP coverage unless the e2e tests actually ran; set `CI=1` to turn a missing prerequisite into a failure. In CI it is always required.
 
 For a disposable hands-on preview, follow [the demo guide](docs/demo.md).
 

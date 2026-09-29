@@ -125,6 +125,16 @@ Never call `snapToAchievable` directly from the pipeline. Always go through the 
 - Show provenance on every suggested load. Rendered in SetRow under the load field as the reasoning text itself (e.g. `+5: top set hit 5 reps at RIR 1`), persisted via `sets.suggestion_reasoning` (snapshotted at session-start like the rest of the prescription). No `Suggested:` prefix — the reasoning line is self-explanatory (owner decision, 2026-09-14).
 - Provenance goes near or under the load field, NOT in a tooltip. Tooltips are for things you don't need to see; provenance you need every session.
 
+### Content-Security-Policy is strict, and style attributes are the trap
+
+`svelte.config.js` sends a nonce-mode CSP with no `unsafe-inline`: `script-src` and `style-src` are `'self'` plus a per-request nonce, and there is no `style-src-attr`. Facts that follow from that:
+
+- **Nonces never cover style attributes.** A `style="width: 50%"` attribute falls back to `style-src` and is blocked. The header looks correct, the page still returns 200, and the only symptom is a wrong layout. That is how the 2026-09-28 CSP change shipped with every `/reports` bar drawn at the same width. Render dynamic values through elements and attributes (`<progress value max>`, `<meter>`, classes, `<details open>`), never through an inline style. Svelte's `style:` directive is fine (it writes through the CSS object model, which CSP does not govern).
+- **Dev mode hides the break.** SvelteKit adds `unsafe-inline` to `style-src` under `vite dev` so Vite can inject styles. Only a production build shows CSP behavior.
+- **Small imported assets become `data:` URIs.** Vite inlines imports under its size limit, and `img-src 'self'` blocks them. Put icons and images in `static/`.
+- **The gate is `pnpm test:e2e`** (`e2e/csp.e2e.ts`). It serves the production build, loads every route plus a client-side navigation in Chromium, and fails on any CSP violation or any app element carrying a `style` attribute. Run it after any change to the CSP, to `app.html`, or to dependencies that render UI. It needs `pnpm build` first and a Chromium Playwright can launch (`PW_EXECUTABLE_PATH` if not the bundled one). **Locally it skips itself, with one warning line, when either is missing; set `CI=1` to make that a failure.** CI always runs it in required mode.
+- **One tolerated exception, by name:** SvelteKit's own `#svelte-announcer` live region raises a `style-src-attr` violation on every page. The framework hides it through the CSS object model anyway, so it has no visible effect. The e2e test ignores that single violation and asserts the announcer stays visually hidden after navigation. Do not widen the CSP for it, and do not add a second exception without the same proof.
+
 ## Schema discipline
 
 - Volume aggregates (when added post-MVP) MUST filter `target_metric = 'reps'` to avoid mixing planks (seconds) into weight × reps math.

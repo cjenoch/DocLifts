@@ -209,7 +209,7 @@ export const exercises = pgTable(
 	'exercises',
 	{
 		id: uuid('id').defaultRandom().primaryKey(),
-		name: text('name').notNull().unique(),
+		name: text('name').notNull(),
 		canonicalMovement: text('canonical_movement'),
 		// NOT NULL since v3 — `snapForEquipment(load, null)` silently returns
 		// pass-through, so a NULL here would print wrong-by-bar-weight loads on
@@ -244,6 +244,10 @@ export const exercises = pgTable(
 		 *     another user's row.
 		 *   - machines.ts addSessionExercise: rejects on a global name match,
 		 *     which would refuse user B a name user A already has.
+		 *
+		 * The global `UNIQUE(name)` itself is dropped by
+		 * 0010_drop_exercise_name_unique, which could not land earlier
+		 * because program-builder.ts was its last remaining caller.
 		 */
 		userNameUnique: unique('exercises_user_id_name_unique').on(t.userId, t.name),
 		userIdIdx: index('exercises_user_id_idx').on(t.userId),

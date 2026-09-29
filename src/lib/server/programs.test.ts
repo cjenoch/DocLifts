@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { setupTestDb, resetTestDb } from './test-db';
+import { createTestUser, setupTestDb, resetTestDb } from './test-db';
 import { duplicateProgramForEditInTransaction } from './programs';
 import * as s from './db/schema';
 let h: Awaited<ReturnType<typeof setupTestDb>>;
+let userId: string;
 beforeAll(async () => {
 	h = await setupTestDb();
 });
@@ -11,11 +12,15 @@ afterAll(async () => {
 	await h?.end();
 });
 beforeEach(async () => {
+	// resetTestDb() truncates auth.user, so the fixture user is created AFTER
+	// it. The other order leaves userId pointing at a row that no longer
+	// exists and every insert fails the owner FK.
 	await resetTestDb(h.client);
+	userId = await createTestUser(h.db, 'programs');
 });
 it('deep-copies every template child and keeps historical prescription references unchanged', async () => {
 	const db = h.db;
-	const [p] = await db.insert(s.programs).values({ name: 'Original' }).returning();
+	const [p] = await db.insert(s.programs).values({ name: 'Original', userId }).returning();
 	const [d] = await db
 		.insert(s.days)
 		.values({ programId: p.id, name: 'Day', position: 1 })
@@ -67,7 +72,7 @@ it('deep-copies every template child and keeps historical prescription reference
 			executedReps: 12
 		})
 		.returning();
-	const copy = await db.transaction((tx) => duplicateProgramForEditInTransaction(tx, p.id));
+	const copy = await db.transaction((tx) => duplicateProgramForEditInTransaction(tx, userId, p.id));
 	const [newDay] = await db.select().from(s.days).where(eq(s.days.programId, copy.id));
 	const [newDx] = await db.select().from(s.dayExercises).where(eq(s.dayExercises.dayId, newDay.id));
 	const [newPs] = await db
@@ -91,6 +96,6 @@ it('deep-copies every template child and keeps historical prescription reference
 	const [oldPs] = await db.select().from(s.prescribedSets).where(eq(s.prescribedSets.id, ps.id));
 	expect(oldPs.targetRepsMax).toBe(12);
 	await expect(
-		db.transaction((tx) => duplicateProgramForEditInTransaction(tx, p.id))
+		db.transaction((tx) => duplicateProgramForEditInTransaction(tx, userId, p.id))
 	).rejects.toThrow(/inactive/i);
 });

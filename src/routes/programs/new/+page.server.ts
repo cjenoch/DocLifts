@@ -3,17 +3,18 @@ import { randomUUID } from 'node:crypto';
 import { blankProgramDraft, MAX_PROGRAM_DRAFT_CHARS } from '$lib/program-draft';
 import { db } from '$lib/server/db';
 import { listProgramExercises, saveProgramDraft } from '$lib/server/program-builder';
+import { requireUser } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async () => ({
-	library: await listProgramExercises(db),
+export const load: PageServerLoad = async ({ locals }) => ({
+	library: await listProgramExercises(db, requireUser(locals).id),
 	requestId: randomUUID(),
 	draft: blankProgramDraft(),
 	sourceProgramId: null
 });
 
 export const actions: Actions = {
-	default: async ({ request }) => {
+	default: async ({ request, locals }) => {
 		let values: FormData;
 		try {
 			values = await request.formData();
@@ -34,7 +35,11 @@ export const actions: Actions = {
 				});
 			}
 			draft = JSON.parse(payload);
-			result = await saveProgramDraft(db, { requestId, sourceProgramId: null, draft });
+			result = await saveProgramDraft(db, requireUser(locals).id, {
+				requestId,
+				sourceProgramId: null,
+				draft
+			});
 		} catch (cause) {
 			return fail(400, {
 				error:

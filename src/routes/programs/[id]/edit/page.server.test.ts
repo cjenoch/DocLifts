@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { isHttpError } from '@sveltejs/kit';
-import { setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
+import { createTestUser, setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
 import { load } from './+page.server';
 import type { PageServerLoad } from './$types';
 
@@ -17,15 +17,23 @@ beforeAll(async () => {
 	harness = await setupTestDb();
 	testDb.db = harness.db;
 });
+let userId: string;
 beforeEach(async () => {
 	await resetTestDb(harness.client);
+	userId = await createTestUser(harness.db, 'programs-edit');
 });
 afterEach(() => vi.restoreAllMocks());
 afterAll(async () => {
 	await harness?.end();
 });
 
-const event = (id: string) => ({ params: { id } }) as Parameters<PageServerLoad>[0];
+// requireUser(locals) runs first in load, so the event carries a signed-in
+// user — the same shape hooks.server.ts populates.
+const event = (id: string) =>
+	({
+		params: { id },
+		locals: { user: { id: userId } } as App.Locals
+	}) as Parameters<PageServerLoad>[0];
 
 it('returns HTTP 404 for a valid UUID absent from an empty database', async () => {
 	const result = await Promise.resolve(load(event(randomUUID()))).catch((cause: unknown) => cause);

@@ -130,8 +130,12 @@ export async function seedTestUser(
 	db: TestDb,
 	email = 'guardtest@test.local',
 	name = 'Guard Test'
-): Promise<void> {
-	await createUser(db, { email, password: TEST_PASSWORD, name });
+): Promise<{ id: string; email: string }> {
+	// Returns the user because callers that build fixtures need the owner id:
+	// from T3 on, a program or exercise created without a user_id is invisible
+	// to every scoped query, so a fixture that forgets it produces a page that
+	// correctly 404s.
+	return createUser(db, { email, password: TEST_PASSWORD, name });
 }
 
 /**

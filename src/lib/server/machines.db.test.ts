@@ -813,62 +813,54 @@ describe('cross-tenant isolation', () => {
 		expect(model.ownerUserId).toBe(bob);
 	});
 
-	// Intended assertion, per CHECKLIST §6: a second user may reuse an
-	// exercise name another user already has, and gets their OWN row.
-	//
-	// SKIPPED, not rewritten to match today's behaviour. `exercises` still
-	// carries the global UNIQUE(name) from 0001; 0009 added
-	// UNIQUE(user_id, name) beside it and kept the original because
-	// program-builder.ts quick-add does onConflictDoNothing({ target:
-	// exercises.name }), which throws without a global unique.
-	//
-	test.skip(
-		'a second user may reuse an exercise name and gets their own row — ' +
-			'unblocked by 0010_drop_exercise_name_unique (program-builder commit)',
-		async () => {
-			const f = await fixture();
-			const { bob } = await withTwoUsers(db);
-			const bobsGym = await createGym(db, bob, { name: 'Bob Gym 3' });
-			const bobsMachine = await createMachine(db, bob, {
-				gymId: bobsGym.id,
-				localLabel: 'Bob press',
-				equipmentType: 'machine-plate'
-			});
-			const run = await start(f.day.id, bob);
+	// Was SKIPPED until 0010_drop_exercise_name_unique landed with the
+	// program-builder.ts commit. It used to be unreachable: `exercises` carried
+	// the global UNIQUE(name) from 0001, which 0009 kept because
+	// program-builder.ts quick-add did onConflictDoNothing({ target:
+	// exercises.name }). program-builder.ts was the last caller needing it, and
+	// this test goes live in the commit that removes that call.
+	it('a second user may reuse an exercise name and gets their own row', async () => {
+		const f = await fixture();
+		const { bob } = await withTwoUsers(db);
+		const bobsGym = await createGym(db, bob, { name: 'Bob Gym 3' });
+		const bobsMachine = await createMachine(db, bob, {
+			gymId: bobsGym.id,
+			localLabel: 'Bob press',
+			equipmentType: 'machine-plate'
+		});
+		const run = await start(f.day.id, bob);
 
-			// "Press" already exists, owned by Alice. Bob naming his exercise the
-			// same must succeed with Bob's own row — not hit a global duplicate
-			// guard, and not be refused by the module's own per-user one.
-			const occ = await addSessionExercise(db, bob, run.sessionId, {
-				exerciseName: 'Press',
-				equipmentType: 'machine-plate',
-				gymId: bobsGym.id,
-				gymEquipmentId: bobsMachine.id,
-				loadConvention: 'plates_per_side',
-				setCount: 2,
-				repsMin: 8,
-				repsMax: 10,
-				rir: 1,
-				tier: 'secondary',
-				progressionPolicy: 'standard'
-			});
-			const [exercise] = await db
-				.select()
-				.from(s.exercises)
-				.where(eq(s.exercises.id, occ.exerciseId));
-			expect(exercise.userId).toBe(bob);
-			expect(exercise.name).toBe('Press');
-			// Both rows survive, one per user.
-			expect(await db.select().from(s.exercises).where(eq(s.exercises.name, 'Press'))).toHaveLength(
-				2
-			);
-		}
-	);
+		// "Press" already exists, owned by Alice. Bob naming his exercise the
+		// same must succeed with Bob's own row — not hit a global duplicate
+		// guard, and not be refused by the module's own per-user one.
+		const occ = await addSessionExercise(db, bob, run.sessionId, {
+			exerciseName: 'Press',
+			equipmentType: 'machine-plate',
+			gymId: bobsGym.id,
+			gymEquipmentId: bobsMachine.id,
+			loadConvention: 'plates_per_side',
+			setCount: 2,
+			repsMin: 8,
+			repsMax: 10,
+			rir: 1,
+			tier: 'secondary',
+			progressionPolicy: 'standard'
+		});
+		const [exercise] = await db
+			.select()
+			.from(s.exercises)
+			.where(eq(s.exercises.id, occ.exerciseId));
+		expect(exercise.userId).toBe(bob);
+		expect(exercise.name).toBe('Press');
+		// Both rows survive, one per user.
+		expect(await db.select().from(s.exercises).where(eq(s.exercises.name, 'Press'))).toHaveLength(
+			2
+		);
+	});
 
-	// The half that IS reachable today, and is what makes the skipped test
-	// above meaningful: the module's own duplicate-name guard is scoped to the
-	// caller, so Bob reusing HIS OWN name is refused by machines.ts, with the
-	// module's message rather than a database error.
+	// The module's own duplicate-name guard is scoped to the caller, so Bob
+	// reusing HIS OWN name is refused by machines.ts, with the module's message
+	// rather than a database error.
 	it("refuses a duplicate name only against the same user's own rows", async () => {
 		const f = await fixture();
 		const { bob } = await withTwoUsers(db);

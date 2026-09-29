@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { eq, isNotNull, isNull } from 'drizzle-orm';
-import { setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
+import {
+	createTestUser,
+	setupTestDb,
+	resetTestDb,
+	withTwoUsers,
+	type TestDb
+} from '$lib/server/test-db';
 import { endSession, startSessionForDay } from '$lib/server/sessions';
 
 const testDb = vi.hoisted(() => ({ db: null as TestDb | null }));
@@ -15,7 +21,7 @@ vi.mock('$lib/server/db', async () => {
 	};
 });
 
-import { actions } from './+page.server';
+import { actions, load } from './+page.server';
 import * as s from '$lib/server/db/schema';
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
@@ -23,8 +29,10 @@ beforeAll(async () => {
 	harness = await setupTestDb();
 	testDb.db = harness.db;
 });
+let userId: string;
 beforeEach(async () => {
 	await resetTestDb(harness.client);
+	userId = await createTestUser(harness.db, 'programs-route');
 });
 afterAll(async () => {
 	await harness?.end();
@@ -36,13 +44,14 @@ const post = (id: string, form: Record<string, string>): ActionEvent => {
 	for (const [k, v] of Object.entries(form)) fd.append(k, v);
 	return {
 		request: new Request('http://test.local/', { method: 'POST', body: fd }),
-		params: { id }
+		params: { id },
+		locals: { user: { id: userId } } as App.Locals
 	} as unknown as ActionEvent;
 };
 
 async function endedSession() {
 	const db = testDb.db!;
-	const [program] = await db.insert(s.programs).values({ name: 'P' }).returning();
+	const [program] = await db.insert(s.programs).values({ name: 'P', userId }).returning();
 	const [day] = await db
 		.insert(s.days)
 		.values({ programId: program.id, name: 'D', position: 1 })
@@ -152,4 +161,31 @@ it('purgeTrash empties the trash when the count matches', async () => {
 	expect(remaining).toHaveLength(0);
 	const active = await testDb.db!.select().from(s.sessions).where(isNull(s.sessions.deletedAt));
 	expect(active).toHaveLength(0);
+});
+
+// Cross-tenant: another user's program is a 404, identical to an id that never
+// existed — no 403, no distinct message (D6).
+it("load returns 404 for another user's program", async () => {
+	const db = testDb.db!;
+	const { bob } = await withTwoUsers(harness.db);
+	const [program] = await db.insert(s.programs).values({ name: 'P', userId }).returning();
+	const [day] = await db
+		.insert(s.days)
+		.values({ programId: program.id, name: 'D', position: 1 })
+		.returning();
+
+	const event = (as: string) =>
+		({ params: { id: program.id }, locals: { user: { id: as } } as App.Locals }) as Parameters<
+			typeof load
+		>[0];
+
+	await expect(load(event(userId))).resolves.toBeTruthy();
+	await expect(load(event(bob))).rejects.toMatchObject({ status: 404 });
+	await expect(
+		load({
+			params: { id: randomUUID() },
+			locals: { user: { id: userId } } as App.Locals
+		} as Parameters<typeof load>[0])
+	).rejects.toMatchObject({ status: 404 });
+	void day;
 });

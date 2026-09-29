@@ -9,13 +9,15 @@ import {
 	ProgramNotFoundError,
 	saveProgramDraft
 } from '$lib/server/program-builder';
+import { requireUser } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!z.uuid().safeParse(params.id).success) error(400, 'Invalid program id');
+	const userId = requireUser(locals).id;
 	const [library, draft] = await Promise.all([
-		listProgramExercises(db),
-		loadProgramDraft(db, params.id).catch((cause: unknown) => {
+		listProgramExercises(db, userId),
+		loadProgramDraft(db, userId, params.id).catch((cause: unknown) => {
 			if (cause instanceof ProgramNotFoundError) error(404, 'Program not found');
 			throw cause;
 		})
@@ -24,7 +26,7 @@ export const load: PageServerLoad = async ({ params }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ request, params }) => {
+	default: async ({ request, params, locals }) => {
 		let values: FormData;
 		try {
 			values = await request.formData();
@@ -49,7 +51,11 @@ export const actions: Actions = {
 				return fail(400, { error: 'Invalid program id', draft, requestId });
 			}
 			// The route, never a hidden client field, determines the source version.
-			result = await saveProgramDraft(db, { requestId, sourceProgramId: params.id, draft });
+			result = await saveProgramDraft(db, requireUser(locals).id, {
+				requestId,
+				sourceProgramId: params.id,
+				draft
+			});
 		} catch (cause) {
 			return fail(400, {
 				error:

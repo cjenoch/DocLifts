@@ -11,20 +11,24 @@ import {
 	purgeDeletedSessionsForProgram
 } from '$lib/server/sessions';
 import { z } from 'zod';
+import { requireUser } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
 
 const uuidParamSchema = z.string().uuid();
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, locals }) => {
 	const parsedProgramId = uuidParamSchema.safeParse(params.id);
 	if (!parsedProgramId.success) {
 		error(400, 'Invalid program id');
 	}
 
+	// Ownership in the query: another user's program is a 404, the same as an
+	// id that never existed (D6). The session helpers called below still read
+	// unscoped — they are threaded in the sessions.ts commit, the last of T3.
 	const [program] = await db
 		.select()
 		.from(programs)
-		.where(eq(programs.id, parsedProgramId.data))
+		.where(and(eq(programs.id, parsedProgramId.data), eq(programs.userId, requireUser(locals).id)))
 		.limit(1);
 
 	if (!program) {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
 	blankProgramDraft,
 	blankExerciseDraft,
@@ -14,7 +14,7 @@ import {
 	listProgramExercises,
 	ProgramNotFoundError
 } from './program-builder';
-import { setupTestDb, resetTestDb } from './test-db';
+import { createTestUser, setupTestDb, resetTestDb, withTwoUsers } from './test-db';
 import * as s from './db/schema';
 
 function draft(): ProgramDraft {
@@ -265,6 +265,8 @@ describe('bounded strict draft validation', () => {
 
 describe('transactional program builder', () => {
 	let h: Awaited<ReturnType<typeof setupTestDb>>;
+	// Recreated per test because resetTestDb() truncates auth.user.
+	let userId: string;
 	beforeAll(async () => {
 		h = await setupTestDb();
 	});
@@ -273,6 +275,7 @@ describe('transactional program builder', () => {
 	});
 	beforeEach(async () => {
 		await resetTestDb(h.client);
+		userId = await createTestUser(h.db, 'program-builder');
 	});
 	async function state() {
 		return {
@@ -288,14 +291,19 @@ describe('transactional program builder', () => {
 		};
 	}
 	it('identifies a missing program with a typed not-found error', async () => {
-		await expect(loadProgramDraft(h.db, randomUUID())).rejects.toBeInstanceOf(ProgramNotFoundError);
-		await expect(loadProgramDraft(h.db, randomUUID())).rejects.toMatchObject({
+		await expect(loadProgramDraft(h.db, userId, randomUUID())).rejects.toBeInstanceOf(
+			ProgramNotFoundError
+		);
+		await expect(loadProgramDraft(h.db, userId, randomUUID())).rejects.toMatchObject({
 			name: 'ProgramNotFoundError',
 			message: 'Program not found'
 		});
 	});
 	it('creates ordered complete trees, resolves compatible library names, lists and loads drafts', async () => {
-		const [existing] = await h.db.insert(s.programs).values({ name: 'Other active' }).returning();
+		const [existing] = await h.db
+			.insert(s.programs)
+			.values({ name: 'Other active', userId })
+			.returning();
 		const d = draft();
 		d.days.push({ ...structuredClone(d.days[0]), name: 'Pull', alternateGroupId: 'legs' });
 		d.days[0].exercises.push({
@@ -309,8 +317,8 @@ describe('transactional program builder', () => {
 			targetRepsMax: 45,
 			initialLoad: 0
 		});
-		const saved = await saveProgramDraft(h.db, request(d));
-		const library = await listProgramExercises(h.db);
+		const saved = await saveProgramDraft(h.db, userId, request(d));
+		const library = await listProgramExercises(h.db, userId);
 		expect(library).toHaveLength(1);
 		expect(library[0]).toMatchObject({
 			name: 'Synthetic press',
@@ -323,7 +331,7 @@ describe('transactional program builder', () => {
 				ex.exerciseId = library[0].id;
 				ex.newExercise = null;
 			}
-		expect(await loadProgramDraft(h.db, saved.id)).toEqual(expected);
+		expect(await loadProgramDraft(h.db, userId, saved.id)).toEqual(expected);
 		expect(
 			(
 				await h.db
@@ -340,25 +348,25 @@ describe('transactional program builder', () => {
 	it('persists idempotency across concurrent create and replay and rejects fingerprint/source conflicts', async () => {
 		const input = request();
 		const results = await Promise.all(
-			Array.from({ length: 4 }, () => saveProgramDraft(h.db, input))
+			Array.from({ length: 4 }, () => saveProgramDraft(h.db, userId, input))
 		);
 		expect(new Set(results.map((r) => r.id)).size).toBe(1);
 		expect((await state()).programs).toHaveLength(1);
 		expect((await state()).requests).toHaveLength(1);
-		expect(await saveProgramDraft(h.db, input)).toEqual(results[0]);
+		expect(await saveProgramDraft(h.db, userId, input)).toEqual(results[0]);
 		await expect(
-			saveProgramDraft(h.db, { ...input, draft: { ...draft(), name: 'Different' } })
+			saveProgramDraft(h.db, userId, { ...input, draft: { ...draft(), name: 'Different' } })
 		).rejects.toThrow(/request|different|conflict/i);
 		await expect(
-			saveProgramDraft(h.db, { ...input, sourceProgramId: results[0].id })
+			saveProgramDraft(h.db, userId, { ...input, sourceProgramId: results[0].id })
 		).rejects.toThrow(/request|different|conflict/i);
 		expect((await state()).programs).toHaveLength(1);
 	});
 	it('treats equivalent UUID spellings as the same concurrent request', async () => {
 		const input = request();
 		const results = await Promise.all([
-			saveProgramDraft(h.db, input),
-			saveProgramDraft(h.db, { ...input, requestId: input.requestId.toUpperCase() })
+			saveProgramDraft(h.db, userId, input),
+			saveProgramDraft(h.db, userId, { ...input, requestId: input.requestId.toUpperCase() })
 		]);
 		expect(results[0]).toEqual(results[1]);
 		expect((await state()).programs).toHaveLength(1);
@@ -368,36 +376,40 @@ describe('transactional program builder', () => {
 		const d = input.draft as ProgramDraft;
 		d.days[0].exercises.push({ ...blankExerciseDraft(), exerciseId: randomUUID() });
 		const before = await state();
-		await expect(saveProgramDraft(h.db, input)).rejects.toThrow();
+		await expect(saveProgramDraft(h.db, userId, input)).rejects.toThrow();
 		expect(await state()).toEqual(before);
 		d.days[0].exercises.pop();
-		expect(await saveProgramDraft(h.db, input)).toHaveProperty('id');
+		expect(await saveProgramDraft(h.db, userId, input)).toHaveProperty('id');
 	});
 	it('rejects incompatible quick-add collisions without changing library or tree', async () => {
-		await saveProgramDraft(h.db, request());
+		await saveProgramDraft(h.db, userId, request());
 		const before = await state();
 		const d = draft();
 		d.days[0].exercises[0].newExercise!.isLowerBody = true;
-		await expect(saveProgramDraft(h.db, request(d))).rejects.toThrow(
+		await expect(saveProgramDraft(h.db, userId, request(d))).rejects.toThrow(
 			/incompatible|metadata|existing/i
 		);
 		expect(await state()).toEqual(before);
 	});
 	it('rejects malformed outer identifiers, unknown fields and nonexistent source before committing', async () => {
-		await expect(saveProgramDraft(h.db, { ...request(), requestId: 'bad' })).rejects.toThrow();
 		await expect(
-			saveProgramDraft(h.db, { ...request(), sourceProgramId: 'bad' })
+			saveProgramDraft(h.db, userId, { ...request(), requestId: 'bad' })
 		).rejects.toThrow();
-		await expect(saveProgramDraft(h.db, { ...request(), extra: true } as any)).rejects.toThrow();
-		await expect(saveProgramDraft(h.db, request(draft(), randomUUID()))).rejects.toThrow(
+		await expect(
+			saveProgramDraft(h.db, userId, { ...request(), sourceProgramId: 'bad' })
+		).rejects.toThrow();
+		await expect(
+			saveProgramDraft(h.db, userId, { ...request(), extra: true } as any)
+		).rejects.toThrow();
+		await expect(saveProgramDraft(h.db, userId, request(draft(), randomUUID()))).rejects.toThrow(
 			/not found/i
 		);
-		await expect(loadProgramDraft(h.db, 'bad')).rejects.toThrow();
-		await expect(loadProgramDraft(h.db, randomUUID())).rejects.toThrow(/not found/i);
+		await expect(loadProgramDraft(h.db, userId, 'bad')).rejects.toThrow();
+		await expect(loadProgramDraft(h.db, userId, randomUUID())).rejects.toThrow(/not found/i);
 		expect((await state()).programs).toHaveLength(0);
 	});
 	it('edits once concurrently, copies fresh IDs, preserves exact old tree and ended history', async () => {
-		const original = await saveProgramDraft(h.db, request());
+		const original = await saveProgramDraft(h.db, userId, request());
 		const before = await state();
 		const [session] = await h.db
 			.insert(s.sessions)
@@ -423,13 +435,13 @@ describe('transactional program builder', () => {
 				executedReps: 10
 			})
 			.returning();
-		const d = await loadProgramDraft(h.db, original.id);
+		const d = await loadProgramDraft(h.db, userId, original.id);
 		d.name = 'New version';
 		d.days[0].exercises[0].sets[0].targetRepsMax = 15;
 		const input = request(d, original.id);
 		const results = await Promise.all([
-			saveProgramDraft(h.db, input),
-			saveProgramDraft(h.db, input)
+			saveProgramDraft(h.db, userId, input),
+			saveProgramDraft(h.db, userId, input)
 		]);
 		expect(results[0]).toEqual(results[1]);
 		const after = await state();
@@ -449,27 +461,154 @@ describe('transactional program builder', () => {
 		}
 		expect(await h.db.select().from(s.sessions)).toEqual([session]);
 		expect(await h.db.select().from(s.sets)).toEqual([set]);
-		expect(await loadProgramDraft(h.db, results[0].id)).toEqual(d);
+		expect(await loadProgramDraft(h.db, userId, results[0].id)).toEqual(d);
 	});
 	it('rolls back copied tree, source archive and quick-add rows after failed edit', async () => {
-		const original = await saveProgramDraft(h.db, request());
+		const original = await saveProgramDraft(h.db, userId, request());
 		const before = await state();
 		const d = draft();
 		d.days[0].exercises[0].newExercise!.name = 'Must roll back';
 		d.days[0].exercises.push({ ...blankExerciseDraft(), exerciseId: randomUUID() });
-		await expect(saveProgramDraft(h.db, request(d, original.id))).rejects.toThrow();
+		await expect(saveProgramDraft(h.db, userId, request(d, original.id))).rejects.toThrow();
 		expect(await state()).toEqual(before);
 	});
 	it('serializes distinct edits on the same source and allows only one successor', async () => {
-		const original = await saveProgramDraft(h.db, request());
-		const d = await loadProgramDraft(h.db, original.id);
+		const original = await saveProgramDraft(h.db, userId, request());
+		const d = await loadProgramDraft(h.db, userId, original.id);
 		const results = await Promise.allSettled([
-			saveProgramDraft(h.db, request(d, original.id)),
-			saveProgramDraft(h.db, request({ ...d, name: 'Race' }, original.id))
+			saveProgramDraft(h.db, userId, request(d, original.id)),
+			saveProgramDraft(h.db, userId, request({ ...d, name: 'Race' }, original.id))
 		]);
 		expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
 		expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
 		expect((await state()).programs).toHaveLength(2);
 		expect((await state()).requests).toHaveLength(2);
+	});
+
+	// ───────────────────────────────────────────────────────────────────────────
+	// Cross-tenant. The drop of the global UNIQUE(exercises.name) in 0010 is
+	// what lets a second user own an exercise under a name the first user has.
+	// That global constraint was the last thing in the way, and
+	// program-builder.ts was its last remaining caller.
+	// ───────────────────────────────────────────────────────────────────────────
+	it("listProgramExercises shows only the caller's own exercises", async () => {
+		const { bob } = await withTwoUsers(h.db);
+		await h.db
+			.insert(s.exercises)
+			.values({ name: 'Alice lift', equipmentType: 'dumbbell', userId })
+			.returning();
+		expect((await listProgramExercises(h.db, userId)).map((e) => e.name)).toEqual(['Alice lift']);
+		expect(await listProgramExercises(h.db, bob)).toHaveLength(0);
+	});
+
+	it('user B quick-adds a name user A already has, and gets their own row', async () => {
+		const { bob } = await withTwoUsers(h.db);
+		await h.db
+			.insert(s.exercises)
+			.values({ name: 'Bench Press', equipmentType: 'dumbbell', userId })
+			.returning();
+		const d = draft();
+		d.days[0].exercises[0].newExercise = {
+			name: 'Bench Press',
+			equipmentType: 'dumbbell',
+			isLowerBody: false
+		};
+		await saveProgramDraft(h.db, bob, request(d));
+
+		const bobs = await h.db
+			.select()
+			.from(s.exercises)
+			.where(and(eq(s.exercises.name, 'Bench Press'), eq(s.exercises.userId, bob)));
+		expect(bobs).toHaveLength(1);
+		// Both users keep a row under the same name.
+		expect(
+			await h.db.select().from(s.exercises).where(eq(s.exercises.name, 'Bench Press'))
+		).toHaveLength(2);
+	});
+
+	it("user B's quick-add reuses B's own row rather than inserting a duplicate", async () => {
+		const { bob } = await withTwoUsers(h.db);
+		await h.db
+			.insert(s.exercises)
+			.values({ name: 'Row', equipmentType: 'cable', userId: bob, isLowerBody: false })
+			.returning();
+		const d = draft();
+		d.days[0].exercises[0].newExercise = {
+			name: 'Row',
+			equipmentType: 'cable',
+			isLowerBody: false
+		};
+		await saveProgramDraft(h.db, bob, request(d));
+		// onConflictDoNothing against the per-user unique: one row for Bob.
+		expect(await h.db.select().from(s.exercises).where(eq(s.exercises.name, 'Row'))).toHaveLength(
+			1
+		);
+	});
+
+	it("loadProgramDraft reports another user's program as not found", async () => {
+		const { bob } = await withTwoUsers(h.db);
+		const saved = await saveProgramDraft(h.db, userId, request());
+		await expect(loadProgramDraft(h.db, userId, saved.id)).resolves.toBeTruthy();
+		// Same typed error as a nonexistent id — no 403, no distinct message (D6).
+		await expect(loadProgramDraft(h.db, bob, saved.id)).rejects.toBeInstanceOf(
+			ProgramNotFoundError
+		);
+		await expect(loadProgramDraft(h.db, bob, randomUUID())).rejects.toMatchObject({
+			message: 'Program not found'
+		});
+	});
+
+	it('a referenced exercise belonging to another user is not found', async () => {
+		const { bob } = await withTwoUsers(h.db);
+		const [alices] = await h.db
+			.insert(s.exercises)
+			.values({ name: 'Alice press', equipmentType: 'dumbbell', userId })
+			.returning();
+		const d = draft();
+		d.days[0].exercises[0] = {
+			...blankExerciseDraft(),
+			exerciseId: alices.id,
+			newExercise: null,
+			notes: '',
+			sets: [{ ...blankSetDraft(), initialLoad: 25, notes: '' }]
+		};
+		await expect(saveProgramDraft(h.db, bob, request(d))).rejects.toThrow(
+			'Referenced exercise not found'
+		);
+	});
+
+	it("editing another user's program fails at the duplicate step", async () => {
+		const { bob } = await withTwoUsers(h.db);
+		const saved = await saveProgramDraft(h.db, userId, request());
+		// sourceProgramId points at Alice's program. The route would never
+		// produce this for Bob, but the module must not honour it.
+		await expect(saveProgramDraft(h.db, bob, request(draft(), saved.id))).rejects.toThrow(
+			'Program not found'
+		);
+	});
+
+	it('the duplicate created by an edit belongs to the editor', async () => {
+		const saved = await saveProgramDraft(h.db, userId, request());
+		const edited = draft();
+		edited.name = 'Edited';
+		const result = await saveProgramDraft(h.db, userId, request(edited, saved.id));
+		const [copy] = await h.db.select().from(s.programs).where(eq(s.programs.id, result.id));
+		expect(copy.userId).toBe(userId);
+		expect(copy.sourceProgramId).toBe(saved.id);
+	});
+
+	it("one user's requestId receipt is not usable by another user", async () => {
+		const { bob } = await withTwoUsers(h.db);
+		const req = request();
+		const first = await saveProgramDraft(h.db, userId, req);
+		// request_id is a global primary key, so the same id from a different
+		// user is refused outright — NOT treated as a replay of Alice's save
+		// (which would hand Bob Alice's program id) and not a raw 23505.
+		await expect(saveProgramDraft(h.db, bob, req)).rejects.toThrow(
+			'Request ID already used for a different program draft'
+		);
+		// Alice's program is untouched and still hers alone.
+		const [program] = await h.db.select().from(s.programs).where(eq(s.programs.id, first.id));
+		expect(program.userId).toBe(userId);
 	});
 });

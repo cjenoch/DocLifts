@@ -98,12 +98,18 @@ run('production build: CSP and page render', () => {
 		// and pass by measuring nothing. The user is created through the
 		// operator path (createUser), never Better Auth's sign-up endpoint,
 		// which stays disabled.
-		await seedTestUser(db);
+		const user = await seedTestUser(db);
 
 		// Minimal fixture that exercises every page: one program, one day, one
 		// exercise, an ENDED session with 2 sets of which exactly 1 is
 		// executed — so /reports has a 50% completion bar to measure.
-		const [program] = await db.insert(s.programs).values({ name: 'E2E Program' }).returning();
+		// Every row the crawl reads is owned by the signed-in user. Without an
+		// owner these are invisible to the scoped queries T3 introduced, and
+		// /programs/[id] correctly 404s — the page would stop being crawled.
+		const [program] = await db
+			.insert(s.programs)
+			.values({ name: 'E2E Program', userId: user.id })
+			.returning();
 		programId = program.id;
 		const [day] = await db
 			.insert(s.days)
@@ -111,7 +117,7 @@ run('production build: CSP and page render', () => {
 			.returning();
 		const [exercise] = await db
 			.insert(s.exercises)
-			.values({ name: 'E2E Press', equipmentType: 'barbell' })
+			.values({ name: 'E2E Press', equipmentType: 'barbell', userId: user.id })
 			.returning();
 		const [dx] = await db
 			.insert(s.dayExercises)
@@ -150,6 +156,7 @@ run('production build: CSP and page render', () => {
 			.values({
 				dayId: day.id,
 				programId,
+				userId: user.id,
 				startedAt: new Date(Date.now() - 3_600_000),
 				endedAt: new Date(Date.now() - 1_800_000)
 			})
@@ -157,6 +164,7 @@ run('production build: CSP and page render', () => {
 		sessionId = session.id;
 		await db.insert(s.sets).values([
 			{
+				userId: user.id,
 				sessionId,
 				exerciseId: exercise.id,
 				position: 1,

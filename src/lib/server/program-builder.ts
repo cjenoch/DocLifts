@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { programDraftSchema, type ProgramDraft } from '../program-draft';
 import {
@@ -14,7 +14,8 @@ import type { Database } from './progression';
 import { duplicateProgramForEditInTransaction, type ProgramTransaction } from './programs';
 
 export async function listProgramExercises(
-	db: Database
+	db: Database,
+	userId: string
 ): Promise<{ id: string; name: string; equipmentType: string; isLowerBody: boolean }[]> {
 	return db
 		.select({
@@ -24,6 +25,7 @@ export async function listProgramExercises(
 			isLowerBody: exercises.isLowerBody
 		})
 		.from(exercises)
+		.where(eq(exercises.userId, userId))
 		.orderBy(asc(exercises.name), asc(exercises.id));
 }
 
@@ -34,9 +36,17 @@ export class ProgramNotFoundError extends Error {
 	}
 }
 
-export async function loadProgramDraft(db: Database, id: string): Promise<ProgramDraft> {
+export async function loadProgramDraft(
+	db: Database,
+	userId: string,
+	id: string
+): Promise<ProgramDraft> {
 	z.string().uuid().parse(id);
-	const [program] = await db.select().from(programs).where(eq(programs.id, id));
+	// Another user's program is 'not found', not 'forbidden' (D6).
+	const [program] = await db
+		.select()
+		.from(programs)
+		.where(and(eq(programs.id, id), eq(programs.userId, userId)));
 	if (!program) throw new ProgramNotFoundError();
 	const draft: ProgramDraft = { name: program.name, description: program.description, days: [] };
 	for (const day of await db
@@ -99,25 +109,36 @@ export async function loadProgramDraft(db: Database, id: string): Promise<Progra
 
 async function resolveExercise(
 	tx: ProgramTransaction,
+	userId: string,
 	exercise: ProgramDraft['days'][number]['exercises'][number]
 ): Promise<string> {
 	if (exercise.exerciseId) {
 		const [existing] = await tx
 			.select({ id: exercises.id })
 			.from(exercises)
-			.where(eq(exercises.id, exercise.exerciseId));
+			.where(and(eq(exercises.id, exercise.exerciseId), eq(exercises.userId, userId)));
 		if (!existing) throw new Error('Referenced exercise not found');
 		return existing.id;
 	}
 	const quick = exercise.newExercise!; // validated exclusive choice
-	// The unique name constraint serializes concurrent quick-adds without retyping metadata.
+	// The per-user unique from 0009, UNIQUE(user_id, name), serializes concurrent
+	// quick-adds for THIS user without retyping metadata — and lets a second user
+	// own an exercise with the same name. The global UNIQUE(name) this used to
+	// target is dropped in 0010_drop_exercise_name_unique, once
+	// program-builder.ts is the last caller needing it.
 	const [inserted] = await tx
 		.insert(exercises)
-		.values(quick)
-		.onConflictDoNothing({ target: exercises.name })
+		.values({ ...quick, userId })
+		.onConflictDoNothing({ target: [exercises.userId, exercises.name] })
 		.returning();
 	const existing =
-		inserted ?? (await tx.select().from(exercises).where(eq(exercises.name, quick.name)))[0];
+		inserted ??
+		(
+			await tx
+				.select()
+				.from(exercises)
+				.where(and(eq(exercises.name, quick.name), eq(exercises.userId, userId)))
+		)[0];
 	if (
 		!existing ||
 		existing.equipmentType !== quick.equipmentType ||
@@ -140,11 +161,15 @@ const saveSchema = z
 
 export async function saveProgramDraft(
 	db: Database,
+	userId: string,
 	input: { requestId: string; sourceProgramId: string | null; draft: unknown }
 ): Promise<{ id: string }> {
 	const { requestId, sourceProgramId, draft } = saveSchema.parse(input);
+	// userId is inside the fingerprint as well as the receipt lookup: two users
+	// submitting the same draft under the same requestId are two different
+	// requests, not a replay of one.
 	const fingerprint = createHash('sha256')
-		.update(JSON.stringify({ sourceProgramId, draft }))
+		.update(JSON.stringify({ userId, sourceProgramId, draft }))
 		.digest('hex');
 	return db.transaction(async (tx) => {
 		// A transaction-scoped lock covers the absent-receipt case too. Hash collisions
@@ -152,6 +177,14 @@ export async function saveProgramDraft(
 		await tx.execute(
 			sql`select pg_advisory_xact_lock(hashtextextended(${requestId}::uuid::text, 0))`
 		);
+		// The lookup is GLOBAL on requestId, because request_id is this table's
+		// PRIMARY KEY. Scoping it to the user would let a colliding requestId
+		// fall through to the INSERT and surface a raw 23505 rather than a
+		// clean refusal. Scoping the FINGERPRINT instead is what makes the
+		// refusal safe: userId is hashed into it, so a second user reusing an
+		// existing requestId produces a different fingerprint and this throws.
+		// A receipt is therefore never returned to a different user, so no
+		// program id leaks.
 		const [receipt] = await tx
 			.select()
 			.from(programDraftRequests)
@@ -165,7 +198,7 @@ export async function saveProgramDraft(
 		if (sourceProgramId) {
 			// Deep-copy every child under the source row lock before editing ONLY the
 			// unpublished copy. No other transaction can see it before this commits.
-			const copy = await duplicateProgramForEditInTransaction(tx, sourceProgramId);
+			const copy = await duplicateProgramForEditInTransaction(tx, userId, sourceProgramId);
 			id = copy.id;
 			await tx.delete(days).where(eq(days.programId, id));
 			await tx
@@ -179,7 +212,8 @@ export async function saveProgramDraft(
 					name: draft.name,
 					description: draft.description,
 					isActive: true,
-					sourceProgramId: null
+					sourceProgramId: null,
+					userId
 				})
 				.returning();
 			id = program.id;
@@ -196,7 +230,7 @@ export async function saveProgramDraft(
 				})
 				.returning();
 			for (const [exerciseIndex, exercise] of day.exercises.entries()) {
-				const exerciseId = await resolveExercise(tx, exercise);
+				const exerciseId = await resolveExercise(tx, userId, exercise);
 				const [savedExercise] = await tx
 					.insert(dayExercises)
 					.values({
@@ -217,7 +251,7 @@ export async function saveProgramDraft(
 				);
 			}
 		}
-		await tx.insert(programDraftRequests).values({ requestId, fingerprint, programId: id });
+		await tx.insert(programDraftRequests).values({ userId, requestId, fingerprint, programId: id });
 		return { id };
 	});
 }

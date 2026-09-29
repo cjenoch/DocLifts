@@ -47,6 +47,8 @@ import type { ImportedLine } from '$lib/imported-workout';
 // drizzle.config.ts points `schema:` at this one file — drizzle-kit does not
 // follow db/index.ts, so without this the generate step would see no auth
 // tables and emit an empty migration.
+import { authUsers } from './auth-schema';
+
 export {
 	authSchema,
 	authUsers,
@@ -58,13 +60,30 @@ export {
 
 // Historical source records are separate from progression inputs so unknown
 // dates and estimates need not masquerade as measured performance.
-export const workoutLogImports = pgTable('workout_log_imports', {
-	id: uuid('id').primaryKey(),
-	sourceSha256: text('source_sha256').notNull().unique(),
-	sourceName: text('source_name').notNull(),
-	sourceText: text('source_text').notNull(),
-	importedAt: timestamp('imported_at').notNull().defaultNow()
-});
+export const workoutLogImports = pgTable(
+	'workout_log_imports',
+	{
+		id: uuid('id').primaryKey(),
+		/**
+		 * D5: was globally UNIQUE. Two users importing the same source file
+		 * would collide, so uniqueness is now per-owner. Re-importing your
+		 * own file is still blocked — that is what the sha256 is for.
+		 */
+		sourceSha256: text('source_sha256').notNull(),
+		sourceName: text('source_name').notNull(),
+		sourceText: text('source_text').notNull(),
+		importedAt: timestamp('imported_at').notNull().defaultNow(),
+		/** Owner. `text` not `uuid` — see programs.userId. No onDelete: NO ACTION. */
+		userId: text('user_id').references(() => authUsers.id)
+	},
+	(t) => ({
+		userSourceSha256Unique: unique('workout_log_imports_user_sha256_unique').on(
+			t.userId,
+			t.sourceSha256
+		),
+		userIdIdx: index('workout_log_imports_user_id_idx').on(t.userId)
+	})
+);
 export const importedWorkouts = pgTable(
 	'imported_workouts',
 	{
@@ -107,10 +126,30 @@ export const programs = pgTable(
 			onDelete: 'set null'
 		}),
 		createdAt: timestamp('created_at').notNull().defaultNow(),
-		updatedAt: timestamp('updated_at').notNull().defaultNow()
+		updatedAt: timestamp('updated_at').notNull().defaultNow(),
+		/**
+		 * Owner account, `auth.user.id`.
+		 *
+		 * `text`, NOT `uuid`, and this is the reference case for the other
+		 * eight. Better Auth generates the id itself — 32-char alphanumeric
+		 * (crypto-safe random, @better-auth/core/dist/utils/id.mjs) — and
+		 * stores it in a `text` column. The adapter sets `supportsUUIDs: true`
+		 * for pg, but that only says a `generateId: 'uuid'` opt-in is
+		 * *permitted*; the default generator still returns a non-UUID string.
+		 * Declaring this `uuid()` would compile and then fail at runtime on
+		 * every join.
+		 *
+		 * Deliberately NO `onDelete`. Work order §3 rule 1: deleting an
+		 * account must never silently delete workout history, so the FK
+		 * defaults to NO ACTION and account deletion fails until history is
+		 * handled explicitly. (Contrast Better Auth's own auth.* FKs, which
+		 * do cascade — correct for auth rows, wrong for these.)
+		 */
+		userId: text('user_id').references(() => authUsers.id)
 	},
 	(t) => ({
-		sourceProgramIdIdx: index('programs_source_program_id_idx').on(t.sourceProgramId)
+		sourceProgramIdIdx: index('programs_source_program_id_idx').on(t.sourceProgramId),
+		userIdIdx: index('programs_user_id_idx').on(t.userId)
 	})
 );
 
@@ -123,10 +162,17 @@ export const programDraftRequests = pgTable(
 		programId: uuid('program_id')
 			.notNull()
 			.references(() => programs.id),
-		createdAt: timestamp('created_at').notNull().defaultNow()
+		createdAt: timestamp('created_at').notNull().defaultNow(),
+		/**
+		 * Owner. `text` not `uuid` — see the note on programs.userId.
+		 * No onDelete: NO ACTION, so deleting an account cannot silently
+		 * delete workout history.
+		 */
+		userId: text('user_id').references(() => authUsers.id)
 	},
 	(t) => ({
 		programIdx: index('program_draft_requests_program_idx').on(t.programId),
+		userIdIdx: index('program_draft_requests_user_id_idx').on(t.userId),
 		fingerprintCheck: check(
 			'program_draft_requests_fingerprint_check',
 			sql`${t.fingerprint} ~ '^[0-9a-f]{64}$'`
@@ -176,9 +222,31 @@ export const exercises = pgTable(
 		// Progression increment source of truth (N3): false=+5, true=+10.
 		// Avoids brittle name-regex classification in runtime prefill logic.
 		isLowerBody: boolean('is_lower_body').notNull().default(false),
-		notes: text('notes')
+		notes: text('notes'),
+		/**
+		 * Owner. Exercises are PER-USER as of the accounts migration (D4):
+		 * two users may each have their own "Bench Press" row, and each row's
+		 * notes/isLowerBody/targets are theirs alone. `text` not `uuid` — see
+		 * programs.userId. No onDelete: NO ACTION.
+		 */
+		userId: text('user_id').references(() => authUsers.id)
 	},
 	(t) => ({
+		/**
+		 * D4: was a GLOBAL unique on `name` alone. Replaced by per-user.
+		 *
+		 * This is why two call sites had to change with the migration, not
+		 * just the schema — see the T3 acceptance criteria in the accounts
+		 * work order:
+		 *   - program-builder.ts quick-add: `onConflictDoNothing({ target:
+		 *     exercises.name })` raises at runtime under a compound index, and
+		 *     its fallback `select` had no user predicate and could return
+		 *     another user's row.
+		 *   - machines.ts addSessionExercise: rejects on a global name match,
+		 *     which would refuse user B a name user A already has.
+		 */
+		userNameUnique: unique('exercises_user_id_name_unique').on(t.userId, t.name),
+		userIdIdx: index('exercises_user_id_idx').on(t.userId),
 		equipmentTypeCheck: check(
 			'exercises_equipment_type_check',
 			sql`${t.equipmentType} IN (
@@ -200,9 +268,19 @@ export const equipmentModels = pgTable(
 		code: text('code'),
 		startingResistance: numeric('starting_resistance', { precision: 6, scale: 2, mode: 'number' }),
 		loadingType: text('loading_type').notNull(),
-		laterality: text('laterality').notNull().default('unknown')
+		laterality: text('laterality').notNull().default('unknown'),
+		/**
+		 * Optional owner. NULLABLE and therefore not backfilled: NULL means
+		 * "global equipment catalogue entry" — a machine model is reference
+		 * data, not user data, so the existing rows stay shared. A non-NULL
+		 * value means the model is private to that user.
+		 *
+		 * `text` not `uuid` — see programs.userId. No onDelete: NO ACTION.
+		 */
+		ownerUserId: text('owner_user_id').references(() => authUsers.id)
 	},
 	(t) => ({
+		ownerUserIdIdx: index('equipment_models_owner_user_id_idx').on(t.ownerUserId),
 		resistanceCheck: check(
 			'model_resistance_check',
 			sql`${t.startingResistance} IS NULL OR ${t.startingResistance} >= 0`
@@ -228,10 +306,22 @@ export const exerciseEquipmentMap = pgTable(
 	})
 );
 
-export const gyms = pgTable('gyms', {
-	id: uuid('id').defaultRandom().primaryKey(),
-	name: text('name').notNull()
-});
+export const gyms = pgTable(
+	'gyms',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		name: text('name').notNull(),
+		/**
+		 * Owner. `text` not `uuid` — see the note on programs.userId.
+		 * No onDelete: NO ACTION, so deleting an account cannot silently
+		 * delete the gym (and everything hanging off it).
+		 */
+		userId: text('user_id').references(() => authUsers.id)
+	},
+	(t) => ({
+		userIdIdx: index('gyms_user_id_idx').on(t.userId)
+	})
+);
 
 export const gymEquipment = pgTable(
 	'gym_equipment',
@@ -376,7 +466,13 @@ export const sessions = pgTable(
 		startedAt: timestamp('started_at').notNull().defaultNow(),
 		endedAt: timestamp('ended_at'),
 		deletedAt: timestamp('deleted_at'),
-		notes: text('notes')
+		notes: text('notes'),
+		/**
+		 * Owner. `text` not `uuid` — see the note on programs.userId.
+		 * No onDelete: NO ACTION, so deleting an account cannot silently
+		 * delete workout history.
+		 */
+		userId: text('user_id').references(() => authUsers.id)
 	},
 	(t) => ({
 		dayStartedAtIdx: index('sessions_day_started_at_idx').on(
@@ -491,7 +587,13 @@ export const sets = pgTable(
 
 		wasAudible: boolean('was_audible').notNull().default(false),
 		notes: text('notes'),
-		loggedAt: timestamp('logged_at').notNull().defaultNow()
+		loggedAt: timestamp('logged_at').notNull().defaultNow(),
+		/**
+		 * Owner. `text` not `uuid` — see the note on programs.userId.
+		 * No onDelete: NO ACTION, so deleting an account cannot silently
+		 * delete workout history.
+		 */
+		userId: text('user_id').references(() => authUsers.id)
 	},
 	(t) => ({
 		sessionIdIdx: index('sets_session_id_idx').on(t.sessionId),
@@ -572,7 +674,13 @@ export const painEvents = pgTable(
 		severity: integer('severity').notNull(), // 1-10
 		trigger: text('trigger'),
 		notes: text('notes'),
-		occurredAt: timestamp('occurred_at').notNull().defaultNow()
+		occurredAt: timestamp('occurred_at').notNull().defaultNow(),
+		/**
+		 * Owner. `text` not `uuid` — see the note on programs.userId.
+		 * No onDelete: NO ACTION, so deleting an account cannot silently
+		 * delete workout history.
+		 */
+		userId: text('user_id').references(() => authUsers.id)
 	},
 	(t) => ({
 		exerciseOccurredIdx: index('pain_events_exercise_occurred_idx').on(

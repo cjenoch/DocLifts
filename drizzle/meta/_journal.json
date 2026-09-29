@@ -64,6 +64,13 @@
       "when": 1790712457527,
       "tag": "0008_auth_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790713253883,
+      "tag": "0009_ownership",
+      "breakpoints": true
     }
   ]
 }

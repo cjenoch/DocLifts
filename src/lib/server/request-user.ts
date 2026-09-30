@@ -69,6 +69,50 @@ export function isPublicPath(pathname: string): boolean {
 }
 
 /**
+ * Asset prefixes that must KEEP their caching.
+ *
+ * WHY THIS IS SEPARATE FROM THE ALLOWLIST
+ * ---------------------------------------
+ * `isPublicPath` answers "may an unauthenticated visitor reach this?" — a
+ * question about authorization. This answers "is this a build artifact whose
+ * bytes never change for a given URL?" — a question about caching. They came
+ * to the same list for one release and that was wrong: `/login` was public,
+ * so the 0.2.1 no-store change skipped it, and because it set no policy of
+ * its own a response with no Cache-Control is heuristically cacheable. A
+ * browser held a stale sign-in form across a password change.
+ *
+ * Conflating them also had the merit of being invisible: nothing about
+ * "public" implies "uncacheable", and the login page is the one page where
+ * being stored is most damaging.
+ *
+ * The rule is simply: immutable build artifacts cache, everything else does
+ * not. `/login`, `/signup`, error pages, and every authenticated page are
+ * HTML carrying or gating credentials, and none of them are cacheable.
+ */
+const ASSET_PREFIXES: readonly string[] = [
+	// Vite's immutable build output. The name is a content hash, so these are
+	// safe to cache forever once fetched.
+	'/_app/immutable',
+	'/_app/version.json'
+];
+
+export function isAssetPath(pathname: string): boolean {
+	let normalized = pathname;
+	try {
+		normalized = new URL(pathname, 'http://placeholder.invalid').pathname;
+	} catch {
+		// Unparseable: matches nothing, so it is treated as HTML. That is the
+		// safe direction — uncacheable rather than cached.
+	}
+	return ASSET_PREFIXES.some(
+		(prefix) =>
+			normalized === prefix ||
+			normalized.startsWith(prefix + '/') ||
+			normalized.startsWith(prefix + '.')
+	);
+}
+
+/**
  * `?next=` is an open-redirect vector if taken as given. Accept only a
  * same-origin relative path.
  *

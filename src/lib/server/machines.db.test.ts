@@ -92,21 +92,49 @@ async function fixture() {
 	});
 	return { userId, day, exercise, gym, gymB, machine, machineB, program };
 }
+// A minimal program/day for an arbitrary owner, for tests that need a second
+// user to start a session of their own. Starting a session on another user's
+// day is not a legal setup: once (f) lands, startSessionForDay refuses it, so
+// a test that relies on it breaks in the end state as well as the interim one.
+async function dayFor(ownerId: string) {
+	const [program] = await db
+		.insert(s.programs)
+		.values({ name: 'Bob Program', userId: ownerId })
+		.returning();
+	const [day] = await db
+		.insert(s.days)
+		.values({ programId: program.id, name: 'Bob Day', position: 1 })
+		.returning();
+	const [exercise] = await db
+		.insert(s.exercises)
+		.values({
+			name: 'Bob Press',
+			canonicalMovement: 'chest_press',
+			equipmentType: 'machine-plate',
+			userId: ownerId
+		})
+		.returning();
+	const [dx] = await db
+		.insert(s.dayExercises)
+		.values({ dayId: day.id, exerciseId: exercise.id, position: 1, tier: 'secondary' })
+		.returning();
+	await db.insert(s.prescribedSets).values({
+		dayExerciseId: dx.id,
+		position: 1,
+		setRole: 'working' as const,
+		targetRepsMin: 8,
+		targetRepsMax: 10,
+		targetRir: 1,
+		initialLoad: 50
+	});
+	return day;
+}
 async function start(userId: string, dayId: string) {
 	const result = await startSessionForDay(db, userId, dayId);
 	if (!result.ok) throw new Error(result.message);
-	// sessions.ts does not take a userId until T4, so the started session is
-	// stamped here. Without this the row has user_id NULL and lockActive() —
-	// which filters on sessions.user_id — reports 'Session not found' for
-	// every test, which would read as a T3 bug rather than a T4 leftover.
-	if (userId) {
-		await db.update(s.sessions).set({ userId }).where(eq(s.sessions.id, result.sessionId));
-		// sessions.ts copies prescribed_sets into `sets` at start, and it does
-		// not stamp an owner until T4. assertNoUnownedRows() runs in afterEach
-		// and is right to fail on these, so the fixture stamps them here rather
-		// than muting the check.
-		await db.update(s.sets).set({ userId }).where(eq(s.sets.sessionId, result.sessionId));
-	}
+	// No stamping here. startSessionForDay owns both the session row and the
+	// sets it copies from prescribed_sets, so assertNoUnownedRows() in
+	// afterEach now checks production code rather than this fixture.
 	const [occurrence] = await db
 		.select()
 		.from(s.sessionExercises)
@@ -724,10 +752,11 @@ describe('cross-tenant isolation', () => {
 	it("another user's gymEquipmentId is not found", async () => {
 		const f = await fixture();
 		const { bob } = await withTwoUsers(db);
-		const run = await start(f.userId, f.day.id);
-		// The session is Bob's own so the failure is about the MACHINE, not the
-		// session — otherwise this would pass for the wrong reason.
-		const bobsRun = await start(bob, f.day.id);
+		// Bob starts a session on Bob's own day, so the failure under test is
+		// about the MACHINE and not the session — otherwise this would pass for
+		// the wrong reason.
+		const bobsDay = await dayFor(bob);
+		const bobsRun = await start(bob, bobsDay.id);
 		await expect(
 			bindSessionMachine(
 				db,
@@ -747,7 +776,6 @@ describe('cross-tenant isolation', () => {
 				binding(f.gym.id, crypto.randomUUID())
 			)
 		).rejects.toThrow('Machine not found in selected gym');
-		void run;
 	});
 
 	it("another user's gymId is not found by createMachine", async () => {
@@ -838,7 +866,8 @@ describe('cross-tenant isolation', () => {
 			localLabel: 'Bob press',
 			equipmentType: 'machine-plate'
 		});
-		const run = await start(bob, f.day.id);
+		const bobsDay = await dayFor(bob);
+		const run = await start(bob, bobsDay.id);
 
 		// "Press" already exists, owned by Alice. Bob naming his exercise the
 		// same must succeed with Bob's own row — not hit a global duplicate
@@ -880,7 +909,8 @@ describe('cross-tenant isolation', () => {
 			localLabel: 'Bob press',
 			equipmentType: 'machine-plate'
 		});
-		const run = await start(bob, f.day.id);
+		const bobsDay = await dayFor(bob);
+		const run = await start(bob, bobsDay.id);
 		const input = {
 			exerciseName: 'Bob own lift',
 			equipmentType: 'machine-plate',

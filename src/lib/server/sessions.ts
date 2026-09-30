@@ -301,6 +301,7 @@ export async function startSessionForDay(
 			const [session] = await tx
 				.insert(sessions)
 				.values({
+					userId,
 					dayId: day.id,
 					programId: day.programId
 				})
@@ -326,6 +327,7 @@ export async function startSessionForDay(
 			for (let i = 0; i < prescribed.length; i++) {
 				const p = prescribed[i];
 				await tx.insert(sets).values({
+					userId,
 					sessionId: session.id,
 					sessionExerciseId: occurrences.get(p.dayExerciseId),
 					exerciseId: p.exerciseId,

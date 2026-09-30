@@ -57,8 +57,8 @@ it('appends to legacy groups without changing saved data and deduplicates concur
 	const { db, userId, session, source } = await fixture();
 	const input = { sourceSetId: source.id, requestId: randomUUID(), setRole: 'working' };
 	const [a, b] = await Promise.all([
-		appendWorkoutSet(db, session.id, input),
-		appendWorkoutSet(db, session.id, input)
+		appendWorkoutSet(db, userId, session.id, input),
+		appendWorkoutSet(db, userId, session.id, input)
 	]);
 	expect(a.id).toBe(b.id);
 	expect(a).toMatchObject({
@@ -76,7 +76,7 @@ it('appends to legacy groups without changing saved data and deduplicates concur
 it('rejects cross-workout sources and ended workouts', async () => {
 	const { db, userId, session, source } = await fixture();
 	await expect(
-		appendWorkoutSet(db, session.id, {
+		appendWorkoutSet(db, userId, session.id, {
 			sourceSetId: randomUUID(),
 			requestId: randomUUID(),
 			setRole: 'working'
@@ -87,7 +87,7 @@ it('rejects cross-workout sources and ended workouts', async () => {
 		.set({ endedAt: new Date(Date.now() + 1000) })
 		.where(eq(s.sessions.id, session.id));
 	await expect(
-		appendWorkoutSet(db, session.id, {
+		appendWorkoutSet(db, userId, session.id, {
 			sourceSetId: source.id,
 			requestId: randomUUID(),
 			setRole: 'working'
@@ -96,7 +96,7 @@ it('rejects cross-workout sources and ended workouts', async () => {
 });
 it('removes only the last unlogged set without renumbering or deleting logged data', async () => {
 	const { db, userId, session, source } = await fixture();
-	const added = await appendWorkoutSet(db, session.id, {
+	const added = await appendWorkoutSet(db, userId, session.id, {
 		sourceSetId: source.id,
 		requestId: randomUUID(),
 		setRole: 'working'
@@ -129,7 +129,7 @@ it('creates equipment inline atomically and retains machine identity on added se
 		.select()
 		.from(s.sets)
 		.where(eq(s.sets.sessionExerciseId, occurrence.id));
-	const added = await appendWorkoutSet(db, session.id, {
+	const added = await appendWorkoutSet(db, userId, session.id, {
 		sourceSetId: source.id,
 		requestId: randomUUID(),
 		setRole: 'warmup'

@@ -204,6 +204,7 @@ export const actions: Actions = {
 		try {
 			const added = await appendWorkoutSet(
 				db,
+				requireUser(locals).id,
 				params.id,
 				Object.fromEntries(await request.formData())
 			);

@@ -45,7 +45,12 @@ export async function removeEmptyLastSet(db: Database, sessionId: string, setId:
 }
 
 // Lock the session, as the other workout mutations do. Never renumber existing history slots.
-export async function appendWorkoutSet(db: Database, sessionId: string, input: unknown) {
+export async function appendWorkoutSet(
+	db: Database,
+	userId: string,
+	sessionId: string,
+	input: unknown
+) {
 	const value = z
 		.object({
 			sourceSetId: z.string().uuid(),
@@ -94,6 +99,7 @@ export async function appendWorkoutSet(db: Database, sessionId: string, input: u
 			.insert(sets)
 			.values({
 				id: value.requestId,
+				userId,
 				sessionId,
 				exerciseId: source.exerciseId,
 				sessionExerciseId: source.sessionExerciseId,

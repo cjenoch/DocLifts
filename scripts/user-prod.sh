@@ -26,9 +26,16 @@
 # dump taken by migrate-prod.sh immediately before is still on disk.
 #
 # Usage:
-#   scripts/user-prod.sh bootstrap --email you@example.com --password '...'
+#   scripts/user-prod.sh bootstrap --email you@example.com --password-stdin
+#
+# Prefer --password-stdin. A password given as an argument is visible in the
+# process list for the life of the command and is written to shell history,
+# which is a poor place to keep a credential that may already have been
+# exposed:
+#   printf '%s' "$(pass show doclifts)" | scripts/user-prod.sh set-password \
+#       --email you@example.com --password-stdin
 #   scripts/user-prod.sh create --email you@example.com --password '...' --name "You"
-#   scripts/user-prod.sh set-password --email you@example.com --password '...'
+#   scripts/user-prod.sh set-password --email you@example.com --password-stdin
 #
 # The password is passed on the command line, so it is visible in the process
 # list while running. That is acceptable for an operator tool run by hand over
@@ -89,7 +96,9 @@ docker build --target builder -t doclifts-migrations:local .
 
 echo "==> pnpm user:${COMMAND} against ${DB_NAME}"
 # exec so the command's exit status is this script's exit status.
-docker run --rm --network doclifts_default \
+# -i so a piped --password-stdin reaches the script inside the container.
+# Without it the CLI's stdin guard sees a TTY-ish empty stream and refuses.
+docker run --rm -i --network doclifts_default \
 	-e DATABASE_URL -e BETTER_AUTH_SECRET \
 	--env-file "$ENV_FILE" \
 	doclifts-migrations:local pnpm "user:${COMMAND}" "$@"

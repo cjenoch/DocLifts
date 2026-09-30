@@ -74,6 +74,41 @@ export function arg(flag: string): string | undefined {
 	return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
+/**
+ * Read a secret from stdin, for `--password-stdin`.
+ *
+ * A password on the command line is visible in the process list for the life
+ * of the command, and lands in shell history. When the operator is rotating a
+ * real password that has already been exposed once, neither is acceptable, so
+ * the value is read from the first line of stdin instead.
+ *
+ * The trailing newline is trimmed (so `pass show` / `echo` piping works) but
+ * nothing else: leading/trailing spaces are legal in a password and must not
+ * be silently eaten. An empty read is refused rather than treated as an empty
+ * password, because Better Auth's minimum length would reject it later with a
+ * less useful message.
+ */
+export async function readPasswordFromStdin(): Promise<string | undefined> {
+	if (process.stdin.isTTY) {
+		console.error(
+			'--password-stdin needs a pipe, e.g.\n' +
+				'  printf \'%s\' "$(pass show doclifts)" | pnpm user:set-password --email you@example.com --password-stdin'
+		);
+		return undefined;
+	}
+
+	const chunks: Buffer[] = [];
+	for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+	const first = chunks.length ? chunks[0].toString('utf8') : '';
+	const line = first.split('\n')[0].replace(/\r$/, '');
+
+	if (!line) {
+		console.error('--password-stdin was given an empty password.');
+		return undefined;
+	}
+	return line;
+}
+
 /** Run `body`, always closing the client, and exit with the right code. */
 export function runCli(body: (ctx: CliContext) => Promise<number>): void {
 	const ctx = createCliContext();

@@ -9,19 +9,28 @@
  * Runs outside SvelteKit — see scripts/user-cli-context.ts.
  */
 import { bootstrap, SENTINEL_USER_ID } from '../src/lib/server/bootstrap';
-import { arg, runCli } from './user-cli-context';
+import { arg, readPasswordFromStdin, runCli } from './user-cli-context';
 
 const USAGE =
-	'Usage: pnpm user:bootstrap --email <you@example.com> --password <password> [--name "Your Name"]\n' +
+	'Usage: pnpm user:bootstrap --email <you@example.com> (--password <password> | --password-stdin) [--name "Your Name"]\n' +
 	'\n' +
 	'Run after `pnpm db:migrate` on a database that has had 0011 applied.\n' +
-	`It claims the ${SENTINEL_USER_ID} sentinel, giving every row backfilled by 0011 a real owner.`;
+	`It claims the ${SENTINEL_USER_ID} sentinel, giving every row backfilled by 0011 a real owner.\n` +
+	'\n' +
+	'Prefer --password-stdin so the password is not in the process list or shell history.\n' +
+	'  printf %s "$(pass show doclifts)" | pnpm user:bootstrap --email you@example.com --password-stdin';
 
 runCli(async ({ auth, db }) => {
 	const email = arg('--email');
-	const password = arg('--password');
 	const name = arg('--name') ?? 'Owner';
-	if (!email || !password) {
+	if (!email || (!arg('--password') && !process.argv.includes('--password-stdin'))) {
+		console.error(USAGE);
+		return 1;
+	}
+	const password = process.argv.includes('--password-stdin')
+		? await readPasswordFromStdin()
+		: arg('--password');
+	if (!password) {
 		console.error(USAGE);
 		return 1;
 	}

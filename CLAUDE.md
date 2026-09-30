@@ -290,6 +290,26 @@ it('returns the owner their own rows, and nothing to another user', async () => 
 against a function that always returns nothing — which is how a broken
 implementation reads as a working one.
 
+**Assert the state change, not the response shape.** For any state-changing
+action, assert what the state became — the row is gone, the next request is
+refused, the counter moved — rather than that the response looked right. A
+redirect proves the action _ran_, not that it _worked_.
+
+Both halves of the 0.2.0 release shipped a test that passed while the feature
+was broken in production:
+
+- The sign-out test asserted `303 -> /login` and a following `303` on
+  `/history`. The action redirects to `/login` whether or not Better Auth
+  accepted the sign-out, and SvelteKit 303s an unauthenticated `/history`
+  regardless — so it passed in every run while logout did nothing at all.
+- The rate-limit test asserted a transport status, and SvelteKit answers form
+  actions with an outer `200` and carries the real status in the action
+  envelope.
+
+So the assertions that would have caught both: the `auth.session` row is
+deleted, and a client that _kept_ the cookie is refused. Neither is observable
+from the response the action returns.
+
 ### Where the data comes from
 
 `exercises` is owned, so the 23-exercise starter list is **copied per user**

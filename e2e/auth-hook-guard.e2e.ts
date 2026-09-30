@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as s from '$lib/server/db/schema';
 import { count, eq } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import type { ChildProcess } from 'node:child_process';
 import {
 	freshTestDb,
@@ -110,11 +111,38 @@ describe('signed-in requests', () => {
 		expect(res.status).toBe(200);
 	});
 
-	it('sign-out clears the session and the next request is 303 again', async () => {
+	/**
+	 * Sign-out must be asserted by the STATE it leaves behind, not by the
+	 * redirect. This test used to assert `303 -> /login` and a following 303
+	 * on /history, and it passed in every run while logout was completely
+	 * broken in production: the action redirects to /login whether or not the
+	 * handler found a session, so nothing about the response shape could tell
+	 * the two cases apart. The 303 on /history passed for the same reason —
+	 * SvelteKit redirects an unauthenticated request regardless.
+	 *
+	 * So assert three things, none of which the action can fake:
+	 *   1. the session ROW is gone from auth.session;
+	 *   2. the response clears the cookie NAME sign-in actually set (read it
+	 *      off the sign-in response, never hardcoded — over https that name is
+	 *      __Secure-better-auth.session_token);
+	 *   3. a client that KEPT the old cookie still gets 303, which is only
+	 *      true if the server-side session is dead.
+	 */
+	it('sign-out deletes the session row, clears the cookie, and 303s a client that kept it', async () => {
+		const liveCookie = await signInAs(origin);
+		const tokenName = liveCookie.split('=')[0];
+		const tokenValue = liveCookie.split('=')[1];
+
+		const rows = () =>
+			db.execute<{ n: number }>(sql`select count(*)::int as n from "auth"."session"`);
+
+		const before = (await rows())[0].n;
+		expect(before, 'a fresh sign-in must create a session row').toBeGreaterThan(0);
+
 		const out = await fetch(new URL('/logout', origin), {
 			method: 'POST',
 			headers: {
-				cookie,
+				cookie: liveCookie,
 				origin,
 				accept: 'text/html',
 				// Without a form content-type SvelteKit answers 415 — it is
@@ -125,13 +153,27 @@ describe('signed-in requests', () => {
 			redirect: 'manual'
 		});
 		expect(out.status).toBe(303);
-		expect(out.headers.get('location')).toContain('/login');
 
-		const after = await fetch(new URL('/history', origin), {
-			headers: { cookie },
+		// 1. The row must actually be deleted.
+		const after = (await rows())[0].n;
+		expect(after, 'POST /logout must delete the session row').toBe(before - 1);
+
+		// 2. Every clearing cookie must come back, including the one whose name
+		//    sign-in used. getSetCookie() because sign-out emits several.
+		const cleared = out.headers.getSetCookie();
+		const sessionClear = cleared.find((c) => c.startsWith(`${tokenName}=`));
+		expect(
+			sessionClear,
+			`no Set-Cookie clearing ${tokenName}. Saw: ${JSON.stringify(cleared)}`
+		).toBeDefined();
+		expect(sessionClear).toMatch(/Max-Age=0/i);
+
+		// 3. A client that ignored the clearing cookie must still be anonymous.
+		const retry = await fetch(new URL('/history', origin), {
+			headers: { cookie: `${tokenName}=${tokenValue}` },
 			redirect: 'manual'
 		});
-		expect(after.status).toBe(303);
+		expect(retry.status, 'a kept cookie must not authenticate once the session is gone').toBe(303);
 	});
 
 	it('does not sign anyone out on GET /logout', async () => {

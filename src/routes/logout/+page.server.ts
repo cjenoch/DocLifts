@@ -48,6 +48,27 @@ export const actions: Actions = {
 		// session to destroy.
 		const result = await signOutViaHandler(request.headers);
 
+		// A sign-out that did not happen must not look like one that did.
+		//
+		// Better Auth answers 200 even when it found no session, and its CSRF
+		// check answers 403 — both are "fine" as far as the response shape
+		// goes. This action used to ignore the status entirely and redirect to
+		// /login, so a rejected sign-out looked identical to a successful one:
+		// the user was told they were logged out and was not. In production the
+		// proxied request was being 403'd for a missing Origin header, and the
+		// only symptom was a logout button that did nothing.
+		//
+		// So the status is checked. Anything that is not ok is surfaced as a 502
+		// rather than swallowed: a sign-out that failed loudly is a bug report,
+		// a sign-out that failed quietly is a security problem.
+		if (!result.ok) {
+			console.error(
+				`sign-out rejected by Better Auth: ${result.status} ` +
+					`${(await result.text()).slice(0, 300)}`
+			);
+			error(502, 'Sign-out could not be completed. Please try again.');
+		}
+
 		// Forward Better Auth's own Set-Cookie, PARSED. `cookies.set` takes a
 		// cookie NAME, so passing the raw header through creates a cookie
 		// literally named `set-cookie` whose value is the whole URL-encoded

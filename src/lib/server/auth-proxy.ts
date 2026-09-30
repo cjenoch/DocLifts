@@ -146,6 +146,16 @@ const FORWARDED = [
 	// know which session row to destroy. Without it sign-out "succeeds" and
 	// leaves the session alive, which is worse than failing.
 	'cookie'
+	// NOT `origin`, unlike everything else here. Sign-out passes it explicitly
+	// (see signOutViaHandler) because Better Auth's CSRF check answers 403 for
+	// a POST with no Origin, and sign-out was being silently 403'd in
+	// production: 200 from the action, session row still there.
+	//
+	// Sign-in must NOT carry it. Forwarding the browser's Origin there makes
+	// Better Auth's trusted-origin check reject the proxied sign-in with a
+	// "Cross-site" error, because the request it is validating now presents an
+	// Origin that its own router never matched. Both behaviours are measured on
+	// the served build, not inferred.
 ] as const;
 
 /**
@@ -156,9 +166,16 @@ const FORWARDED = [
  */
 export function forwardedHeaders(
 	incoming: Headers,
-	body: { contentType: 'application/json' }
+	body: { contentType: 'application/json' },
+	/** Carry the browser's Origin through. Sign-out needs it; sign-in must not have it. */
+	withOrigin = false
 ): Headers {
 	const out = new Headers({ 'content-type': body.contentType });
+
+	if (withOrigin) {
+		const origin = incoming.get('origin');
+		if (origin) out.set('origin', origin);
+	}
 
 	for (const name of FORWARDED) {
 		const value = incoming.get(name);
@@ -205,7 +222,7 @@ export async function signOutViaHandler(incoming: Headers): Promise<Response> {
 	return auth.handler(
 		new Request(url, {
 			method: 'POST',
-			headers: forwardedHeaders(incoming, { contentType: 'application/json' }),
+			headers: forwardedHeaders(incoming, { contentType: 'application/json' }, true),
 			body: JSON.stringify({})
 		})
 	);

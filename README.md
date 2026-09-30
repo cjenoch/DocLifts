@@ -117,6 +117,11 @@ The VPS migration used the legacy Docker builder to work around a host build-env
 ### Updating an existing deployment
 
 1. Check `git status`, preserve concurrent work, and use `git pull --ff-only` to obtain the intended release.
+   The web container will not start without `BETTER_AUTH_SECRET`: the server
+   graph throws at module load, so the process exits before the listener opens.
+   The healthcheck and the container logs name the variable. This is boot-time
+   on purpose — better than failing on the first request, because no traffic is
+   ever served on a broken auth config.
 2. If there are new migrations, run `scripts/migrate-prod.sh` — it dumps and verifies a backup first, then applies them. Review compatibility with the running app before applying schema changes.
 3. Build the web image with `scripts/compose-prod.sh build web` while the existing app runs.
 4. Switch the web container with `scripts/compose-prod.sh up -d --no-deps --no-build --wait web`.

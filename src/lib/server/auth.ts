@@ -10,17 +10,34 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { env } from '$env/dynamic/private';
+import { building } from '$app/environment';
 import { db } from './db';
 import { authTables } from './db/auth-schema';
 
 /**
- * Resolved lazily, not at module import.
+ * The secret, with a placeholder during `vite build`.
  *
- * An import-time throw would break `pnpm build`, CI, and the Dockerfile
- * builder stage, which each import the server graph with a placeholder
- * DATABASE_URL and no secret at all. Failing on first use instead keeps the
- * build secret-free and still makes a missing secret a loud, early failure —
- * the first request that touches auth throws before doing any work.
+ * `betterAuth(...)` is called at MODULE SCOPE, so whatever this returns is
+ * evaluated at module load, not on first use. The requirement is split by
+ * phase, because a build and a running server genuinely need different things:
+ *
+ *   - A BUILD needs no secret. SvelteKit's postbuild analysis, the Dockerfile
+ *     builder stage, and the CI build step all import the server graph with a
+ *     placeholder DATABASE_URL and no secret. A throw here breaks all three.
+ *   - A RUNNING SERVER needs a real one, and must not serve without it.
+ *     adapter-node loads this graph at BOOT, so a missing secret exits
+ *     non-zero before the listener opens: the failure is in the logs and the
+ *     healthcheck, and no request is ever served on a broken auth config.
+ *
+ * `building` is true only during vite build and prerender analysis, so the
+ * placeholder is unreachable at runtime. It is never a working credential.
+ *
+ * HISTORY: this comment previously claimed the resolution was "lazy, not at
+ * module import" and justified it on the grounds that a build must not need a
+ * secret. The function was lazy; the CALL was not, and the claim was wrong
+ * from T1a onward. It stayed unexposed only because no route imported this
+ * module until T2 added the first one, at which point `pnpm build` started
+ * requiring a secret it should never have needed.
  */
 function requireSecret(): string {
 	const secret = env.BETTER_AUTH_SECRET;
@@ -41,7 +58,7 @@ export const auth = betterAuth({
 	 */
 	baseURL: env.PUBLIC_ORIGIN ?? 'http://127.0.0.1:3000',
 
-	secret: requireSecret(),
+	secret: building ? 'build-time-placeholder-never-used-at-runtime' : requireSecret(),
 
 	database: drizzleAdapter(db, {
 		provider: 'pg',

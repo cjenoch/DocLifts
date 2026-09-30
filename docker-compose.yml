@@ -39,7 +39,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: doclifts-web:vps
+    # Parameterised so the step-4 abort path can name a previous image
+    # concretely instead of describing it in prose. Roll back with:
+    #   DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.2.0 scripts/compose-prod.sh up -d --wait web
+    # Default is unchanged, so every existing invocation behaves identically.
+    image: ${DOCLIFTS_WEB_IMAGE:-doclifts-web:vps}
     container_name: doclifts-web
     restart: unless-stopped
     depends_on:
@@ -79,6 +83,14 @@ services:
       # the ports publish to 0.0.0.0 without re-reading this.
       PROTOCOL_HEADER: x-forwarded-proto
       HOST_HEADER: x-forwarded-host
+      # Better Auth signs session cookies with this. Without it auth.ts throws
+      # at module load and the container never opens its listener — which is
+      # the intended behaviour, but it means the secret MUST be passed into
+      # the container explicitly. It lives in /srv/doclifts/.env and compose
+      # does not read that file into the container by itself; an env_file:
+      # would work but would also inject the other variables without
+      # composition, so this stays an explicit, greppable line.
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in the production env file; use scripts/compose-prod.sh}
     # Publish on the VPS tailnet IP (not 127.0.0.1, not 0.0.0.0) so the app is
     # reachable from other tailnet devices (phone/laptop) but not the public
     # internet. DB stays off the host port.

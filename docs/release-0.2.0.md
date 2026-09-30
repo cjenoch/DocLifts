@@ -9,7 +9,7 @@ that it works."
 session rows, one of which is soft-deleted, and `/history` filters
 `deleted_at IS NULL`. The visible total is 29 across four months
 (2026-05: 10, 2026-06: 13, 2026-07: 3, 2026-09: 3). **Do not raise an alarm
-about 29.** The verification in step 6 checks the per-month sums against these
+about 29.** The verification in step 8 checks the per-month sums against these
 numbers, not against 30.
 
 **Production is at migration 8 of 11.** This release applies 0008, 0009, 0010
@@ -196,7 +196,52 @@ thing that has changed: restore the dump** per `docs/migrations.md` and stop.
 
 ---
 
-## 4. Deploy the image
+## 4. Preserve the current image (BEFORE step 6 builds over it)
+
+Step 6 runs `--build` with the **same tag**, `doclifts-web:vps`, which
+**overwrites** the image that is running right now. Without this step, "roll the
+image back" has nothing to roll back to and the abort path below is a sentence
+rather than a command.
+
+```bash
+sudo docker tag doclifts-web:vps doclifts-web:pre-0.2.0
+sudo docker image inspect doclifts-web:pre-0.2.0 --format '{{.Created}}'
+```
+
+Expected: `2026-09-29T16:07:09Z`. Anything else means the running image is not
+the one this release replaced — stop and work out what is actually running
+before continuing.
+
+`pre-0.2.0` is kept until the post-release step, and deleted there alongside
+the env backup.
+
+## 5. Pre-check the rendered environment (before `up`)
+
+The new image **throws at boot** on a missing origin or secret. That is the
+behaviour we want, but it presents as a failed release unless we look first.
+
+```bash
+scripts/compose-prod.sh config \
+  | grep -E 'PUBLIC_ORIGIN|ORIGIN:|PROTOCOL_HEADER|HOST_HEADER|BETTER_AUTH_SECRET' \
+  | sed -E 's/(BETTER_AUTH_SECRET:).*/\1 <redacted>/'
+```
+
+Expected — all five present, with both origins identical:
+
+```text
+      BETTER_AUTH_SECRET: <redacted>
+      HOST_HEADER: x-forwarded-host
+      ORIGIN: https://enochnvps.tail29bbdb.ts.net
+      PROTOCOL_HEADER: x-forwarded-proto
+      PUBLIC_ORIGIN: https://enochnvps.tail29bbdb.ts.net
+```
+
+**Abort if any line is missing or the two origins differ.** Do not run `up`.
+This check earned its place: it is what caught `BETTER_AUTH_SECRET` never being
+passed into the container at all, which would have failed the deploy at boot
+with an error that reads like a code problem rather than a compose problem.
+
+## 6. Deploy the image
 
 ```bash
 scripts/compose-prod.sh up -d --build --wait web
@@ -224,7 +269,19 @@ Expected: the banner, naming `scripts/user-prod.sh bootstrap`. It must say the
 sentinel exists. This warning is the only signal that the data is currently
 invisible; the healthcheck is green either way.
 
-**Abort — and read this before rolling anything back.** The database migration
+**Abort — roll back to the preserved image.** This is a command, and it
+resolves to the tag from step 4:
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.2.0 scripts/compose-prod.sh up -d --wait web
+```
+
+`DOCLIFTS_WEB_IMAGE` exists because the image name in `docker-compose.yml` is
+parameterised; its default is unchanged, so ordinary invocations are unaffected.
+Verify the rollback took: `scripts/compose-prod.sh ps` and an anonymous
+`/history` returning **200** again (the old build has no guard).
+
+**And read this before rolling anything back.** The database migration
 in step 3 is **compatible with the old image only insofar as the old code ignores
 the new `user_id` columns.** That is true: the pre-0.2.0 build has no auth at
 all and no ownership predicates, so it still runs and still serves every page.
@@ -242,7 +299,7 @@ Say which one was done.
 
 ---
 
-## 5. Bootstrap the account
+## 7. Bootstrap the account
 
 ```bash
 scripts/user-prod.sh bootstrap --email '<Chris's real email>' --password '<password>'
@@ -278,7 +335,7 @@ the stored credential is readable as a password.
 
 ---
 
-## 6. Real browser over Tailscale Serve
+## 8. Real browser over Tailscale Serve
 
 Do this in an actual browser on the tailnet. This is the only step that cannot
 be automated, and it is the one that proves the browser-visible behavior.
@@ -313,7 +370,7 @@ form returns 403, or if logout leaves `/history` reachable.
 
 ---
 
-## 7. Rate limit
+## 9. Rate limit
 
 **Measured on 0.2.0, not read from config** — 3 attempts per 10 seconds, per
 client IP, from Better Auth 1.7.6's `getDefaultSpecialRules()` defaults. A
@@ -345,7 +402,7 @@ If attempt 4 is not 429, stop and diagnose before releasing publicly.
 
 ---
 
-## 8. Post-release
+## 10. Post-release
 
 ```bash
 # a. record the migrations as applied to production, with today's date
@@ -369,7 +426,54 @@ Commit the doc changes and push. The release is complete when CI is green on
 
 ---
 
-## 9. After the release — things deliberately not done
+## Note on the healthcheck and the guard (settled before T7)
+
+**It passes.** Here is the proof, because this was the most likely way for the
+release to fail while working perfectly.
+
+The container healthcheck is:
+
+```yaml
+healthcheck:
+  test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1']
+```
+
+It hits **`/`**, and `/` is **not** in the guard's `ALLOWLIST` — so under 0.2.0 an
+unauthenticated `GET /` returns **303 → /login**, not 200. A check that followed
+redirects to a login page would still see 200 at the end, and a check asserting
+200 on the _first_ hop would fail on a healthy container and make `--wait`
+report a failed deploy with a working app behind it.
+
+**Measured, in the live container, with its own wget, against a server that
+really returns 303:**
+
+```text
+HTTP/1.1 303 See Other
+Location: /login
+HTTP/1.1 200 OK
+...
+$ wget -qO- http://127.0.0.1:4099/ >/dev/null 2>&1; echo exit=$?
+exit=0
+```
+
+So the chain is: `wget` follows the 303 to `/login`, `/login` **is** allowlisted,
+returns 200, and `wget` exits 0. `--wait` is satisfied.
+
+Two things worth knowing, because they would have made this look broken:
+
+1. **The host's `wget` is GNU 1.25; the container's is BusyBox 1.37.** They are
+   different programs. This was tested _inside_ the running container rather
+   than from the host, where a GNU result would have proven nothing about the
+   healthcheck that actually runs.
+2. **`/health` is allowlisted but does not exist** — it returns 404. The
+   allowlist entry is aspirational, not a live endpoint. Nothing depends on it:
+   the healthcheck targets `/`, which works. Left alone rather than "fixed",
+   because adding a route to satisfy an unused allowlist entry is scope this
+   release does not need. If a real `/health` is ever wanted, it is one line —
+   but it must return 200 with no DB access, or it becomes a worse healthcheck
+   than the redirect chain it would replace.
+
+## 11. After the release — things deliberately not done
 
 Recorded so they are not rediscovered as oversights:
 

@@ -111,7 +111,18 @@ export async function waitForServer(origin: string, child: ChildProcess): Promis
  * Start the production build against the test database on a claimed port.
  * Returns the origin and the child's captured log accessor.
  */
-export async function startTestServer(): Promise<{
+export async function startTestServer(
+	/**
+	 * Extra environment for the spawned server, applied LAST so a test can
+	 * override anything the helper sets.
+	 *
+	 * The login-throttle e2e needs this: it sets LOGIN_FAILURE_WINDOW_SEC=5 so
+	 * a window that is 15 minutes in production takes 5 seconds in a test,
+	 * rather than the suite either waiting 15 minutes or lying about what it
+	 * verified.
+	 */
+	extraEnv: Record<string, string> = {}
+): Promise<{
 	origin: string;
 	server: ChildProcess;
 	log: () => string;
@@ -136,7 +147,9 @@ export async function startTestServer(): Promise<{
 			// of reaching Better Auth. Found by the rate-limit e2e.
 			PUBLIC_ORIGIN: origin,
 			DATABASE_URL: testDatabaseUrl(),
-			BETTER_AUTH_SECRET: TEST_AUTH_SECRET
+			BETTER_AUTH_SECRET: TEST_AUTH_SECRET,
+			// Last, so a test can override anything above.
+			...extraEnv
 		},
 		stdio: ['ignore', 'pipe', 'pipe']
 	});

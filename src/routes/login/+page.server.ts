@@ -1,7 +1,14 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
 import { auth } from '$lib/server/auth';
-import { signInViaHandler, SIGN_IN_WINDOW_SECONDS } from '$lib/server/auth-proxy';
+import { clientIpFrom, signInViaHandler, SIGN_IN_WINDOW_SECONDS } from '$lib/server/auth-proxy';
+import {
+	checkLoginThrottle,
+	clearLoginFailures,
+	loginThrottle,
+	recordLoginFailure,
+	type ThrottleKeys
+} from '$lib/server/login-throttle';
 import { isSafeNext } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -27,6 +34,23 @@ export const actions: Actions = {
 
 		if (!email || !password) {
 			return fail(400, { email, error: 'Enter your email and password.', retryAfter: null });
+		}
+
+		// Failure-only throttle, BEFORE the proxy call. See login-throttle.ts for
+		// why Better Auth's own limiter cannot be the control: it charges
+		// successes, so a person signing out and back in with a correct
+		// password used to lock themselves out.
+		//
+		// The password is not checked on the refuse path, so a refusal leaks
+		// nothing about whether the account exists or the password is right.
+		const throttleKeys: ThrottleKeys = { ip: clientIpFrom(request.headers), email };
+		const decision = await checkLoginThrottle(loginThrottle, throttleKeys);
+		if (decision.kind === 'refuse') {
+			return fail(429, {
+				email,
+				error: 'Too many failed sign-in attempts. Try again shortly.',
+				retryAfter: String(decision.retryAfterSeconds)
+			});
 		}
 
 		// Sign-in goes through Better Auth's own HTTP handler, NOT
@@ -69,6 +93,10 @@ export const actions: Actions = {
 		// which of email or password was wrong is information an attacker can
 		// use, and the user has to fix both anyway.
 		if (!result.ok) {
+			// The one place a failure is recorded. A successful sign-in below
+			// clears both keys, so neither success nor the mere act of trying
+			// can accumulate toward a refusal.
+			recordLoginFailure(loginThrottle, throttleKeys);
 			return fail(400, { email, error: 'That email and password do not match.', retryAfter: null });
 		}
 
@@ -86,6 +114,8 @@ export const actions: Actions = {
 		//
 		// getSetCookie() rather than get(), because several Set-Cookie headers
 		// can be emitted.
+		clearLoginFailures(loginThrottle, throttleKeys);
+
 		for (const raw of result.headers.getSetCookie()) {
 			for (const [name, attrs] of parseSetCookieHeader(raw)) {
 				cookies.set(name, attrs.value, { path: attrs.path || '/', ...toCookieOptions(attrs) });

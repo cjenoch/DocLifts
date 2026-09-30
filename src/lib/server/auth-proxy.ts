@@ -159,6 +159,27 @@ const FORWARDED = [
 ] as const;
 
 /**
+ * The single client IP for a request, or `null` if it cannot be determined.
+ *
+ * Deliberately the same value Better Auth's limiter would key on: the leftmost
+ * entry of `x-forwarded-for`, reduced to one. `forwardedHeaders` does the same
+ * reduction, and the two MUST agree — if the throttle keyed on one IP and the
+ * backstop on another, the log would describe a different attacker from the
+ * one being refused.
+ *
+ * `null` is a real possibility and is NOT treated as a distinct bucket. Under
+ * Tailscale Serve the header is always present and always single-valued. Behind
+ * a proxy that appends rather than overwrites, it would not be — see the
+ * `trustedProxies` item in the T8 list.
+ */
+export function clientIpFrom(headers: Headers): string | null {
+	const raw = headers.get('x-forwarded-for');
+	if (!raw) return null;
+	const first = raw.split(',')[0]?.trim();
+	return first ? first : null;
+}
+
+/**
  * Build the headers for the proxied auth request.
  *
  * `content-type` is set by the caller because the body is JSON regardless of

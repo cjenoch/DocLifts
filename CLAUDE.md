@@ -181,6 +181,89 @@ were syntactically fine and semantically absent.
 - All numeric columns use `mode: 'number'`. JS-number precision is safe for load weights bounded under 1000 lbs.
 - `pain_events` requires at least one of (sessionId, setId, exerciseId) non-null via CHECK constraint.
 
+## Every row is owned
+
+Since T3, and enforced by the database since migration 0011, **every row belongs
+to exactly one user**. There are no shared or global rows in the application
+tables, and no exception carved out for any of them.
+
+The eight directly-owned tables, the ones 0011 makes `user_id NOT NULL`:
+`programs`, `gyms`, `exercises`, `sessions`, `sets`, `pain_events`,
+`workout_log_imports`, `program_draft_requests`.
+
+Everything else is owned through a parent chain. Resolve it; never widen it.
+
+| Table                    | Owned by                                                          |
+| ------------------------ | ----------------------------------------------------------------- |
+| `days`                   | `program_id` → `programs.user_id`                                 |
+| `day_exercises`          | `day_id` → `days` → `programs.user_id`                            |
+| `prescribed_sets`        | `day_exercise_id` → `day_exercises` → `days` → `programs.user_id` |
+| `session_exercises`      | `session_id` → `sessions.user_id`                                 |
+| `imported_workouts`      | `import_id` → `workout_log_imports.user_id`                       |
+| `gym_equipment`          | `gym_id` → `gyms.user_id`                                         |
+| `equipment_models`       | `user_id` (direct)                                                |
+| `exercise_equipment_map` | through its parent exercise/gym rows                              |
+
+### D5 — the signature rule
+
+Every function that reads or writes application data takes the owner's id as a
+required second argument, after the db handle:
+
+```ts
+loadSession(db, userId, sessionId, 'active');
+createGym(db, userId, formData);
+```
+
+Not optional. Not defaulted. Not threaded through some other object. The rule is
+mechanical so it can be checked by reading the signature, which is what the T4
+sweep did: 14 call sites across 7 route files, all conforming.
+
+### D6 — a foreign resource is a 404, never a 403
+
+Requesting another user's row returns **404, identical to an id that never
+existed.** Not 403, not a distinct message, not an empty list. A 403 confirms
+the resource exists, which is an enumeration oracle.
+
+The practical consequence: an owner predicate riding on a URL id is not enough.
+`where(eq(days.id, dayId))` inherits ownership from upstream and is only safe
+because the caller checked first. Join to the owner and filter on
+`programs.user_id` — as `loadSessionDay` does — so the function is safe on its
+own terms.
+
+And "owned by someone else" is **never a server error**. A defensive `error(500)`
+on an unreachable FK branch is wrong; return not-found.
+
+### The cross-tenant test requirement
+
+**Every** function that can reach another user's rows needs a test proving it
+cannot, in the same shape every time:
+
+```ts
+it('returns the owner their own rows, and nothing to another user', async () => {
+	const { alice, bob } = await withTwoUsers(db);
+	const mine = await loadSessionSets(db, alice, sessionId);
+	expect(mine).toHaveLength(1); // positive FIRST
+	const theirs = await loadSessionSets(db, bob, sessionId);
+	expect(theirs).toEqual([]);
+});
+```
+
+**Positive assertion first.** A test that only asserts the refusal passes
+against a function that always returns nothing — which is how a broken
+implementation reads as a working one.
+
+### Where the data comes from
+
+`exercises` is owned, so the 23-exercise starter list is **copied per user**
+(`src/lib/server/starter-exercises.ts`), not referenced from a shared catalogue.
+Duplicating rows is the deliberate cost of having no cross-tenant table.
+
+`0001`/`0011`: migration 0011 backfills every pre-existing row to one
+placeholder owner, the sentinel `00000000-0000-4000-8000-000000000001`. It is
+claimed by `pnpm user:bootstrap`, which keeps that id — so the backfilled rows
+stay attached — and gives it a real email and a credential row. Until bootstrap
+runs, the data is owned by an account nobody can sign in as.
+
 ## Out of scope
 
 Per owner decision (2026-09-26): the feature-gate list is retired. There is no standing
@@ -194,6 +277,10 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/server/db/schema.ts` — all Drizzle table definitions
 - `src/lib/server/db/seed.ts` — guarded fictional demo seed CLI; requires `DOCLIFTS_DEMO=1` and a `doclifts_demo` database. Never use it to seed production.
 - `src/lib/server/demo.ts` — transactional fictional fixtures; refuses populated non-demo databases and never truncates existing data.
+- `src/lib/server/auth-core.ts` — `createAuth(db, opts)`, the Better Auth configuration with **no `$env`/`$app` imports**, so it runs outside SvelteKit. `auth.ts` is only the SvelteKit singleton that supplies the secret and build phase. Do not move configuration back into `auth.ts`: that is what made the T5 CLI unrunnable.
+- `src/lib/server/starter-exercises.ts` — the 23 exercises copied into every new account by the auth create hook.
+- `src/lib/server/users.ts` — `createUser(auth, db, input)` / `setPassword(auth, db, input)`. The auth instance is an explicit argument because the CLI must build its own outside SvelteKit.
+- `scripts/user-prod.sh` — runs `pnpm user:*` against production on the Compose network, in the builder image (the runtime image has no `tsx`). Mirrors `migrate-prod.sh`'s env handling.
 - `compose.demo.yml` — isolated, localhost-only temporary demo; does not mount production data or read `.env`.
 - `src/lib/server/db/index.ts` — Drizzle client singleton
 - `src/lib/server/progression.ts` — engine + history helpers

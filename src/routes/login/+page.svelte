@@ -22,6 +22,18 @@
 			role="alert"
 		>
 			{form.error}
+			<!--
+				Shown only for the rate-limit case, where the action returns 429
+				with Better Auth's own Retry-After. Rendering the number is the
+				point: without it the message is just "try again shortly" with no
+				idea how shortly. The login form itself stays usable, because
+				the window is 10s and a person can simply try again.
+			-->
+			{#if form.retryAfter}
+				<span class="mt-1 block text-red-700">
+					Try again in about {form.retryAfter} second{form.retryAfter === '1' ? '' : 's'}.
+				</span>
+			{/if}
 		</p>
 	{/if}
 

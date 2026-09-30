@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
 import { auth } from '$lib/server/auth';
+import { signInViaHandler } from '$lib/server/auth-proxy';
 import { isSafeNext } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -25,35 +26,46 @@ export const actions: Actions = {
 		const next = form.get('next');
 
 		if (!email || !password) {
-			return fail(400, { email, error: 'Enter your email and password.' });
+			return fail(400, { email, error: 'Enter your email and password.', retryAfter: null });
 		}
 
-		// Better Auth owns the credential check, the rate limit, and the cookie
-		// shape. Do not pre-validate the password length or the email format
-		// here: a second, divergent set of rules is a second source of "why
-		// won't this let me in". signInEmail also returns the canonical
-		// lowercased email, so the session cookie matches what sign-up stored.
+		// Sign-in goes through Better Auth's own HTTP handler, NOT
+		// auth.api.signInEmail({ body }).
 		//
-		// `asResponse: true` is REQUIRED and its absence is silent. In 1.7.6,
-		// dist/api/to-auth-endpoints.mjs:
+		// The reason is the rate limiter. onRequestRateLimit runs inside
+		// auth.handler (better-auth 1.7.6 dist/api/index.mjs:172), and
+		// server-side API calls are documented as NOT rate limited. Calling
+		// auth.api directly therefore bypassed the control entirely: measured
+		// against this build, 6 consecutive wrong-password POSTs to /login all
+		// returned 200 at a configured 3-per-10s limit, with no 429 and no
+		// Retry-After. Unlimited password guessing.
 		//
-		//   asResponse: context?.asResponse ?? isRequestLike(context?.request)
-		//
-		// With no `request` and no explicit flag, the endpoint runs, validates
-		// the password, creates the session row — and the Set-Cookie header is
-		// written to an internal response that is then DISCARDED. The action
-		// still redirects, so the app looks like it worked, and the user is
-		// bounced straight back to /login on the next navigation. The session
-		// row in `authSessions` is the only evidence it happened.
-		const result = await auth.api.signInEmail({
-			body: { email, password },
-			asResponse: true
-		});
+		// auth-proxy.ts builds a real Request for /api/auth/sign-in/email and
+		// hands it to the handler, carrying x-forwarded-for through — the
+		// limiter keys on the client IP and that header is where it reads it
+		// from. See that file for why the header is reduced to a single value;
+		// a multi-value chain resolves to no IP and silently disables the limit.
+		const result = await signInViaHandler(request.headers, { email, password });
 
+		// 429: over the limit. Rendered on /login with the wait, NOT
+		// redirected — a redirect would discard the message and bounce the user
+		// straight back to a blank form.
+		if (result.status === 429) {
+			return fail(429, {
+				email,
+				error: 'Too many sign-in attempts. Try again shortly.',
+				// Present only here. Every fail() above returns the same key with
+				// null, so the action's return type is one shape rather than a
+				// union the page component then has to narrow.
+				retryAfter: result.headers.get('retry-after')
+			});
+		}
+
+		// Any other failure keeps the existing deliberately-vague message:
+		// which of email or password was wrong is information an attacker can
+		// use, and the user has to fix both anyway.
 		if (!result.ok) {
-			// Deliberately vague: which of the two was wrong is information an
-			// attacker can use, and the user needs to fix both anyway.
-			return fail(400, { email, error: 'That email and password do not match.' });
+			return fail(400, { email, error: 'That email and password do not match.', retryAfter: null });
 		}
 
 		// Forward Better Auth's own Set-Cookie, PARSED. `cookies.set` takes a
@@ -64,8 +76,10 @@ export const actions: Actions = {
 		// action redirected, only the browser was unauthenticated.
 		//
 		// Better Auth's own parser and option mapper, so the attribute names
-		// (`httponly`, `samesite`, `max-age`) are read by the code that wrote
-		// them rather than by a second hand-rolled mapping that can drift.
+		// (`httponly`, `samesite`, `max-age`, `secure`) are read by the code
+		// that wrote them rather than by a second hand-rolled mapping that can
+		// drift. `secure` in particular is what Tailscale Serve depends on.
+		//
 		// getSetCookie() rather than get(), because several Set-Cookie headers
 		// can be emitted.
 		for (const raw of result.headers.getSetCookie()) {

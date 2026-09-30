@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
-import { auth } from '$lib/server/auth';
+import { signOutViaHandler } from '$lib/server/auth-proxy';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -33,22 +33,20 @@ export const load: PageServerLoad = async ({ setHeaders }) => {
  */
 export const actions: Actions = {
 	default: async ({ request, cookies }) => {
-		// `headers` forwards the incoming cookie so Better Auth can identify
-		// the session to destroy.
+		// Sign-out goes through Better Auth's HTTP handler rather than
+		// auth.api.signOut({ headers, asResponse: true }).
 		//
-		// `asResponse: true` is required, and its absence is silent. In 1.7.6,
-		// dist/api/to-auth-endpoints.mjs:
+		// Sign-out is NOT rate limited by Better Auth's defaults, so this is not
+		// a security fix — it is ONE code path instead of two. The sign-in
+		// action had to move to the handler because the rate limiter lives
+		// there; leaving sign-out on the server-side API would mean two
+		// different request shapes reaching Better Auth, and the next person to
+		// need the handler for something would have to work out which of the
+		// two call sites was the safe one.
 		//
-		//   asResponse: context?.asResponse ?? isRequestLike(context?.request)
-		//
-		// With no `request` and no explicit flag the endpoint runs, deletes the
-		// session row, and writes Set-Cookie to an internal response that is
-		// then discarded. The browser keeps its cookie and the user stays
-		// signed in. (Same reason as the sign-in action; see there.)
-		const result = await auth.api.signOut({
-			headers: request.headers,
-			asResponse: true
-		});
+		// The incoming cookie is forwarded so Better Auth can identify the
+		// session to destroy.
+		const result = await signOutViaHandler(request.headers);
 
 		// Forward Better Auth's own Set-Cookie, PARSED. `cookies.set` takes a
 		// cookie NAME, so passing the raw header through creates a cookie

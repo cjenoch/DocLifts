@@ -59,6 +59,26 @@ export type CreateAuthOptions = {
 	rateLimitStorage: 'memory' | 'database';
 };
 
+/**
+ * Session lifetime in days, from SESSION_EXPIRES_DAYS.
+ *
+ * Read from `process.env` rather than `$env/dynamic/private` on purpose: this
+ * module must keep working outside a SvelteKit build, because the account CLI
+ * builds its own auth instance from here. A malformed or absent value falls
+ * back to 30 with a warning — never to zero, which would mean every session
+ * expires the instant it is created and nobody can ever sign in.
+ */
+function sessionExpiresDays(): number {
+	const raw = process.env.SESSION_EXPIRES_DAYS;
+	if (raw === undefined || raw.trim() === '') return 30;
+	const parsed = Number(raw);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		console.warn(`[auth] SESSION_EXPIRES_DAYS="${raw}" is not a positive number; using 30`);
+		return 30;
+	}
+	return parsed;
+}
+
 export function createAuth(db: Database, opts: CreateAuthOptions) {
 	return betterAuth({
 		baseURL: opts.baseURL,
@@ -116,8 +136,18 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 		 * the adapter: @better-auth/core 1.7.6 get-tables.mjs has
 		 * `modelName: options.user?.modelName || "user"`.)
 		 */
+		/**
+		 * 30 days, sliding. Env-driven as SESSION_EXPIRES_DAYS.
+		 *
+		 * 30 rather than Better Auth's 7-day default because this is a gym log
+		 * someone uses several times a week: a week off is a holiday, a week
+		 * without noticing the app is a lockout, and being logged out of your
+		 * own training log is a worse outcome than a session living a month.
+		 *
+		 * updateAge 1 day keeps it sliding without a write per request.
+		 */
 		session: {
-			expiresIn: 60 * 60 * 24 * 30,
+			expiresIn: 60 * 60 * 24 * sessionExpiresDays(),
 			updateAge: 60 * 60 * 24
 		},
 
@@ -193,7 +223,23 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 		 */
 		rateLimit: {
 			enabled: true,
-			...(opts.rateLimitStorage === 'database' ? { storage: 'database' as const } : {})
+			...(opts.rateLimitStorage === 'database' ? { storage: 'database' as const } : {}),
+
+			/**
+			 * VOLUME BACKSTOP ONLY. This counter charges successes, so it must
+			 * stay far above anything a human does. The control is
+			 * login-throttle.ts, which counts failures only.
+			 *
+			 * 60 per 60s rather than the library's default 3 per 10s: at 3/10s
+			 * a person signing out and back in, or double-tapping submit on a
+			 * slow phone, exhausted their own attempts with a correct
+			 * password. Measured on 0.2.0. Left enabled so the other auth
+			 * endpoints keep their defaults, and set far enough above human
+			 * rate that it only fires on genuine volume.
+			 */
+			customRules: {
+				'/sign-in/email': { window: 60, max: 60 }
+			}
 		},
 
 		advanced: {

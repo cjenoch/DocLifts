@@ -43,6 +43,20 @@ if (process.env.VITEST) {
 	// 'password authentication failed for user "<you>"'.
 	process.env.TEST_DATABASE_URL = testUrl;
 	process.env.DATABASE_URL = testUrl;
+
+	// BETTER_AUTH_SECRET, the same way: a DEFAULT, not an override, so an
+	// explicit value still wins. Tests need a real secret to sign sessions on
+	// every machine, not just CI — putting it in ci.yml would leave every
+	// fresh checkout red until someone found that thread, which is how this
+	// broke: users.ts imports auth.ts, which calls requireSecret() at module
+	// load, so a missing secret throws on IMPORT and takes three test files
+	// with it while the other 25 files run fine.
+	//
+	// Guarded by this whole `if (process.env.VITEST)` block, so it cannot reach
+	// a production build: VITEST is set only by the test runner. Production
+	// still requires the secret at first use through requireSecret(). The
+	// e2e spawn pins its own copy explicitly rather than relying on this.
+	process.env.BETTER_AUTH_SECRET ??= 'doclifts-test-only-secret-not-a-real-credential';
 } else {
 	process.env.DATABASE_URL ??=
 		process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_test';

@@ -15,22 +15,20 @@
 -- created for it, so nobody can sign in as it.
 --
 -- WHY THE SENTINEL INSERT IS GUARDED
---   - ON CONFLICT (id) DO NOTHING: re-running 0011 (or applying it to a
---     database where the id already exists) must not fail.
---   - SKIPPED ENTIRELY WHEN THE EIGHT TABLES ARE ALL EMPTY: on a fresh install
---     there is nothing to backfill, and an unclaimed sentinel row would be pure
---     litter that `user:bootstrap` then has to reason about. With no rows to
---     own, the NOT NULL alters succeed without it.
+--   - ON CONFLICT (id) DO NOTHING is the ONLY guard on the sentinel insert,
+--     so re-running 0011 is safe. See the comment at the insert for why there
+--     is deliberately no "only when there is something to own" condition.
 --
---     Note the direction of that guard, because it is the whole ballgame and it
---     was written backwards the first time: the sentinel is inserted when the
---     tables are NOT all empty. An earlier draft had the EXISTS/NOT EXISTS the
---     other way round, which is superficially reasonable — "only create it if
---     there is something to own" — and which silently did the opposite on
---     production: programs holds 4 rows, so the NOT EXISTS was false, no
---     sentinel was created, and the very next statement failed the programs
---     foreign key. Caught by applying the chain to a fresh restore, not by
---     reading it.
+-- HISTORY, kept because the rule is to verify by applying and this is what
+-- that caught. The first hand-written draft guarded the insert with
+-- WHERE NOT EXISTS (...), intending "only create a sentinel if there are rows
+-- to backfill". Production holds 4 programs, so NOT EXISTS was false, no
+-- sentinel was created, and the very next statement failed the programs
+-- foreign key. Inverting it to WHERE EXISTS fixed that database and left a
+-- worse version of the same trap — a guard whose coverage had to be kept in
+-- sync with the table list, and which failed confusingly whenever a table it
+-- did not test first held rows. Unconditional plus ON CONFLICT is the shape
+-- that cannot fail quietly.
 --
 -- REVERT (see docs/migrations.md). 0011 is reversible only if the sentinel is
 -- unclaimed. If `user:bootstrap` has already claimed these rows, the correct
@@ -45,18 +43,27 @@
 -- 1. The sentinel owner. email_verified false and deliberately NO row in
 --    "auth"."account": this is not a real account, no address was ever mailed,
 --    and there is no password to sign in with.
+--
+--    UNCONDITIONAL, with ON CONFLICT (id) DO NOTHING as the only guard. An
+--    earlier draft wrapped this in WHERE EXISTS over the eight owned tables,
+--    to avoid littering a fresh install with an unclaimed sentinel. That
+--    version had two problems and was replaced rather than repaired:
+--
+--      - It is a list that has to be kept in sync with the eight tables
+--        forever. A ninth owned table, or a renamed one, silently drops out of
+--        the guard and the migration fails mid-chain with a confusing foreign
+--        key error instead of doing its job.
+--      - Its real failure is subtler: a database holding rows in some owned
+--        table but not the one the guard happens to test first gets no
+--        sentinel, and the backfill then dies on that table. The failure looks
+--        like a constraint bug rather than a missing row.
+--
+--    An unclaimed sentinel on a fresh install is harmless: user:bootstrap
+--    already handles both "claim the sentinel" and "create fresh", and the
+--    startup warning covers the unclaimed case. A guard that can fail
+--    silently is not worth a row nobody can sign in as.
 INSERT INTO "auth"."user" (id, name, email, email_verified, created_at, updated_at)
-SELECT '00000000-0000-4000-8000-000000000001', 'Owner', 'owner@localhost', false, now(), now()
-WHERE EXISTS (
-	SELECT 1 FROM programs
-	UNION ALL SELECT 1 FROM gyms
-	UNION ALL SELECT 1 FROM exercises
-	UNION ALL SELECT 1 FROM sessions
-	UNION ALL SELECT 1 FROM sets
-	UNION ALL SELECT 1 FROM pain_events
-	UNION ALL SELECT 1 FROM workout_log_imports
-	UNION ALL SELECT 1 FROM program_draft_requests
-)
+VALUES ('00000000-0000-4000-8000-000000000001', 'Owner', 'owner@localhost', false, now(), now())
 ON CONFLICT (id) DO NOTHING;--> statement-breakpoint
 
 -- 2. Backfill. Every pre-existing row predates per-user ownership, so it has no

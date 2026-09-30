@@ -33,6 +33,21 @@ import { createUser } from '$lib/server/users';
 export const BUILD_ENTRY = 'build/index.js';
 export const TEST_PASSWORD = 'correct-horse-battery-staple';
 
+/**
+ * The secret the spawned production build signs sessions with.
+ *
+ * Set EXPLICITLY in the spawn env rather than left to `...process.env`. The
+ * spawn already pins DATABASE_URL the same way — the build must not depend on
+ * what the invoking shell happened to export. Betting on the default in
+ * vite.config.ts would work only because the vitest process set it, and that
+ * is exactly the kind of implicit coupling that breaks when the helper is used
+ * from somewhere the config did not load.
+ *
+ * Test-only and worthless outside a test database: a build launched with this
+ * secret can only reach doclifts_test.
+ */
+export const TEST_AUTH_SECRET = 'doclifts-e2e-test-secret-not-a-real-credential';
+
 export const testDatabaseUrl = (): string =>
 	process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_test';
 
@@ -111,7 +126,8 @@ export async function startTestServer(): Promise<{
 			HOST: '127.0.0.1',
 			PORT: String(port),
 			ORIGIN: origin,
-			DATABASE_URL: testDatabaseUrl()
+			DATABASE_URL: testDatabaseUrl(),
+			BETTER_AUTH_SECRET: TEST_AUTH_SECRET
 		},
 		stdio: ['ignore', 'pipe', 'pipe']
 	});

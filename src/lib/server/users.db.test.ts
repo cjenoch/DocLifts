@@ -9,6 +9,7 @@ import { createUser, findUserByEmail } from './users';
 import { authAccounts, authUsers } from './db/auth-schema';
 import { eq } from 'drizzle-orm';
 import type postgres from 'postgres';
+import { auth } from './auth';
 
 describe('createUser', () => {
 	let db: TestDb;
@@ -22,7 +23,7 @@ describe('createUser', () => {
 	});
 
 	it('creates a user AND a credential account, with signup disabled', async () => {
-		const created = await createUser(db, {
+		const created = await createUser(auth, db, {
 			email: 'Bootstrap@Test.local',
 			password: 'correct-horse-battery-staple',
 			name: 'Bootstrap'
@@ -47,7 +48,7 @@ describe('createUser', () => {
 		// signUpEmail normalizes (`normalizedEmail = email.toLowerCase()`),
 		// and sign-in looks up the same form. createUser must agree or an
 		// operator-created account cannot log in.
-		const created = await createUser(db, {
+		const created = await createUser(auth, db, {
 			email: 'Chris@Enoch.AI',
 			password: 'correct-horse-battery-staple',
 			name: 'MixedCase'
@@ -55,7 +56,6 @@ describe('createUser', () => {
 		expect(created.email).toBe('chris@enoch.ai');
 		expect(await findUserByEmail(db, 'chris@enoch.ai')).toBe(created.id);
 
-		const { auth } = await import('./auth');
 		const r = await auth.api.signInEmail({
 			body: { email: 'chris@enoch.ai', password: 'correct-horse-battery-staple' },
 			headers: new Headers()
@@ -65,7 +65,7 @@ describe('createUser', () => {
 
 	it('enforces the configured maximum password length', async () => {
 		await expect(
-			createUser(db, {
+			createUser(auth, db, {
 				email: 'long@test.local',
 				password: 'x'.repeat(200),
 				name: 'Long'
@@ -74,13 +74,13 @@ describe('createUser', () => {
 	});
 
 	it('rejects a duplicate email', async () => {
-		await createUser(db, {
+		await createUser(auth, db, {
 			email: 'dupe@test.local',
 			password: 'correct-horse-battery-staple',
 			name: 'Dupe'
 		});
 		await expect(
-			createUser(db, {
+			createUser(auth, db, {
 				email: 'dupe@test.local',
 				password: 'correct-horse-battery-staple',
 				name: 'Dupe2'
@@ -90,13 +90,12 @@ describe('createUser', () => {
 
 	it('enforces the 12-char minimum password', async () => {
 		await expect(
-			createUser(db, { email: 'short@test.local', password: 'tooshort', name: 'S' })
+			createUser(auth, db, { email: 'short@test.local', password: 'tooshort', name: 'S' })
 		).rejects.toThrow(/12 characters/);
 	});
 
 	it('the password actually authenticates', async () => {
-		const { auth } = await import('./auth');
-		const created = await createUser(db, {
+		const created = await createUser(auth, db, {
 			email: 'signin@test.local',
 			password: 'correct-horse-battery-staple',
 			name: 'Signer'

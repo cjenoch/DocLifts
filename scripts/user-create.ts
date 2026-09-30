@@ -11,12 +11,7 @@
  * insert exercises itself.
  */
 import { createUser } from '../src/lib/server/users';
-import { db } from '../src/lib/server/db';
-
-function arg(flag: string): string | undefined {
-	const i = process.argv.indexOf(flag);
-	return i >= 0 ? process.argv[i + 1] : undefined;
-}
+import { arg, runCli } from './user-cli-context';
 
 const USAGE =
 	'Usage: pnpm user:create --email <address> --password <password> --name "Display Name"\n' +
@@ -24,7 +19,7 @@ const USAGE =
 	"Password rules come from Better Auth's own resolved config (min 12 characters).\n" +
 	"To change an existing account's password instead, use pnpm user:set-password.";
 
-async function main(): Promise<number> {
+runCli(async ({ auth, db }) => {
 	const email = arg('--email');
 	const password = arg('--password');
 	const name = arg('--name');
@@ -32,7 +27,7 @@ async function main(): Promise<number> {
 		console.error(USAGE);
 		return 1;
 	}
-	const created = await createUser(db, { email, password, name });
+	const created = await createUser(auth, db, { email, password, name });
 	console.log(
 		`Created ${created.email}.\n` +
 			`  user id   ${created.id}\n` +
@@ -40,13 +35,4 @@ async function main(): Promise<number> {
 			`\nThey can sign in at /login. Their starter exercise list was added automatically.`
 	);
 	return 0;
-}
-
-main()
-	.then((code) => process.exit(code))
-	.catch((cause: unknown) => {
-		console.error(
-			`\nCould not create the account: ${cause instanceof Error ? cause.message : String(cause)}\n`
-		);
-		process.exit(1);
-	});
+});

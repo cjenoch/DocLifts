@@ -54,7 +54,7 @@ async function plantSentinel() {
 
 describe('starter exercise hook', () => {
 	it('gives a new account the full starter list', async () => {
-		const created = await createUser(db(), {
+		const created = await createUser(auth, db(), {
 			email: 'newbie@example.com',
 			password: 'correct-horse-battery',
 			name: 'Newbie'
@@ -68,12 +68,12 @@ describe('starter exercise hook', () => {
 	});
 
 	it('does not contaminate a second account, and the first keeps its own', async () => {
-		const first = await createUser(db(), {
+		const first = await createUser(auth, db(), {
 			email: 'first@example.com',
 			password: 'correct-horse-battery',
 			name: 'First'
 		});
-		const second = await createUser(db(), {
+		const second = await createUser(auth, db(), {
 			email: 'second@example.com',
 			password: 'correct-horse-battery',
 			name: 'Second'
@@ -99,7 +99,7 @@ describe('user:bootstrap', () => {
 	it('claims the sentinel in place, keeping its id so backfilled data returns', async () => {
 		const program = await plantSentinel();
 
-		const result = await bootstrap(db(), {
+		const result = await bootstrap(auth, db(), {
 			email: 'chris@example.com',
 			password: 'correct-horse-battery',
 			name: 'Chris'
@@ -122,7 +122,7 @@ describe('user:bootstrap', () => {
 
 	it('produces an account that can actually sign in', async () => {
 		await plantSentinel();
-		await bootstrap(db(), {
+		await bootstrap(auth, db(), {
 			email: 'chris@example.com',
 			password: 'correct-horse-battery',
 			name: 'Chris'
@@ -138,7 +138,7 @@ describe('user:bootstrap', () => {
 
 	it('gives the claimed sentinel the starter list, which it never got from the hook', async () => {
 		await plantSentinel();
-		const result = await bootstrap(db(), {
+		const result = await bootstrap(auth, db(), {
 			email: 'chris@example.com',
 			password: 'correct-horse-battery',
 			name: 'Chris'
@@ -147,7 +147,7 @@ describe('user:bootstrap', () => {
 	});
 
 	it('creates a fresh account when there is no sentinel at all', async () => {
-		const result = await bootstrap(db(), {
+		const result = await bootstrap(auth, db(), {
 			email: 'fresh@example.com',
 			password: 'correct-horse-battery',
 			name: 'Fresh'
@@ -158,7 +158,7 @@ describe('user:bootstrap', () => {
 	});
 
 	it('REFUSES when a real user already exists, leaving both untouched', async () => {
-		const existing = await createUser(db(), {
+		const existing = await createUser(auth, db(), {
 			email: 'real@example.com',
 			password: 'correct-horse-battery',
 			name: 'Real'
@@ -167,7 +167,11 @@ describe('user:bootstrap', () => {
 		const before = await db().select().from(authUsers);
 
 		await expect(
-			bootstrap(db(), { email: 'chris@example.com', password: 'correct-horse-battery', name: 'C' })
+			bootstrap(auth, db(), {
+				email: 'chris@example.com',
+				password: 'correct-horse-battery',
+				name: 'C'
+			})
 		).rejects.toThrow(/Refusing to bootstrap/);
 
 		// Nothing was adopted or rewritten.
@@ -179,13 +183,16 @@ describe('user:bootstrap', () => {
 
 describe('user:set-password', () => {
 	it('replaces the password and the new one signs in', async () => {
-		const created = await createUser(db(), {
+		const created = await createUser(auth, db(), {
 			email: 'reset@example.com',
 			password: 'correct-horse-battery',
 			name: 'Reset'
 		});
 
-		await setPassword(db(), { email: 'reset@example.com', password: 'a-brand-new-password-9' });
+		await setPassword(auth, db(), {
+			email: 'reset@example.com',
+			password: 'a-brand-new-password-9'
+		});
 
 		const ok = await auth.api.signInEmail({
 			body: { email: 'reset@example.com', password: 'a-brand-new-password-9' }
@@ -208,43 +215,43 @@ describe('user:set-password', () => {
 		// short-circuits on the sentinel's placeholder email and points at the
 		// command that actually helps — caught here while writing the test.
 		await expect(
-			setPassword(db(), { email: SENTINEL_EMAIL, password: 'a-brand-new-password-9' })
+			setPassword(auth, db(), { email: SENTINEL_EMAIL, password: 'a-brand-new-password-9' })
 		).rejects.toThrow(/user:bootstrap/);
 
 		// And once the sentinel has been CLAIMED (so it has a real email and, in
 		// fact, a real credential row), set-password behaves normally — proving
 		// the refusal path above is about the sentinel, not about setPassword.
-		await bootstrap(db(), {
+		await bootstrap(auth, db(), {
 			email: 'chris@example.com',
 			password: 'correct-horse-battery',
 			name: 'Chris'
 		});
 		await expect(
-			setPassword(db(), { email: 'chris@example.com', password: 'a-brand-new-password-9' })
+			setPassword(auth, db(), { email: 'chris@example.com', password: 'a-brand-new-password-9' })
 		).resolves.toMatchObject({ email: 'chris@example.com' });
 	});
 
 	it('rejects a password below the configured minimum', async () => {
-		await createUser(db(), {
+		await createUser(auth, db(), {
 			email: 'short@example.com',
 			password: 'correct-horse-battery',
 			name: 'Short'
 		});
 		await expect(
-			setPassword(db(), { email: 'short@example.com', password: 'too-short' })
+			setPassword(auth, db(), { email: 'short@example.com', password: 'too-short' })
 		).rejects.toThrow(/at least/);
 	});
 
 	it('rejects an unknown email rather than silently doing nothing', async () => {
 		await expect(
-			setPassword(db(), { email: 'nobody@example.com', password: 'a-brand-new-password-9' })
+			setPassword(auth, db(), { email: 'nobody@example.com', password: 'a-brand-new-password-9' })
 		).rejects.toThrow(/No user with email/);
 	});
 });
 
 describe('user:create', () => {
 	it('creates a signable account with a starter list', async () => {
-		const created = await createUser(db(), {
+		const created = await createUser(auth, db(), {
 			email: 'operator@example.com',
 			password: 'correct-horse-battery',
 			name: 'Operator'
@@ -258,13 +265,13 @@ describe('user:create', () => {
 	});
 
 	it('rejects a duplicate email rather than creating a second row', async () => {
-		await createUser(db(), {
+		await createUser(auth, db(), {
 			email: 'dupe@example.com',
 			password: 'correct-horse-battery',
 			name: 'One'
 		});
 		await expect(
-			createUser(db(), {
+			createUser(auth, db(), {
 				email: 'dupe@example.com',
 				password: 'correct-horse-battery',
 				name: 'Two'

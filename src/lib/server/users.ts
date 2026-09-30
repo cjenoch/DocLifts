@@ -37,7 +37,7 @@
  * adding it for this would be a larger surface than three adapter calls.
  */
 import { z } from 'zod';
-import { auth } from './auth';
+import type { Auth } from './auth-core';
 import type { Database } from './progression';
 import { eq } from 'drizzle-orm';
 
@@ -80,18 +80,28 @@ const emailSchema = z
  * Resolved lazily: it is async because `auth.$context` is, and because an
  * import-time call would break the secret-free build.
  */
-async function passwordLimits(): Promise<{ min: number; max: number }> {
+async function passwordLimits(auth: Auth): Promise<{ min: number; max: number }> {
 	const { minPasswordLength, maxPasswordLength } = (await auth.$context).password.config;
 	return { min: minPasswordLength, max: maxPasswordLength };
 }
 
 export type CreatedUser = { id: string; email: string; name: string };
 
+/**
+ * `auth` is an EXPLICIT argument, not an import.
+ *
+ * The T5 CLI needs these primitives outside SvelteKit, and `./auth` imports
+ * `$env`/`$app`, which do not resolve under bare tsx. The server passes the
+ * singleton; a CLI passes its own instance built from process.env. Explicit
+ * beats a module-level import here because the two instances must be built
+ * the same way, and an argument makes that visible at every call site.
+ */
 export async function createUser(
+	auth: Auth,
 	db: Database,
 	input: { email: string; password: string; name: string }
 ): Promise<CreatedUser> {
-	const limits = await passwordLimits();
+	const limits = await passwordLimits(auth);
 	const value = z
 		.object({
 			email: emailSchema,
@@ -192,8 +202,12 @@ export async function findUserByEmail(db: Database, email: string): Promise<stri
  * Password limits are checked first, through the same resolved-config path as
  * createUser, so the CLI cannot set a password that sign-in would reject.
  */
-export async function setPassword(db: Database, input: { email: string; password: string }) {
-	const limits = await passwordLimits();
+export async function setPassword(
+	auth: Auth,
+	db: Database,
+	input: { email: string; password: string }
+) {
+	const limits = await passwordLimits(auth);
 	// The unclaimed 0011 sentinel's email is `owner@localhost`, which fails zod's
 	// email regex (it requires a dot and a TLD). Without this branch an operator
 	// who tries to reset the sentinel's password before bootstrapping gets an

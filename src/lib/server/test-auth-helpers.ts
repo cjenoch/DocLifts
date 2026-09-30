@@ -29,6 +29,7 @@ import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { setupTestDb, resetTestDb } from '$lib/server/test-db';
 import { createUser } from '$lib/server/users';
+import { auth } from './auth';
 
 export const BUILD_ENTRY = 'build/index.js';
 export const TEST_PASSWORD = 'correct-horse-battery-staple';
@@ -151,7 +152,7 @@ export async function seedTestUser(
 	// from T3 on, a program or exercise created without a user_id is invisible
 	// to every scoped query, so a fixture that forgets it produces a page that
 	// correctly 404s.
-	return createUser(db, { email, password: TEST_PASSWORD, name });
+	return createUser(auth, db, { email, password: TEST_PASSWORD, name });
 }
 
 /**

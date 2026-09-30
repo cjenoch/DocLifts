@@ -5,6 +5,7 @@ import { seedDemo } from './demo';
 import { findUserByEmail } from './users';
 import { STARTER_EXERCISES } from './starter-exercises';
 import * as s from './db/schema';
+import { auth } from './auth';
 
 /**
  * The seed path was never covered before (g0): both tests took the
@@ -54,7 +55,7 @@ afterAll(async () => {
 it('requires explicit demo opt-in and never changes an ordinary test database', async () => {
 	// Opt-in first: without DOCLIFTS_DEMO=1 nothing happens at all. The flag
 	// is passed explicitly, exactly as seed.ts does.
-	await expect(seedDemo(demo.db, false)).rejects.toThrow('DOCLIFTS_DEMO');
+	await expect(seedDemo(auth, demo.db, false)).rejects.toThrow('DOCLIFTS_DEMO');
 
 	// The name guard, against a second database that is not a demo one. It has
 	// to refuse on the NAME alone — the demo project's DATABASE_URL cannot be
@@ -80,7 +81,7 @@ it('requires explicit demo opt-in and never changes an ordinary test database', 
 		.values({ name: 'Existing data', userId: DEMO_SENTINEL_ID })
 		.returning();
 	try {
-		await expect(seedDemo(guard.db, true)).rejects.toThrow('restricted');
+		await expect(seedDemo(auth, guard.db, true)).rejects.toThrow('restricted');
 		expect((await guard.db.select().from(s.programs)).map((r) => r.name)).toEqual([
 			'Existing data'
 		]);
@@ -90,11 +91,11 @@ it('requires explicit demo opt-in and never changes an ordinary test database', 
 		await guard.end();
 	}
 
-	await expect(seedDemo(demo.db, true)).resolves.toBe('seeded fictional demo data');
+	await expect(seedDemo(auth, demo.db, true)).resolves.toBe('seeded fictional demo data');
 });
 
 it('seeds repeatably without resetting edited demo records', async () => {
-	expect(await seedDemo(demo.db, true)).toBe('seeded fictional demo data');
+	expect(await seedDemo(auth, demo.db, true)).toBe('seeded fictional demo data');
 	expect(await demo.db.select().from(s.sessions)).toHaveLength(8);
 	expect(await demo.db.select().from(s.sets)).toHaveLength(48);
 	// 23, not the 9 the seed itself inserts: since T5 the demo owner's account
@@ -120,7 +121,7 @@ it('seeds repeatably without resetting edited demo records', async () => {
 		.where(eq(s.programs.id, program.id));
 	// A second call must reach the "already seeded" short-circuit, which is
 	// why seedDemo find-or-creates its owner rather than creating one outright.
-	expect(await seedDemo(demo.db, true)).toBe('already seeded');
+	expect(await seedDemo(auth, demo.db, true)).toBe('already seeded');
 	expect((await demo.db.select().from(s.programs))[0].name).toBe('My demo edits');
 });
 
@@ -130,7 +131,7 @@ it('seeds repeatably without resetting edited demo records', async () => {
  * seed would fail outright at that point.
  */
 it('owns every demo row with a signable demo user', async () => {
-	expect(await seedDemo(demo.db, true)).toBe('seeded fictional demo data');
+	expect(await seedDemo(auth, demo.db, true)).toBe('seeded fictional demo data');
 
 	// The owner is a real account, not a bare row: findUserByEmail resolves it
 	// through the same auth.user table Better Auth authenticates against.

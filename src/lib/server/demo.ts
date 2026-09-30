@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from './progression';
 import * as s from './db/schema';
 import { createUser, findUserByEmail } from './users';
+import type { Auth } from './auth-core';
 
 const demoProgramId = 'd3e00000-0000-4000-8000-000000000001';
 
@@ -15,7 +16,7 @@ const DEMO_PASSWORD = process.env.DOCLIFTS_DEMO_PASSWORD ?? 'doclifts-demo-2026'
 const DEMO_NAME = 'Demo User';
 
 /** Fictional fixtures only. No truncation, overwrite, or production DB fallback. */
-export async function seedDemo(db: Database, enabled: boolean) {
+export async function seedDemo(auth: Auth, db: Database, enabled: boolean) {
 	if (!enabled) throw new Error('Demo seeding requires DOCLIFTS_DEMO=1.');
 	// The database-name guard runs FIRST, before anything is written. Creating
 	// the demo user before checking the name would leave an auth.user row in a
@@ -38,7 +39,7 @@ export async function seedDemo(db: Database, enabled: boolean) {
 	const existingOwner = await findUserByEmail(db, DEMO_EMAIL);
 	const owner = existingOwner
 		? { id: existingOwner, email: DEMO_EMAIL, name: DEMO_NAME }
-		: await createUser(db, { email: DEMO_EMAIL, password: DEMO_PASSWORD, name: DEMO_NAME });
+		: await createUser(auth, db, { email: DEMO_EMAIL, password: DEMO_PASSWORD, name: DEMO_NAME });
 
 	return db.transaction(async (tx) => {
 		// Name already checked above, before any write. The advisory lock is

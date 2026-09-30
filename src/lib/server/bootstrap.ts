@@ -32,11 +32,10 @@
  */
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { db as appDb } from './db';
+import type { Auth } from './auth-core';
 import { authUsers } from './db/auth-schema';
 import { exercises } from './db/schema';
-import { createUser, setPassword } from './users';
-import { auth } from './auth';
+import { createUser } from './users';
 import { STARTER_EXERCISES } from './starter-exercises';
 import type { Database } from './progression';
 
@@ -69,6 +68,7 @@ const inputSchema = z.object({
  * rather than producing a user that cannot sign in.
  */
 export async function bootstrap(
+	auth: Auth,
 	db: Database,
 	raw: { email: string; password: string; name: string }
 ): Promise<BootstrapResult> {
@@ -91,7 +91,7 @@ export async function bootstrap(
 					`This database was not migrated to 0011, or it already has real accounts. Use pnpm user:create instead.`
 			);
 		}
-		const created = await createUser(db, input);
+		const created = await createUser(auth, db, input);
 		return {
 			kind: 'created-fresh',
 			userId: created.id,
@@ -166,4 +166,4 @@ export async function hasLoginCapableAccount(db: Database): Promise<boolean> {
 	return Number(row?.n ?? 0) > 0;
 }
 
-export { setPassword };
+export { setPassword } from './users';

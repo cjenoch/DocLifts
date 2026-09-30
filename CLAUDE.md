@@ -310,6 +310,27 @@ So the assertions that would have caught both: the `auth.session` row is
 deleted, and a client that _kept_ the cookie is refused. Neither is observable
 from the response the action returns.
 
+**An action with no rendered control is untested code; every action has an e2e
+that reaches it from a page.** `src/routes/logout/+page.server.ts` existed
+since T2, worked, and answered 405 to GET on purpose — and nothing rendered it
+anywhere, so there was no way to log out from the UI at all. Found only by
+using the app. The e2e posted to `/logout` directly, so it was green the whole
+time.
+
+**Assert the numbers a user would state, not the framework's internal ones.**
+The rate-limit e2e watched Better Auth's counter at 3 per 10 seconds, which was
+both the wrong control and, on the wire, a lockout: the counter charges
+successes, so four correct-password sign-ins in quick succession refused the
+fourth. The replacement asserts what the user would say — fifteen correct
+sign-ins in a row, no waiting — and fails at the fourth under the old
+config. A test that pins an implementation's number is a test that will
+happily pass while the behaviour is wrong.
+
+**A control that counts the wrong thing is worse than no control.** Every
+value here was chosen without usage data. The refusal log is the instrument
+that corrects them: no refusals means the numbers are generous, refusals on a
+real person means loosen. Do not tune them from a reading of the code.
+
 ### Where the data comes from
 
 `exercises` is owned, so the 23-exercise starter list is **copied per user**

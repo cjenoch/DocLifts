@@ -187,6 +187,63 @@ bash scripts/backup-db.sh
 
 Before relying on a backup, restore it into an isolated test database and verify its contents. Do not restore over the live database merely to test a dump. Restores were exercised during development/import validation; verify current backups independently. Keep private dumps outside Git. Avoid `docker compose down -v`: it removes this stack's persistent database volume.
 
+## Tuning
+
+These are read from the environment at startup. None are required: every one
+has a default, and a malformed value logs a warning and falls back rather than
+refusing sign-ins. To change one, edit the production env file and restart the
+web container — no release, no migration.
+
+```sh
+sudo scripts/compose-prod.sh up -d --wait web
+```
+
+| Variable                     | Default | Meaning                                                           |
+| ---------------------------- | ------- | ----------------------------------------------------------------- |
+| `LOGIN_MAX_FAILURES`         | `10`    | Wrong passwords per key per window before a refusal               |
+| `LOGIN_FAILURE_WINDOW_SEC`   | `900`   | Sliding window; a refusal lasts until the oldest failure ages out |
+| `LOGIN_DELAY_AFTER_FAILURES` | `5`     | Failure count at which the progressive delay starts               |
+| `LOGIN_DELAY_BASE_MS`        | `1000`  | First delay step; doubles per further failure                     |
+| `LOGIN_DELAY_MAX_MS`         | `8000`  | Ceiling on that delay                                             |
+| `SESSION_EXPIRES_DAYS`       | `30`    | Session lifetime, sliding                                         |
+
+### How the sign-in throttle works
+
+It counts **failed** sign-ins only, on two keys — the client IP and the
+normalized email — and either can refuse. A successful sign-in clears both, so
+signing out and straight back in never costs an attempt. That is deliberate:
+Better Auth's own limiter charges successes, which is how 0.2.0 shipped a state
+where four correct-password sign-ins in quick succession left a user unable to
+get back in.
+
+Below the ceiling, wrong guesses get a progressive delay (1s, 2s, 4s, 8s,
+capped) that is indistinguishable from a slow network. At the ceiling, even a
+correct password is refused for the remainder of the window, and the page says
+how many seconds to wait.
+
+**Tuning from the log.** Each refusal and each delay emits one structured line:
+
+```json
+{
+	"event": "login_throttle",
+	"kind": "refuse",
+	"key_type": "email",
+	"count": 10,
+	"retry_after_s": 612
+}
+```
+
+The address is never logged — `key_type` and a truncated hash in the
+implementation are enough to correlate one account without writing it to disk.
+Read a month of it: no refusals means the numbers are generous; refusals on a
+real person's key means loosen; many failures on one email from scattered
+addresses means the per-account control is doing its job.
+
+**Limits, before you scale.** The counters are in-memory in the web process, so
+a restart clears them and a second replica would get its own empty counter.
+Before running more than one instance, move the store to a table — do not
+raise the numbers to compensate.
+
 ## Local development and tests
 
 The production Compose file does not publish PostgreSQL to the host and is tied to the VPS tailnet binding. For a host-based development server, use a separate local database container and volume:

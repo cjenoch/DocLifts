@@ -578,3 +578,55 @@ Recorded so they are not rediscovered as oversights:
   binding the tailnet IP so nothing off-tailnet can forge them. At cutover the
   app must bind only to the proxy's Docker network, and the proxy must overwrite
   both forwarded headers.
+
+## 12. 0.2.1 hotfix
+
+No migration. Three defects, all found by using the released app on the
+tailnet rather than by any test — every one of them had a green suite.
+
+### Before deploying
+
+```bash
+# Preserve the running image, since the build overwrites the tag.
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.2.1
+sudo -n docker image inspect doclifts-web:pre-0.2.1 --format '{{.Created}}'
+```
+
+Rollback is the concrete command, same shape as 0.2.0's:
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.2.1 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+### The three defects
+
+1. **BACK after sign-out showed the signed-out user's `/history`.** The
+   browser re-rendered from its own cache; the session was already dead.
+   Nothing set `Cache-Control`, and a response without one is heuristically
+   cacheable. Fixed in the guard, so static assets and `/login` keep their
+   normal caching.
+
+2. **No sign-out control existed.** The action had been there since T2 and was
+   never rendered. Fixed in the layout, as a POST form.
+
+3. **The rate limiter charged successful sign-ins.** Better Auth consumes the
+   bucket before checking credentials, so four correct sign-ins in quick
+   succession refused the fourth. This is what a user reported as "hit back
+   and can't log in again". Replaced with a failure-only throttle in
+   `src/lib/server/login-throttle.ts`; Better Auth's counter remains as a
+   60-per-60s volume backstop.
+
+### On the wire, after `up -d --build --wait web`
+
+- BACK after sign-out lands on `/login`, not a cached page
+- `/login` while signed in redirects to `/`
+- the sign-out control is visible in the nav
+- five sign-out/sign-in cycles, none waiting
+- one wrong password then the correct one works immediately
+- a refusal names a positive number of seconds
+
+### Post-release
+
+Delete `doclifts-web:pre-0.2.1` once the above passes. The throttle's
+in-memory counters are cleared by the restart, so the deploy is also a reset.

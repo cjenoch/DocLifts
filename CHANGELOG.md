@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.2.1
+
+Hotfix for three defects found by using the released app rather than testing
+it. All user-visible.
+
+- **The back button no longer shows a signed-out user's data.** Sign in, open
+  `/history`, sign out, press BACK: the browser re-rendered the page from its
+  own cache, showing your workouts with no login form and nothing you could do.
+  The server was correct throughout — the session was destroyed and a client
+  that kept the cookie was refused — but nothing told the _browser_ not to keep
+  the page. Authenticated responses now carry `Cache-Control: no-store` and
+  `Vary: Cookie`.
+- **There is a sign-out button.** The POST action existed since 0.2.0, worked,
+  and answered 405 to GET on purpose — and nothing rendered it anywhere, so
+  there was no way to log out from the UI at all. It is in the nav, as a form
+  and not a link, so a prefetch or an `<img>` can never sign you out.
+- **Signing in repeatedly no longer locks you out; only wrong passwords
+  count.** Better Auth's limiter charges its budget _before_ checking
+  credentials, so a **successful** sign-in cost one of three attempts per ten
+  seconds. Four correct-password sign-ins in quick succession refused the
+  fourth, and a user who signed out and straight back in could not get in.
+  Sign-in is now throttled on failed attempts only, per client IP and per
+  account, with a progressive delay and a clear "try again in N seconds".
+- **Sessions last 30 days, sliding.** You were not logged out of your own
+  training log for missing a week.
+- **Tunable via env, no release needed.** `LOGIN_MAX_FAILURES`,
+  `LOGIN_FAILURE_WINDOW_SEC`, `LOGIN_DELAY_AFTER_FAILURES`,
+  `LOGIN_DELAY_BASE_MS`, `LOGIN_DELAY_MAX_MS`, `SESSION_EXPIRES_DAYS`. All
+  optional, all defaulted, all in `.env.example` and the README's "Tuning"
+  section. Change one and restart the container.
+
 ## Unreleased
 
 Behavior changes since 0.1.0 that a user would notice:

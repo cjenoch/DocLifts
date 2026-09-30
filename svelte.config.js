@@ -28,28 +28,32 @@ const config = {
 				'frame-ancestors': ['none']
 			}
 		},
-		// CSRF: single-user, Tailscale-only, no auth. trustedOrigins allowlists
-		// the canonical HTTPS URL fronted by Tailscale Serve — needed because
-		// adapter-node would otherwise compute url.origin from the proxy's
-		// Host header (possibly localhost) and 403 every POST.
+		// CSRF. trustedOrigins exists because adapter-node computes
+		// url.origin from the request it receives, and behind Tailscale Serve
+		// that is the PROXY's view — a forwarded request whose Host is
+		// localhost, or whose scheme has been rewritten http->https. Without an
+		// allowlist every POST 403s.
+		//
+		// THE CANONICAL ORIGIN IS THE ts.net HTTPS URL. Since auth (T2) the app
+		// is served over HTTPS, so `Secure` cookies are set, and a non-https
+		// origin is no longer a supported way in. The http:// and :3000 entries
+		// are kept only so a pre-T6 rollback still works; a release with auth
+		// live should remove them.
 		//
 		// Side effect: strict enforcement means curl POSTs *without* an Origin
-		// header also 403 (looser under the prior checkOrigin: false). When
-		// scripting against the running service add:
-		//   -H 'Origin: https://testdev01.tail29bbdb.ts.net'
-		//
-		// Extend this list if the app moves; on adding auth, also wire
-		// PROTOCOL_HEADER / HOST_HEADER so adapter-node trusts forwarded values.
-		// Tailnet-only on the VPS: allow the tailnet MagicDNS hostname and the
-		// tailnet IP (the exact Origin a requesting browser will send). Both
-		// hostnames resolve to the same tailnet node. Add any new tailnet host
-		// here when the app moves again.
+		// header also 403. When scripting against the running service add:
+		//   -H 'Origin: https://enochnvps.tail29bbdb.ts.net'
 		csrf: {
 			trustedOrigins: [
-				'http://100.118.77.26:3000',
-				'https://100.118.77.26:3000',
+				// Canonical: Tailscale Serve's own HTTPS name.
+				'https://enochnvps.tail29bbdb.ts.net',
+				// Same node, port-explicit, for a pre-T6 rollback.
+				'https://enochnvps.tail29bbdb.ts.net:3000',
 				'http://enochnvps.tail29bbdb.ts.net:3000',
-				'https://enochnvps.tail29bbdb.ts.net:3000'
+				// Raw tailnet IP, still reachable and still used by the
+				// local acceptance harness.
+				'https://100.118.77.26:3000',
+				'http://100.118.77.26:3000'
 			]
 		}
 	}

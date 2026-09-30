@@ -5,8 +5,14 @@
 #
 # Tailnet-only design (owner direction): the web service is published on the
 # VPS tailnet IP (100.118.77.26:3000), reachable only from the tailnet — no
-# public exposure, no Caddy, no TLS termination. If/when auth lands and we want
-# it public, add a Caddy vhost then.
+# public exposure, no Caddy, no public TLS termination.
+#
+# T6: Tailscale Serve terminates TLS at https://enochnvps.tail29bbdb.ts.net and
+# proxies to the tailnet IP above. The app still speaks plain HTTP to the proxy;
+# only the edge is encrypted. That is why the port publish is 100.118.77.26 and
+# not 127.0.0.1 — the app does not listen on loopback, so Serve must reach it at
+# the address it is actually published on. (A first attempt proxying to
+# 127.0.0.1:3000 returned 502 from Serve for exactly this reason.)
 services:
   db:
     image: postgres:16
@@ -44,9 +50,23 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       DATABASE_URL: postgresql://doclifts:${POSTGRES_PASSWORD:?set in the production env file; use scripts/compose-prod.sh}@db:5432/doclifts
-      # adapter-node CSRF/cookie origin: must match a trustedOrigins entry in
-      # svelte.config.js. Tailnet IP + MagicDNS hostname both allowed.
-      ORIGIN: ${PUBLIC_ORIGIN:-http://100.118.77.26:3000}
+      # adapter-node's CSRF check and Better Auth's cookie baseURL. With auth
+      # live this MUST be the origin the browser actually uses, or the session
+      # cookie is not Secure and sign-in does not persist. T6 sets it to the
+      # Tailscale Serve HTTPS name; it is required, not defaulted, so a
+      # half-configured release fails at boot rather than serving http cookies.
+      ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in the production env file; use scripts/compose-prod.sh}
+      # Behind Tailscale Serve the socket sees plain HTTP and a Host of
+      # localhost unless these say otherwise. Without them adapter-node builds
+      # url.origin as http://localhost, every POST 403s on the CSRF check, and
+      # the app redirects to a non-https URL. Naming the trusted headers lets it
+      # reconstruct the real https://enochnvps... origin.
+      #
+      # Safe here specifically because the app binds to the tailnet IP, not
+      # 0.0.0.0, so nothing off-tailnet can forge X-Forwarded-Host. Do not change
+      # the ports publish to 0.0.0.0 without re-reading this.
+      PROTOCOL_HEADER: x-forwarded-proto
+      HOST_HEADER: x-forwarded-host
     # Publish on the VPS tailnet IP (not 127.0.0.1, not 0.0.0.0) so the app is
     # reachable from other tailnet devices (phone/laptop) but not the public
     # internet. DB stays off the host port.

@@ -536,6 +536,28 @@ Two things worth knowing, because they would have made this look broken:
 
 ## 11. After the release — things deliberately not done
 
+### A password rotation is followed by a session purge
+
+Measured 2026-09-30: Better Auth's `updatePassword` does **not** revoke existing
+sessions. An account whose password is rotated keeps every session it already
+had, so a leaked password stays useful until each session expires on its own.
+
+So a rotation is two steps, in this order:
+
+```bash
+# 1. the new password
+printf '%s' "$(pass show doclifts)" | scripts/user-prod.sh set-password \
+  --email you@example.com --password-stdin
+
+# 2. revoke everything signed in under the old one
+sudo scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts \
+  -c "DELETE FROM \"auth\".\"session\" WHERE user_id = '<uuid>';"
+```
+
+Do both, or the rotation is only half a rotation. Prefer `--password-stdin`: a
+password given as an argument sits in the process list for the life of the
+command and is written to shell history.
+
 Recorded so they are not rediscovered as oversights:
 
 - **Rate-limit storage is in-memory.** One container, so it works. It resets on

@@ -218,7 +218,11 @@ async function machineSnapshot(db: Database, userId: string, input: unknown) {
 }
 
 // Full exercise decision, never a single-slot fallback for secondary/isolation.
-async function prefillOccurrence(db: Database, occurrence: typeof sessionExercises.$inferSelect) {
+async function prefillOccurrence(
+	db: Database,
+	userId: string,
+	occurrence: typeof sessionExercises.$inferSelect
+) {
 	const rows = await db
 		.select()
 		.from(sets)
@@ -230,7 +234,15 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 	};
 	const histories = await Promise.all(
 		rows.map((r) =>
-			getLastCompletedSet(db, r.exerciseId, r.setRole, r.position, occurrence.sessionId, identity)
+			getLastCompletedSet(
+				db,
+				userId,
+				r.exerciseId,
+				r.setRole,
+				r.position,
+				occurrence.sessionId,
+				identity
+			)
 		)
 	);
 	const [exercise] = await db
@@ -241,6 +253,7 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 		occurrence.tier === 'main'
 			? await mainPrefills(
 					db,
+					userId,
 					occurrence.exerciseId,
 					rows.map((r, i) => ({
 						position: r.position,
@@ -271,6 +284,7 @@ async function prefillOccurrence(db: Database, occurrence: typeof sessionExercis
 			working.map((v) =>
 				computeConsecutiveBackwards(
 					db,
+					userId,
 					occurrence.exerciseId,
 					'working',
 					v.r.position,
@@ -389,7 +403,7 @@ export async function bindSessionMachine(
 			.set(snapshot)
 			.where(eq(sessionExercises.id, occurrence.id))
 			.returning();
-		await prefillOccurrence(tx, updated);
+		await prefillOccurrence(tx, userId, updated);
 		return updated;
 	});
 }
@@ -512,7 +526,7 @@ export async function addSessionExercise(
 				.insert(exerciseEquipmentMap)
 				.values({ exerciseId: exercise.id, equipmentModelId: machine.equipmentModelId })
 				.onConflictDoNothing();
-		await prefillOccurrence(tx, occurrence);
+		await prefillOccurrence(tx, userId, occurrence);
 		return occurrence;
 	});
 }

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type postgres from 'postgres';
 import { and, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
-import { resetTestDb, setupTestDb, type TestDb } from './test-db';
+import { resetTestDbWithUsers, setupTestDb, type TestDb } from './test-db';
 import { endSession, softDeleteEndedSession, startSessionForDay } from './sessions';
 import {
 	dayExercises,
@@ -14,6 +14,8 @@ import {
 } from './db/schema';
 
 let db: TestDb;
+let user: { id: string; label: string };
+let userId: string;
 let client: postgres.Sql;
 let end: () => Promise<void>;
 
@@ -29,7 +31,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-	await resetTestDb(client);
+	// Reset then create the fixture user, in that order, in one call.
+	[user] = await resetTestDbWithUsers(db, client, 1, 'reports');
+	userId = user.id;
 });
 
 async function seedDay() {
@@ -68,28 +72,28 @@ describe('reports consistency', () => {
 
 		// Abandoned/open session: must NOT count.
 		// Ended active session: should count.
-		const ended = await startSessionForDay(db, dayId);
+		const ended = await startSessionForDay(db, userId, dayId);
 		expect(ended.ok).toBe(true);
 		if (!ended.ok) return;
 		await db
 			.update(sets)
 			.set({ executedLoad: 100, executedReps: 5, executedRir: 1 })
 			.where(eq(sets.sessionId, ended.sessionId));
-		await endSession(db, ended.sessionId);
+		await endSession(db, userId, ended.sessionId);
 
 		// Ended + soft-deleted session: must NOT count.
-		const deleted = await startSessionForDay(db, dayId);
+		const deleted = await startSessionForDay(db, userId, dayId);
 		expect(deleted.ok).toBe(true);
 		if (!deleted.ok) return;
 		await db
 			.update(sets)
 			.set({ executedLoad: 100, executedReps: 5, executedRir: 1 })
 			.where(eq(sets.sessionId, deleted.sessionId));
-		await endSession(db, deleted.sessionId);
-		await softDeleteEndedSession(db, deleted.sessionId);
+		await endSession(db, userId, deleted.sessionId);
+		await softDeleteEndedSession(db, userId, deleted.sessionId);
 
 		// Abandoned/open session: must NOT count.
-		const openStarted = await startSessionForDay(db, dayId);
+		const openStarted = await startSessionForDay(db, userId, dayId);
 		expect(openStarted.ok).toBe(true);
 		if (!openStarted.ok) return;
 

@@ -12,7 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type postgres from 'postgres';
 import { dayExercises, days, exercises, programs, sessions, sets } from './db/schema';
 import { computeConsecutiveBackwards, getLastCompletedSet } from './progression';
-import { resetTestDb, setupTestDb, type TestDb } from './test-db';
+import { resetTestDbWithUsers, setupTestDb, type TestDb } from './test-db';
 
 let db: TestDb;
 let client: postgres.Sql;
@@ -22,6 +22,8 @@ let programId: string;
 let dayId: string;
 let exerciseId: string;
 let otherExerciseId: string;
+let user: { id: string; label: string };
+let userId: string;
 
 beforeAll(async () => {
 	const handle = await setupTestDb();
@@ -35,7 +37,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-	await resetTestDb(client);
+	// Reset then create the fixture user, in that order, in one call.
+	[user] = await resetTestDbWithUsers(db, client, 1, 'progression');
+	userId = user.id;
 
 	const [prog] = await db.insert(programs).values({ name: 'test program' }).returning();
 	programId = prog.id;
@@ -127,14 +131,14 @@ async function seedSessions(loads: ReadonlyArray<number | null>): Promise<void> 
 
 describe('getLastCompletedSet: history filter', () => {
 	it('returns null when no sets exist', async () => {
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result).toBeNull();
 	});
 
 	it('returns null when only open sessions exist (endedAt IS NULL)', async () => {
 		const sId = await addSession({ ended: false });
 		await addSet({ sessionId: sId, executedLoad: 100, executedReps: 5 });
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result).toBeNull();
 	});
 
@@ -143,7 +147,7 @@ describe('getLastCompletedSet: history filter', () => {
 		await addSet({ sessionId: sId, executedLoad: 100, executedReps: 5 });
 		await db.update(sessions).set({ deletedAt: new Date() }).where(eq(sessions.id, sId));
 
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result).toBeNull();
 	});
 
@@ -154,7 +158,7 @@ describe('getLastCompletedSet: history filter', () => {
 			executedLoad: null,
 			executedReps: null
 		});
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result).toBeNull();
 	});
 
@@ -171,7 +175,7 @@ describe('getLastCompletedSet: history filter', () => {
 			executedLoad: 110,
 			loggedAt: new Date(BASE_DATE + DAY_MS)
 		});
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result?.executedLoad).toBe(110);
 	});
 
@@ -191,7 +195,7 @@ describe('getLastCompletedSet: history filter', () => {
 			executedReps: null,
 			loggedAt: new Date(BASE_DATE + DAY_MS)
 		});
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result?.executedLoad).toBe(100);
 	});
 
@@ -211,7 +215,7 @@ describe('getLastCompletedSet: history filter', () => {
 			executedReps: 5,
 			loggedAt: new Date(BASE_DATE + DAY_MS)
 		});
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result?.executedLoad).toBe(100);
 	});
 
@@ -219,7 +223,7 @@ describe('getLastCompletedSet: history filter', () => {
 		const sId = await addSession({ ended: true });
 		await addSet({ sessionId: sId, position: 1, executedLoad: 100 });
 		await addSet({ sessionId: sId, position: 2, executedLoad: 80 });
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 2);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 2);
 		expect(result?.executedLoad).toBe(80);
 	});
 
@@ -232,7 +236,7 @@ describe('getLastCompletedSet: history filter', () => {
 			position: 2,
 			executedLoad: 80
 		});
-		const result = await getLastCompletedSet(db, exerciseId, 'backoff', 2);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'backoff', 2);
 		expect(result?.executedLoad).toBe(80);
 	});
 
@@ -243,7 +247,7 @@ describe('getLastCompletedSet: history filter', () => {
 			exerciseIdOverride: otherExerciseId,
 			executedLoad: 200
 		});
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result).toBeNull();
 	});
 
@@ -265,11 +269,11 @@ describe('getLastCompletedSet: history filter', () => {
 		});
 
 		// Without exclusion: returns the current (newer) session's set.
-		const unfiltered = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const unfiltered = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(unfiltered?.executedLoad).toBe(110);
 
 		// With exclusion: returns the older session's set.
-		const filtered = await getLastCompletedSet(db, exerciseId, 'top', 1, currentSession);
+		const filtered = await getLastCompletedSet(db, userId, exerciseId, 'top', 1, currentSession);
 		expect(filtered?.executedLoad).toBe(100);
 	});
 
@@ -277,7 +281,7 @@ describe('getLastCompletedSet: history filter', () => {
 		const onlySession = await addSession({ ended: true });
 		await addSet({ sessionId: onlySession, executedLoad: 100 });
 
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1, onlySession);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1, onlySession);
 		expect(result).toBeNull();
 	});
 
@@ -296,7 +300,7 @@ describe('getLastCompletedSet: history filter', () => {
 				105, 5, 0
 			)
 		`;
-		const result = await getLastCompletedSet(db, exerciseId, 'top', 1);
+		const result = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
 		expect(result).toEqual({
 			executedLoad: 105,
 			executedReps: 5,
@@ -312,17 +316,17 @@ describe('getLastCompletedSet: history filter', () => {
 
 describe('computeConsecutiveBackwards: history filter', () => {
 	it('returns 0 with no history', async () => {
-		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1)).toBe(0);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1)).toBe(0);
 	});
 
 	it('returns 0 with only one completed session (< 2 rows)', async () => {
 		await seedSessions([100]);
-		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1)).toBe(0);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1)).toBe(0);
 	});
 
 	it('counts 2 backwards when 3 sessions stall at the same load', async () => {
 		await seedSessions([100, 100, 100]);
-		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1)).toBe(2);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1)).toBe(2);
 	});
 
 	it('counts a regression as backwards', async () => {
@@ -330,7 +334,7 @@ describe('computeConsecutiveBackwards: history filter', () => {
 		// i=0: newer=100, older=110, 110 >= 100 → count=1
 		// i=1: newer=110, older=100, 100 < 110 → break
 		await seedSessions([100, 110, 100]);
-		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1)).toBe(1);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1)).toBe(1);
 	});
 
 	it('stops counting at the first advance (older < newer)', async () => {
@@ -338,14 +342,14 @@ describe('computeConsecutiveBackwards: history filter', () => {
 		// i=0: backwards (105 >= 100), count=1
 		// i=1: older=100 < newer=105 → break
 		await seedSessions([100, 100, 105, 100]);
-		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1)).toBe(1);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1)).toBe(1);
 	});
 
 	it('returns 0 when most recent pair shows an advance', async () => {
 		// chronological: 100, 100, 105 → DESC: [105, 100, 100]
 		// i=0: older=100 < newer=105 → break, count=0
 		await seedSessions([100, 100, 105]);
-		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1)).toBe(0);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1)).toBe(0);
 	});
 
 	it('does NOT include blank-row poisons in the count', async () => {
@@ -360,19 +364,19 @@ describe('computeConsecutiveBackwards: history filter', () => {
 			executedReps: null,
 			loggedAt: new Date(BASE_DATE + 5 * DAY_MS)
 		});
-		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1)).toBe(1);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1)).toBe(1);
 	});
 
 	it('respects the lookback parameter', async () => {
 		// 10 stalled sessions → with lookback=3, sees 3 rows → 2 backwards pairs.
 		await seedSessions(Array(10).fill(100));
-		expect(await computeConsecutiveBackwards(db, exerciseId, 'top', 1, 3)).toBe(2);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1, 3)).toBe(2);
 	});
 
 	it('does not cross exercises', async () => {
 		await seedSessions([100, 100, 100]);
 		// Stalls on the wrong exercise → 0 backwards.
-		expect(await computeConsecutiveBackwards(db, otherExerciseId, 'top', 1)).toBe(0);
+		expect(await computeConsecutiveBackwards(db, userId, otherExerciseId, 'top', 1)).toBe(0);
 	});
 });
 

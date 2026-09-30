@@ -27,6 +27,7 @@ export type MainSlot = {
  */
 export async function mainPrefills(
 	db: Database,
+	userId: string,
 	exerciseId: string,
 	slots: MainSlot[],
 	policy: ProgressionPolicy,
@@ -55,6 +56,7 @@ export async function mainPrefills(
 					increment: defaultIncrement(isLowerBody),
 					consecutiveBackwards: await computeConsecutiveBackwards(
 						db,
+						userId,
 						exerciseId,
 						'top',
 						top.position,

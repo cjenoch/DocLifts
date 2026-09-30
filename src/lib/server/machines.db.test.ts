@@ -92,8 +92,8 @@ async function fixture() {
 	});
 	return { userId, day, exercise, gym, gymB, machine, machineB, program };
 }
-async function start(dayId: string, userId?: string) {
-	const result = await startSessionForDay(db, dayId);
+async function start(userId: string, dayId: string) {
+	const result = await startSessionForDay(db, userId, dayId);
 	if (!result.ok) throw new Error(result.message);
 	// sessions.ts does not take a userId until T4, so the started session is
 	// stamped here. Without this the row has user_id NULL and lockActive() —
@@ -113,17 +113,17 @@ async function start(dayId: string, userId?: string) {
 		.where(eq(s.sessionExercises.sessionId, result.sessionId));
 	return { sessionId: result.sessionId, occurrence };
 }
-async function log(sessionId: string, load: number, reps = 10) {
+async function log(userId: string, sessionId: string, load: number, reps = 10) {
 	const rows = await db.select().from(s.sets).where(eq(s.sets.sessionId, sessionId));
 	for (const row of rows)
-		await updateSetInSession(db, sessionId, row.id, {
+		await updateSetInSession(db, userId, sessionId, row.id, {
 			executedLoad: load,
 			executedReps: reps,
 			executedRir: 1,
 			notes: '',
 			expectedIdentity: `${row.gymEquipmentId ?? 'legacy'}:${row.loadConvention}`
 		});
-	await endSession(db, sessionId);
+	await endSession(db, userId, sessionId);
 }
 const binding = (gymId: string, gymEquipmentId: string, loadConvention = 'plates_per_side') => ({
 	gymId,
@@ -134,7 +134,7 @@ const binding = (gymId: string, gymEquipmentId: string, loadConvention = 'plates
 describe('physical machine identity', () => {
 	it('counts completed sessions rather than repeated occurrences for backwards streaks', async () => {
 		const f = await fixture();
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -157,12 +157,20 @@ describe('physical machine identity', () => {
 				loggedAt: new Date(1780000000000 + i * 1000)
 			}))
 		);
-		await endSession(db, run.sessionId);
+		await endSession(db, f.userId, run.sessionId);
 		expect(
-			await computeConsecutiveBackwards(db, f.exercise.id, source.setRole, source.position, 10, {
-				gymEquipmentId: f.machine.id,
-				loadConvention: 'plates_per_side'
-			})
+			await computeConsecutiveBackwards(
+				db,
+				f.userId,
+				f.exercise.id,
+				source.setRole,
+				source.position,
+				10,
+				{
+					gymEquipmentId: f.machine.id,
+					loadConvention: 'plates_per_side'
+				}
+			)
 		).toBe(0);
 	});
 	it('uses machine-specific warmups and all working slots without leaking partial or deleted sessions', async () => {
@@ -171,7 +179,7 @@ describe('physical machine identity', () => {
 		await db
 			.insert(s.prescribedSets)
 			.values({ dayExerciseId: dx.id, position: 3, setRole: 'warmup', initialLoad: 20 });
-		let run = await start(f.day.id, f.userId);
+		let run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -179,8 +187,8 @@ describe('physical machine identity', () => {
 			run.occurrence.id,
 			binding(f.gym.id, f.machine.id)
 		);
-		await log(run.sessionId, 60);
-		run = await start(f.day.id, f.userId);
+		await log(f.userId, run.sessionId, 60);
+		run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -191,8 +199,8 @@ describe('physical machine identity', () => {
 		let rows = await db.select().from(s.sets).where(eq(s.sets.sessionId, run.sessionId));
 		expect(rows.find((r) => r.setRole === 'warmup')?.prescribedLoad).toBe(60);
 		expect(rows.find((r) => r.setRole === 'warmup')?.suggestionReasoning).toBeNull();
-		await log(run.sessionId, 65, 8);
-		run = await start(f.day.id, f.userId);
+		await log(f.userId, run.sessionId, 65, 8);
+		run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -211,22 +219,22 @@ describe('physical machine identity', () => {
 			.where(eq(s.sets.sessionId, run.sessionId));
 		const identity = { gymEquipmentId: f.machine.id, loadConvention: 'plates_per_side' as const };
 		expect(
-			(await getLastCompletedSet(db, f.exercise.id, 'working', 1, undefined, identity))
+			(await getLastCompletedSet(db, f.userId, f.exercise.id, 'working', 1, undefined, identity))
 				?.executedLoad
 		).toBe(65);
-		await endSession(db, run.sessionId);
+		await endSession(db, f.userId, run.sessionId);
 		await db
 			.update(s.sessions)
 			.set({ deletedAt: new Date() })
 			.where(eq(s.sessions.id, run.sessionId));
 		expect(
-			(await getLastCompletedSet(db, f.exercise.id, 'working', 1, undefined, identity))
+			(await getLastCompletedSet(db, f.userId, f.exercise.id, 'working', 1, undefined, identity))
 				?.executedLoad
 		).toBe(65);
 	});
 	it('keeps combo exercise histories independent and records lower-body increment metadata', async () => {
 		const f = await fixture();
-		let run = await start(f.day.id, f.userId);
+		let run = await start(f.userId, f.day.id);
 		const input = {
 			exerciseName: 'Combo squat',
 			equipmentType: 'machine-plate',
@@ -247,8 +255,8 @@ describe('physical machine identity', () => {
 			.from(s.exercises)
 			.where(eq(s.exercises.id, squat.exerciseId));
 		expect(exercise.isLowerBody).toBe(true);
-		await log(run.sessionId, 70);
-		run = await start(f.day.id, f.userId);
+		await log(f.userId, run.sessionId, 70);
+		run = await start(f.userId, f.day.id);
 		const next = await addSessionExercise(db, f.userId, run.sessionId, {
 			...input,
 			exerciseId: squat.exerciseId
@@ -266,9 +274,9 @@ describe('physical machine identity', () => {
 	});
 	it('separates same-model machines at different gyms, conventions, and legacy history', async () => {
 		const f = await fixture();
-		let run = await start(f.day.id, f.userId);
-		await log(run.sessionId, 200);
-		run = await start(f.day.id, f.userId);
+		let run = await start(f.userId, f.day.id);
+		await log(f.userId, run.sessionId, 200);
+		run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -278,8 +286,8 @@ describe('physical machine identity', () => {
 		);
 		let rows = await db.select().from(s.sets).where(eq(s.sets.sessionId, run.sessionId));
 		expect(rows.map((r) => r.prescribedLoad)).toEqual([null, null]);
-		await log(run.sessionId, 60);
-		run = await start(f.day.id, f.userId);
+		await log(f.userId, run.sessionId, 60);
+		run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -289,8 +297,8 @@ describe('physical machine identity', () => {
 		);
 		rows = await db.select().from(s.sets).where(eq(s.sets.sessionId, run.sessionId));
 		expect(rows.map((r) => r.prescribedLoad)).toEqual([null, null]);
-		await log(run.sessionId, 120);
-		run = await start(f.day.id, f.userId);
+		await log(f.userId, run.sessionId, 120);
+		run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -300,8 +308,8 @@ describe('physical machine identity', () => {
 		);
 		rows = await db.select().from(s.sets).where(eq(s.sets.sessionId, run.sessionId));
 		expect(rows.map((r) => r.prescribedLoad)).toEqual([null, null]);
-		await log(run.sessionId, 103);
-		run = await start(f.day.id, f.userId);
+		await log(f.userId, run.sessionId, 103);
+		run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -312,11 +320,13 @@ describe('physical machine identity', () => {
 		rows = await db.select().from(s.sets).where(eq(s.sets.sessionId, run.sessionId));
 		expect(rows.map((r) => r.prescribedLoad)).toEqual([65, 65]);
 		expect(rows.every((r) => r.suggestionReasoning?.includes('all working sets'))).toBe(true);
-		expect((await getLastCompletedSet(db, f.exercise.id, 'working', 1))?.executedLoad).toBe(200);
+		expect(
+			(await getLastCompletedSet(db, f.userId, f.exercise.id, 'working', 1))?.executedLoad
+		).toBe(200);
 	});
 	it('snapshots labels and refuses machine changes after any logged value', async () => {
 		const f = await fixture();
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		await bindSessionMachine(
 			db,
 			f.userId,
@@ -325,7 +335,7 @@ describe('physical machine identity', () => {
 			binding(f.gym.id, f.machine.id)
 		);
 		const [row] = await db.select().from(s.sets).where(eq(s.sets.sessionId, run.sessionId));
-		await updateSetInSession(db, run.sessionId, row.id, {
+		await updateSetInSession(db, f.userId, run.sessionId, row.id, {
 			executedLoad: 60,
 			executedReps: 10,
 			executedRir: 1,
@@ -355,7 +365,7 @@ describe('physical machine identity', () => {
 	});
 	it('quick-adds an unknown model without changing the program and separates combo exercises', async () => {
 		const f = await fixture();
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		const machine = await createMachine(db, f.userId, {
 			gymId: f.gym.id,
 			localLabel: 'Unknown combo',
@@ -386,7 +396,7 @@ describe('physical machine identity', () => {
 	});
 	it('rejects invalid input, wrong gym, wrong occurrence, and ended-session mutation', async () => {
 		const f = await fixture();
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		await expect(createGym(db, f.userId, { name: '  ' })).rejects.toThrow();
 		await expect(
 			createMachine(db, f.userId, { gymId: f.gym.id, localLabel: 'X', equipmentType: 'bogus' })
@@ -423,7 +433,7 @@ describe('physical machine identity', () => {
 			binding(f.gym.id, f.machine.id)
 		);
 		const [row] = await db.select().from(s.sets).where(eq(s.sets.sessionId, run.sessionId));
-		const stale = await updateSetInSession(db, run.sessionId, row.id, {
+		const stale = await updateSetInSession(db, f.userId, run.sessionId, row.id, {
 			executedLoad: 90,
 			executedReps: 10,
 			executedRir: 1,
@@ -436,7 +446,7 @@ describe('physical machine identity', () => {
 		await expect(
 			addSessionExercise(db, f.userId, run.sessionId, { exerciseName: 'Bad', setCount: -1 })
 		).rejects.toThrow();
-		await endSession(db, run.sessionId);
+		await endSession(db, f.userId, run.sessionId);
 		await expect(
 			bindSessionMachine(
 				db,
@@ -464,7 +474,7 @@ describe('physical machine identity', () => {
 		// Session 1: bind the machine, add a legacy backoff row, then log a
 		// mixed session — working position 2 fails (so the group holds at 135)
 		// while the backoff row clears its own 8–10 range at 95.
-		let run = await start(f.day.id, f.userId);
+		let run = await start(f.userId, f.day.id);
 		const [backoff1] = await db
 			.insert(s.sets)
 			.values({
@@ -487,7 +497,7 @@ describe('physical machine identity', () => {
 			.where(and(eq(s.sets.sessionId, run.sessionId), eq(s.sets.setRole, 'working')))
 			.orderBy(asc(s.sets.position));
 		const logRow = (id: string, load: number, reps: number, rir: number) =>
-			updateSetInSession(db, run.sessionId, id, {
+			updateSetInSession(db, f.userId, run.sessionId, id, {
 				executedLoad: load,
 				executedReps: reps,
 				executedRir: rir,
@@ -497,10 +507,10 @@ describe('physical machine identity', () => {
 		await logRow(working1[0].id, 135, 8, 1);
 		await logRow(working1[1].id, 135, 6, 3);
 		await logRow(backoff1.id, 95, 10, 1);
-		await endSession(db, run.sessionId);
+		await endSession(db, f.userId, run.sessionId);
 
 		// Session 2: re-binding re-runs prefillOccurrence against that history.
-		run = await start(f.day.id, f.userId);
+		run = await start(f.userId, f.day.id);
 		await db.insert(s.sets).values({
 			userId: f.userId,
 			sessionId: run.sessionId,
@@ -549,7 +559,7 @@ describe('physical machine identity', () => {
 	});
 	it('gives MAIN quick-add cold starts null reasoning, not missing-history text (L7)', async () => {
 		const f = await fixture();
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		const machine = await createMachine(db, f.userId, {
 			gymId: f.gym.id,
 			localLabel: 'Cold bench',
@@ -609,7 +619,7 @@ describe('physical machine identity', () => {
 			isLowerBody: false
 		};
 		// Session 1: log ONLY the backoff row — the top set has no history.
-		let run = await start(f.day.id, f.userId);
+		let run = await start(f.userId, f.day.id);
 		const first = await addSessionExercise(db, f.userId, run.sessionId, input);
 		const firstRows = await db
 			.select()
@@ -617,18 +627,18 @@ describe('physical machine identity', () => {
 			.where(eq(s.sets.sessionExerciseId, first.id))
 			.orderBy(asc(s.sets.position));
 		const backoff = firstRows.find((r) => r.setRole === 'backoff')!;
-		await updateSetInSession(db, run.sessionId, backoff.id, {
+		await updateSetInSession(db, f.userId, run.sessionId, backoff.id, {
 			executedLoad: 95,
 			executedReps: 10,
 			executedRir: 1,
 			notes: '',
 			expectedIdentity: `${machine.id}:unknown`
 		});
-		await endSession(db, run.sessionId);
+		await endSession(db, f.userId, run.sessionId);
 
 		// Session 2: the backoff has a real load but no usable top-set
 		// decision — that is the genuinely ambiguous case.
-		run = await start(f.day.id, f.userId);
+		run = await start(f.userId, f.day.id);
 		const second = await addSessionExercise(db, f.userId, run.sessionId, {
 			...input,
 			exerciseId: first.exerciseId
@@ -693,7 +703,7 @@ describe('cross-tenant isolation', () => {
 	it("another user's exerciseId is not found", async () => {
 		const f = await fixture();
 		const { bob } = await withTwoUsers(db);
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		await expect(
 			addSessionExercise(db, bob, run.sessionId, {
 				exerciseId: f.exercise.id,
@@ -714,10 +724,10 @@ describe('cross-tenant isolation', () => {
 	it("another user's gymEquipmentId is not found", async () => {
 		const f = await fixture();
 		const { bob } = await withTwoUsers(db);
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		// The session is Bob's own so the failure is about the MACHINE, not the
 		// session — otherwise this would pass for the wrong reason.
-		const bobsRun = await start(f.day.id, bob);
+		const bobsRun = await start(bob, f.day.id);
 		await expect(
 			bindSessionMachine(
 				db,
@@ -828,7 +838,7 @@ describe('cross-tenant isolation', () => {
 			localLabel: 'Bob press',
 			equipmentType: 'machine-plate'
 		});
-		const run = await start(f.day.id, bob);
+		const run = await start(bob, f.day.id);
 
 		// "Press" already exists, owned by Alice. Bob naming his exercise the
 		// same must succeed with Bob's own row — not hit a global duplicate
@@ -870,7 +880,7 @@ describe('cross-tenant isolation', () => {
 			localLabel: 'Bob press',
 			equipmentType: 'machine-plate'
 		});
-		const run = await start(f.day.id, bob);
+		const run = await start(bob, f.day.id);
 		const input = {
 			exerciseName: 'Bob own lift',
 			equipmentType: 'machine-plate',
@@ -893,7 +903,7 @@ describe('cross-tenant isolation', () => {
 	it("another user's sessionId is not found by addSessionExercise", async () => {
 		const f = await fixture();
 		const { bob } = await withTwoUsers(db);
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		await expect(
 			addSessionExercise(db, bob, run.sessionId, {
 				exerciseName: 'Bob lift',
@@ -914,7 +924,7 @@ describe('cross-tenant isolation', () => {
 	it("another user's sessionId is not found by bindSessionMachine", async () => {
 		const f = await fixture();
 		const { bob } = await withTwoUsers(db);
-		const run = await start(f.day.id, f.userId);
+		const run = await start(f.userId, f.day.id);
 		await expect(
 			bindSessionMachine(db, bob, run.sessionId, run.occurrence.id, binding(f.gym.id, f.machine.id))
 		).rejects.toThrow('Session not found');

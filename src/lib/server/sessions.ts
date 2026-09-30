@@ -71,7 +71,11 @@ export type SessionProjection = {
  * Reads are intentionally outside the transaction; the tx only wraps writes so
  * a mid-loop failure can't orphan a session.
  */
-export async function startSessionForDay(db: Database, dayId: string): Promise<StartSessionResult> {
+export async function startSessionForDay(
+	db: Database,
+	userId: string,
+	dayId: string
+): Promise<StartSessionResult> {
 	const [day] = await db
 		.select({ id: days.id, programId: days.programId })
 		.from(days)
@@ -113,7 +117,7 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 
 	// N+1 by design — single-user localhost Postgres, see handoff notes.
 	const histories = await Promise.all(
-		prescribed.map((p) => getLastCompletedSet(db, p.exerciseId, p.setRole, p.setPosition))
+		prescribed.map((p) => getLastCompletedSet(db, userId, p.exerciseId, p.setRole, p.setPosition))
 	);
 
 	type Decision =
@@ -134,6 +138,7 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 			dayExerciseId,
 			await mainPrefills(
 				db,
+				userId,
 				first.exerciseId,
 				rows.map(({ p, history }) => ({
 					position: p.setPosition,
@@ -188,7 +193,7 @@ export async function startSessionForDay(db: Database, dayId: string): Promise<S
 		});
 		const backwardsPerPosition = await Promise.all(
 			sorted.map((row) =>
-				computeConsecutiveBackwards(db, first.p.exerciseId, 'working', row.p.setPosition)
+				computeConsecutiveBackwards(db, userId, first.p.exerciseId, 'working', row.p.setPosition)
 			)
 		);
 		// Exercise-level backwards symmetry: just like all-working-set "clear" requires
@@ -372,6 +377,7 @@ function isUniqueViolation(err: unknown): boolean {
 
 export async function loadSession(
 	db: Database,
+	userId: string,
 	sessionId: string,
 	mode: SessionAccessMode
 ): Promise<SessionProjection | null> {
@@ -415,6 +421,7 @@ export async function loadSession(
 
 export async function loadProgramOwnedSession(
 	db: Database,
+	userId: string,
 	sessionId: string,
 	programId: string,
 	mode: SessionAccessMode
@@ -479,6 +486,7 @@ export async function loadProgramOwnedSession(
 
 export async function listDeletedSessionsForProgram(
 	db: Database,
+	userId: string,
 	programId: string,
 	limit = 100
 ): Promise<SessionProjection[]> {
@@ -501,9 +509,10 @@ export async function listDeletedSessionsForProgram(
 
 export async function softDeleteEndedSession(
 	db: Database,
+	userId: string,
 	sessionId: string
 ): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
-	const session = await loadSession(db, sessionId, 'ended-active');
+	const session = await loadSession(db, userId, sessionId, 'ended-active');
 	if (!session) {
 		return { ok: false, status: 404, message: 'Session not found' };
 	}
@@ -519,9 +528,10 @@ export async function softDeleteEndedSession(
 
 export async function restoreSoftDeletedSession(
 	db: Database,
+	userId: string,
 	sessionId: string
 ): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
-	const session = await loadSession(db, sessionId, 'deleted-only');
+	const session = await loadSession(db, userId, sessionId, 'deleted-only');
 	if (!session) {
 		return { ok: false, status: 404, message: 'Session not found in trash' };
 	}
@@ -535,9 +545,10 @@ export async function restoreSoftDeletedSession(
 
 export async function hardDeleteSession(
 	db: Database,
+	userId: string,
 	sessionId: string
 ): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
-	const session = await loadSession(db, sessionId, 'deleted-only');
+	const session = await loadSession(db, userId, sessionId, 'deleted-only');
 	if (!session) {
 		return { ok: false, status: 404, message: 'Session not found in trash' };
 	}
@@ -579,6 +590,7 @@ export type PurgeResult =
  */
 export async function purgeDeletedSessionsForProgram(
 	db: Database,
+	userId: string,
 	programId: string,
 	expectedCount?: number
 ): Promise<PurgeResult> {
@@ -619,8 +631,12 @@ export async function purgeDeletedSessionsForProgram(
  *
  * Returns `updated: true` only when a row was actually closed.
  */
-export async function endSession(db: Database, sessionId: string): Promise<{ updated: boolean }> {
-	const session = await loadSession(db, sessionId, 'active');
+export async function endSession(
+	db: Database,
+	userId: string,
+	sessionId: string
+): Promise<{ updated: boolean }> {
+	const session = await loadSession(db, userId, sessionId, 'active');
 	if (!session || session.endedAt) {
 		return { updated: false };
 	}
@@ -698,6 +714,7 @@ export type UpdateSetResult =
  */
 export async function updateSetInSession(
 	db: Database,
+	userId: string,
 	sessionId: string,
 	setId: string,
 	input: UpdateSetInput,

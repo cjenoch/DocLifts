@@ -69,7 +69,7 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 		confirm: 'CHANGE'
 	};
 	async function start() {
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		if (!result.ok) throw new Error(result.message);
 		// startSessionForDay does not set user_id until T4; lockActive() filters
 		// on it, so stamp it here or every bind below reports 'Session not found'.
@@ -98,7 +98,7 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 		const run = await start();
 		for (const row of run.rows) {
 			if (row.setRole === 'top' && topReps === null) continue;
-			const result = await updateSetInSession(db, run.sessionId, row.id, {
+			const result = await updateSetInSession(db, userId, run.sessionId, row.id, {
 				executedLoad: row.setRole === 'warmup' ? 30 : row.setRole === 'top' ? topLoad : backoffLoad,
 				executedReps:
 					row.setRole === 'top' ? topReps! : row.setRole === 'backoff' ? backoffReps : 10,
@@ -108,7 +108,7 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 			});
 			expect(result.ok).toBe(true);
 		}
-		await endSession(db, run.sessionId);
+		await endSession(db, userId, run.sessionId);
 	}
 	return { userId, start, completed, binding, exercise };
 }

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
+import { setupTestDb, resetTestDbWithUsers, type TestDb } from '$lib/server/test-db';
 import { startSessionForDay } from '$lib/server/sessions';
 
 const testDb = vi.hoisted(() => ({ db: null as TestDb | null }));
@@ -18,12 +18,16 @@ import { load } from './+page.server';
 import * as s from '$lib/server/db/schema';
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
+let user: { id: string; label: string };
+let userId: string;
 beforeAll(async () => {
 	harness = await setupTestDb();
 	testDb.db = harness.db;
 });
 beforeEach(async () => {
-	await resetTestDb(harness.client);
+	// Reset then create the fixture user, in that order, in one call.
+	[user] = await resetTestDbWithUsers(harness.db, harness.client, 1, 'history');
+	userId = user.id;
 });
 afterAll(async () => {
 	await harness?.end();
@@ -50,7 +54,7 @@ async function sessionInMonth(year: number, monthIndex: number) {
 		.insert(s.days)
 		.values({ programId: program.id, name: 'D', position: 1 })
 		.returning();
-	const started = await startSessionForDay(db, day.id);
+	const started = await startSessionForDay(db, userId, day.id);
 	if (!started.ok) throw new Error(started.message);
 	await db
 		.update(s.sessions)

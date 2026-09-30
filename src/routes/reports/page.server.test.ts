@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
-import { setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
+import { setupTestDb, resetTestDbWithUsers, type TestDb } from '$lib/server/test-db';
 import { endSession, startSessionForDay, updateSetInSession } from '$lib/server/sessions';
 
 const testDb = vi.hoisted(() => ({ db: null as TestDb | null }));
@@ -18,12 +18,16 @@ import { load } from './+page.server';
 import * as s from '$lib/server/db/schema';
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
+let user: { id: string; label: string };
+let userId: string;
 beforeAll(async () => {
 	harness = await setupTestDb();
 	testDb.db = harness.db;
 });
 beforeEach(async () => {
-	await resetTestDb(harness.client);
+	// Reset then create the fixture user, in that order, in one call.
+	[user] = await resetTestDbWithUsers(harness.db, harness.client, 1, 'reports');
+	userId = user.id;
 });
 afterAll(async () => {
 	await harness?.end();
@@ -55,7 +59,7 @@ async function endedSessionWithCompletedSets() {
 			initialLoad: 50
 		}))
 	);
-	const started = await startSessionForDay(db, day.id);
+	const started = await startSessionForDay(db, userId, day.id);
 	if (!started.ok) throw new Error(started.message);
 	const rows = await db
 		.select()
@@ -63,7 +67,7 @@ async function endedSessionWithCompletedSets() {
 		.where(eq(s.sets.sessionId, started.sessionId))
 		.orderBy(asc(s.sets.position));
 	for (const row of rows) {
-		const updated = await updateSetInSession(db, started.sessionId, row.id, {
+		const updated = await updateSetInSession(db, userId, started.sessionId, row.id, {
 			executedLoad: 100,
 			executedReps: 10,
 			executedRir: 1,
@@ -71,7 +75,7 @@ async function endedSessionWithCompletedSets() {
 		});
 		if (!updated.ok) throw new Error(updated.message);
 	}
-	await endSession(db, started.sessionId);
+	await endSession(db, userId, started.sessionId);
 	return started.sessionId;
 }
 

@@ -56,9 +56,9 @@ async function endedSession() {
 		.insert(s.days)
 		.values({ programId: program.id, name: 'D', position: 1 })
 		.returning();
-	const started = await startSessionForDay(db, day.id);
+	const started = await startSessionForDay(db, userId, day.id);
 	if (!started.ok) throw new Error(started.message);
-	await endSession(db, started.sessionId);
+	await endSession(db, userId, started.sessionId);
 	return { programId: program.id, sessionId: started.sessionId };
 }
 

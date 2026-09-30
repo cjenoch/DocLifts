@@ -33,11 +33,13 @@ import {
 	startSessionForDay,
 	updateSetInSession
 } from './sessions';
-import { resetTestDb, setupTestDb, type TestDb } from './test-db';
+import { resetTestDbWithUsers, setupTestDb, type TestDb } from './test-db';
 
 let db: TestDb;
 let client: postgres.Sql;
 let end: () => Promise<void>;
+let user: { id: string; label: string };
+let userId: string;
 
 beforeAll(async () => {
 	const handle = await setupTestDb();
@@ -51,7 +53,11 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-	await resetTestDb(client);
+	// Reset and create the fixture user in one call: resetTestDb truncates
+	// auth.user, so a user created before it is gone by the time the body runs.
+	// resetTestDbWithUsers makes that order the only one available.
+	[user] = await resetTestDbWithUsers(db, client, 1, 'sessions');
+	userId = user.id;
 });
 
 // ---------- Fixture helpers ----------
@@ -140,7 +146,7 @@ describe('startSessionForDay: session-start integrity', () => {
 		// to corrupt. This test confirms the runtime lookup behavior.
 		const fixture = await seedProgram();
 
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -164,8 +170,8 @@ describe('startSessionForDay: session-start integrity', () => {
 			exerciseName: 'Squat'
 		});
 
-		const resultA = await startSessionForDay(db, a.dayId);
-		const resultB = await startSessionForDay(db, b.dayId);
+		const resultA = await startSessionForDay(db, userId, a.dayId);
+		const resultB = await startSessionForDay(db, userId, b.dayId);
 		expect(resultA.ok).toBe(true);
 		expect(resultB.ok).toBe(true);
 		if (!resultA.ok || !resultB.ok) return;
@@ -180,7 +186,7 @@ describe('startSessionForDay: session-start integrity', () => {
 
 	it('returns 404 when the day does not exist', async () => {
 		// A syntactically valid but non-existent UUID.
-		const result = await startSessionForDay(db, '00000000-0000-0000-0000-000000000000');
+		const result = await startSessionForDay(db, userId, '00000000-0000-0000-0000-000000000000');
 		expect(result).toEqual({
 			ok: false,
 			status: 404,
@@ -189,14 +195,14 @@ describe('startSessionForDay: session-start integrity', () => {
 	});
 
 	it('does not create a session when the day does not exist', async () => {
-		await startSessionForDay(db, '00000000-0000-0000-0000-000000000000');
+		await startSessionForDay(db, userId, '00000000-0000-0000-0000-000000000000');
 		const rows = await db.select().from(sessions);
 		expect(rows).toHaveLength(0);
 	});
 
 	it('sets session.startedAt and leaves endedAt null', async () => {
 		const fixture = await seedProgram();
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -213,8 +219,8 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 		// the same day must return the same session id and not insert a phantom.
 		const fixture = await seedProgram();
 
-		const first = await startSessionForDay(db, fixture.dayId);
-		const second = await startSessionForDay(db, fixture.dayId);
+		const first = await startSessionForDay(db, userId, fixture.dayId);
+		const second = await startSessionForDay(db, userId, fixture.dayId);
 		expect(first.ok).toBe(true);
 		expect(second.ok).toBe(true);
 		if (!first.ok || !second.ok) return;
@@ -233,7 +239,7 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 		// would corrupt the snapshot-immutability invariant and double the set
 		// count for the open session.
 		const fixture = await seedProgram();
-		const first = await startSessionForDay(db, fixture.dayId);
+		const first = await startSessionForDay(db, userId, fixture.dayId);
 		expect(first.ok).toBe(true);
 		if (!first.ok) return;
 
@@ -242,7 +248,7 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 			.from(sets)
 			.where(eq(sets.sessionId, first.sessionId));
 
-		await startSessionForDay(db, fixture.dayId);
+		await startSessionForDay(db, userId, fixture.dayId);
 
 		const after = await db
 			.select({ id: sets.id })
@@ -256,12 +262,12 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 		// the first must free the day for a fresh start.
 		const fixture = await seedProgram();
 
-		const first = await startSessionForDay(db, fixture.dayId);
+		const first = await startSessionForDay(db, userId, fixture.dayId);
 		expect(first.ok).toBe(true);
 		if (!first.ok) return;
-		await endSession(db, first.sessionId);
+		await endSession(db, userId, first.sessionId);
 
-		const second = await startSessionForDay(db, fixture.dayId);
+		const second = await startSessionForDay(db, userId, fixture.dayId);
 		expect(second.ok).toBe(true);
 		if (!second.ok) return;
 		expect(second.sessionId).not.toBe(first.sessionId);
@@ -269,7 +275,7 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 
 	it('creates a new session when previous open session is soft-deleted', async () => {
 		const fixture = await seedProgram();
-		const first = await startSessionForDay(db, fixture.dayId);
+		const first = await startSessionForDay(db, userId, fixture.dayId);
 		expect(first.ok).toBe(true);
 		if (!first.ok) return;
 
@@ -278,7 +284,7 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 			.set({ deletedAt: new Date() })
 			.where(eq(sessions.id, first.sessionId));
 
-		const second = await startSessionForDay(db, fixture.dayId);
+		const second = await startSessionForDay(db, userId, fixture.dayId);
 		expect(second.ok).toBe(true);
 		if (!second.ok) return;
 		expect(second.sessionId).not.toBe(first.sessionId);
@@ -296,7 +302,7 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 		// helper — the database itself blocks it. This is the safety net for the
 		// TOCTOU race between two concurrent startSessionForDay calls.
 		const fixture = await seedProgram();
-		const first = await startSessionForDay(db, fixture.dayId);
+		const first = await startSessionForDay(db, userId, fixture.dayId);
 		expect(first.ok).toBe(true);
 		if (!first.ok) return;
 
@@ -328,7 +334,7 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 		const fixture = await seedProgram();
 
 		const settled = await Promise.allSettled(
-			Array.from({ length: 4 }, () => startSessionForDay(db, fixture.dayId))
+			Array.from({ length: 4 }, () => startSessionForDay(db, userId, fixture.dayId))
 		);
 
 		const rejected = settled.filter((r) => r.status === 'rejected');
@@ -357,7 +363,7 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 describe('startSessionForDay: snapshot semantics', () => {
 	it('snapshots prescribed set structure into the sets table', async () => {
 		const fixture = await seedProgram();
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -426,7 +432,7 @@ describe('startSessionForDay: snapshot semantics', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -448,7 +454,7 @@ describe('startSessionForDay: snapshot semantics', () => {
 describe('startSessionForDay: prefill pipeline', () => {
 	it('prefills prescribedLoad from initialLoad when no history exists', async () => {
 		const fixture = await seedProgram({ initialLoad: 95, equipmentType: 'bodyweight' });
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -492,7 +498,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			executedRir: 1
 		});
 
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -542,7 +548,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			executedReps: null
 		});
 
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -633,7 +639,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -740,7 +746,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -850,7 +856,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -957,7 +963,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1039,7 +1045,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			prescribedRir: 1
 		});
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1211,7 +1217,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1395,7 +1401,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1429,11 +1435,11 @@ describe('startSessionForDay: prefill pipeline', () => {
 describe('endSession', () => {
 	it('stamps endedAt on an open session', async () => {
 		const fixture = await seedProgram();
-		const start = await startSessionForDay(db, fixture.dayId);
+		const start = await startSessionForDay(db, userId, fixture.dayId);
 		if (!start.ok) throw new Error('seed failed');
 
 		const before = Date.now();
-		const result = await endSession(db, start.sessionId);
+		const result = await endSession(db, userId, start.sessionId);
 		expect(result.updated).toBe(true);
 
 		const [s] = await db.select().from(sessions).where(eq(sessions.id, start.sessionId));
@@ -1445,17 +1451,17 @@ describe('endSession', () => {
 		// And critically, must NOT overwrite the original endedAt — a silent
 		// timestamp shift on resubmit would corrupt history.
 		const fixture = await seedProgram();
-		const start = await startSessionForDay(db, fixture.dayId);
+		const start = await startSessionForDay(db, userId, fixture.dayId);
 		if (!start.ok) throw new Error('seed failed');
 
-		await endSession(db, start.sessionId);
+		await endSession(db, userId, start.sessionId);
 		const [first] = await db
 			.select({ endedAt: sessions.endedAt })
 			.from(sessions)
 			.where(eq(sessions.id, start.sessionId));
 		const firstEndedAt = first.endedAt;
 
-		const second = await endSession(db, start.sessionId);
+		const second = await endSession(db, userId, start.sessionId);
 		expect(second.updated).toBe(false);
 
 		const [after] = await db
@@ -1466,7 +1472,7 @@ describe('endSession', () => {
 	});
 
 	it('returns updated=false for a nonexistent session', async () => {
-		const result = await endSession(db, '00000000-0000-0000-0000-000000000000');
+		const result = await endSession(db, userId, '00000000-0000-0000-0000-000000000000');
 		expect(result.updated).toBe(false);
 	});
 
@@ -1475,12 +1481,12 @@ describe('endSession', () => {
 		// index `sessions_one_open_per_day`). Ending one must leave the other open.
 		const fixtureA = await seedProgram({ programName: 'A' });
 		const fixtureB = await seedProgram({ programName: 'B', exerciseName: 'Squat' });
-		const a = await startSessionForDay(db, fixtureA.dayId);
-		const b = await startSessionForDay(db, fixtureB.dayId);
+		const a = await startSessionForDay(db, userId, fixtureA.dayId);
+		const b = await startSessionForDay(db, userId, fixtureB.dayId);
 		if (!a.ok || !b.ok) throw new Error('seed failed');
 		expect(a.sessionId).not.toBe(b.sessionId);
 
-		await endSession(db, a.sessionId);
+		await endSession(db, userId, a.sessionId);
 
 		const [sb] = await db.select().from(sessions).where(eq(sessions.id, b.sessionId));
 		expect(sb.endedAt).toBeNull();
@@ -1491,7 +1497,7 @@ describe('endSession', () => {
 
 async function setupOpenSet(): Promise<{ sessionId: string; setId: string }> {
 	const fixture = await seedProgram();
-	const start = await startSessionForDay(db, fixture.dayId);
+	const start = await startSessionForDay(db, userId, fixture.dayId);
 	if (!start.ok) throw new Error('setupOpenSet: startSessionForDay failed');
 	const [set] = await db.select().from(sets).where(eq(sets.sessionId, start.sessionId));
 	return { sessionId: start.sessionId, setId: set.id };
@@ -1500,7 +1506,7 @@ async function setupOpenSet(): Promise<{ sessionId: string; setId: string }> {
 describe('updateSetInSession', () => {
 	it('writes executed values + notes on valid input', async () => {
 		const { sessionId, setId } = await setupOpenSet();
-		const result = await updateSetInSession(db, sessionId, setId, {
+		const result = await updateSetInSession(db, userId, sessionId, setId, {
 			executedLoad: '105.5',
 			executedReps: '5',
 			executedRir: '1',
@@ -1517,7 +1523,7 @@ describe('updateSetInSession', () => {
 
 	it('treats empty strings on numeric fields and notes as null', async () => {
 		const { sessionId, setId } = await setupOpenSet();
-		const result = await updateSetInSession(db, sessionId, setId, {
+		const result = await updateSetInSession(db, userId, sessionId, setId, {
 			executedLoad: '',
 			executedReps: '',
 			executedRir: '',
@@ -1534,7 +1540,7 @@ describe('updateSetInSession', () => {
 
 	it('treats whitespace-only notes as null', async () => {
 		const { sessionId, setId } = await setupOpenSet();
-		await updateSetInSession(db, sessionId, setId, {
+		await updateSetInSession(db, userId, sessionId, setId, {
 			executedLoad: '100',
 			executedReps: '5',
 			executedRir: '1',
@@ -1547,6 +1553,7 @@ describe('updateSetInSession', () => {
 	it('returns 404 when the session does not exist', async () => {
 		const result = await updateSetInSession(
 			db,
+			userId,
 			'00000000-0000-0000-0000-000000000000',
 			'00000000-0000-0000-0000-000000000001',
 			{ executedLoad: '100', executedReps: '5', executedRir: '1', notes: '' }
@@ -1562,9 +1569,9 @@ describe('updateSetInSession', () => {
 	it('returns 409 on an ended session and does not mutate the row', async () => {
 		// The stale-tab guard — history is append-only in practice.
 		const { sessionId, setId } = await setupOpenSet();
-		await endSession(db, sessionId);
+		await endSession(db, userId, sessionId);
 
-		const result = await updateSetInSession(db, sessionId, setId, {
+		const result = await updateSetInSession(db, userId, sessionId, setId, {
 			executedLoad: '999',
 			executedReps: '99',
 			executedRir: '0',
@@ -1585,10 +1592,11 @@ describe('updateSetInSession', () => {
 
 	it('allows editing an ended session when explicitly opted-in', async () => {
 		const { sessionId, setId } = await setupOpenSet();
-		await endSession(db, sessionId);
+		await endSession(db, userId, sessionId);
 
 		const result = await updateSetInSession(
 			db,
+			userId,
 			sessionId,
 			setId,
 			{
@@ -1610,11 +1618,12 @@ describe('updateSetInSession', () => {
 
 	it('returns 404 when attempting to edit a soft-deleted ended session even with allowEndedSession', async () => {
 		const { sessionId, setId } = await setupOpenSet();
-		await endSession(db, sessionId);
+		await endSession(db, userId, sessionId);
 		await db.update(sessions).set({ deletedAt: new Date() }).where(eq(sessions.id, sessionId));
 
 		const result = await updateSetInSession(
 			db,
+			userId,
 			sessionId,
 			setId,
 			{
@@ -1636,7 +1645,7 @@ describe('updateSetInSession', () => {
 
 	it('returns 400 with fieldErrors on invalid input and does not mutate', async () => {
 		const { sessionId, setId } = await setupOpenSet();
-		const result = await updateSetInSession(db, sessionId, setId, {
+		const result = await updateSetInSession(db, userId, sessionId, setId, {
 			executedLoad: '-5',
 			executedReps: 'abc',
 			executedRir: '11',
@@ -1661,12 +1670,12 @@ describe('updateSetInSession', () => {
 		// open session per day is the cap.
 		const fixtureA = await seedProgram({ programName: 'A' });
 		const fixtureB = await seedProgram({ programName: 'B', exerciseName: 'Squat' });
-		const a = await startSessionForDay(db, fixtureA.dayId);
-		const b = await startSessionForDay(db, fixtureB.dayId);
+		const a = await startSessionForDay(db, userId, fixtureA.dayId);
+		const b = await startSessionForDay(db, userId, fixtureB.dayId);
 		if (!a.ok || !b.ok) throw new Error('seed failed');
 		const [setA] = await db.select().from(sets).where(eq(sets.sessionId, a.sessionId));
 
-		const result = await updateSetInSession(db, b.sessionId, setA.id, {
+		const result = await updateSetInSession(db, userId, b.sessionId, setA.id, {
 			executedLoad: '999',
 			executedReps: '1',
 			executedRir: '0',
@@ -1695,7 +1704,7 @@ describe('startSessionForDay: snapshot immutability after template edit', () => 
 			// targetRepsMin: 3, targetRepsMax: 5 are the seedProgram defaults
 		});
 
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1731,7 +1740,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		// prescribedLoad, not zero or any other sentinel.
 		const fixture = await seedProgram({ initialLoad: null });
 
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1751,7 +1760,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 			initialLoad: 113
 		});
 
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1771,7 +1780,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		const fixture = await seedProgram({ initialLoad: null });
 
 		// Complete a session with an executed load.
-		const firstResult = await startSessionForDay(db, fixture.dayId);
+		const firstResult = await startSessionForDay(db, userId, fixture.dayId);
 		expect(firstResult.ok).toBe(true);
 		if (!firstResult.ok) return;
 
@@ -1791,7 +1800,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 			.where(eq(sessions.id, firstResult.sessionId));
 
 		// Second session: prefill should pick up the executedLoad from history.
-		const secondResult = await startSessionForDay(db, fixture.dayId);
+		const secondResult = await startSessionForDay(db, userId, fixture.dayId);
 		expect(secondResult.ok).toBe(true);
 		if (!secondResult.ok) return;
 
@@ -1842,7 +1851,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 			prescribedRir: 1
 		});
 
-		const result = await startSessionForDay(db, fixture.dayId);
+		const result = await startSessionForDay(db, userId, fixture.dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1938,7 +1947,7 @@ describe('startSessionForDay: pairwise prescribedSetId and prescribedLoad correc
 			})
 			.returning();
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -1988,14 +1997,15 @@ describe('soft-delete and hard-delete session guards', () => {
 			exerciseName: `Bench Press Other ${crypto.randomUUID().slice(0, 6)}`
 		});
 
-		const started = await startSessionForDay(db, owner.dayId);
+		const started = await startSessionForDay(db, userId, owner.dayId);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
-		await endSession(db, started.sessionId);
-		await softDeleteEndedSession(db, started.sessionId);
+		await endSession(db, userId, started.sessionId);
+		await softDeleteEndedSession(db, userId, started.sessionId);
 
 		const scoped = await loadProgramOwnedSession(
 			db,
+			userId,
 			started.sessionId,
 			other.programId,
 			'deleted-only'
@@ -2019,14 +2029,15 @@ describe('soft-delete and hard-delete session guards', () => {
 			exerciseName: `Bench Press DelOther ${crypto.randomUUID().slice(0, 6)}`
 		});
 
-		const started = await startSessionForDay(db, owner.dayId);
+		const started = await startSessionForDay(db, userId, owner.dayId);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
-		await endSession(db, started.sessionId);
-		await softDeleteEndedSession(db, started.sessionId);
+		await endSession(db, userId, started.sessionId);
+		await softDeleteEndedSession(db, userId, started.sessionId);
 
 		const scoped = await loadProgramOwnedSession(
 			db,
+			userId,
 			started.sessionId,
 			other.programId,
 			'deleted-only'
@@ -2042,7 +2053,7 @@ describe('soft-delete and hard-delete session guards', () => {
 
 	it('endSession returns updated=false for a soft-deleted session and does not stamp endedAt', async () => {
 		const fixture = await seedProgram();
-		const started = await startSessionForDay(db, fixture.dayId);
+		const started = await startSessionForDay(db, userId, fixture.dayId);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
 
@@ -2051,7 +2062,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			.set({ deletedAt: new Date() })
 			.where(eq(sessions.id, started.sessionId));
 
-		const result = await endSession(db, started.sessionId);
+		const result = await endSession(db, userId, started.sessionId);
 		expect(result.updated).toBe(false);
 
 		const [row] = await db
@@ -2063,11 +2074,11 @@ describe('soft-delete and hard-delete session guards', () => {
 
 	it('softDeleteEndedSession rejects open sessions and does not mutate deletedAt', async () => {
 		const fixture = await seedProgram();
-		const started = await startSessionForDay(db, fixture.dayId);
+		const started = await startSessionForDay(db, userId, fixture.dayId);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
 
-		const result = await softDeleteEndedSession(db, started.sessionId);
+		const result = await softDeleteEndedSession(db, userId, started.sessionId);
 		expect(result.ok).toBe(false);
 		if (result.ok) return;
 		expect(result.status).toBe(404);
@@ -2081,29 +2092,29 @@ describe('soft-delete and hard-delete session guards', () => {
 
 	it('restoreSoftDeletedSession clears deletedAt and listDeletedSessionsForProgram reflects it', async () => {
 		const fixture = await seedProgram();
-		const started = await startSessionForDay(db, fixture.dayId);
+		const started = await startSessionForDay(db, userId, fixture.dayId);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
-		await endSession(db, started.sessionId);
-		await softDeleteEndedSession(db, started.sessionId);
+		await endSession(db, userId, started.sessionId);
+		await softDeleteEndedSession(db, userId, started.sessionId);
 
-		let trashed = await listDeletedSessionsForProgram(db, fixture.programId);
+		let trashed = await listDeletedSessionsForProgram(db, userId, fixture.programId);
 		expect(trashed.map((s) => s.id)).toContain(started.sessionId);
 
-		const restored = await restoreSoftDeletedSession(db, started.sessionId);
+		const restored = await restoreSoftDeletedSession(db, userId, started.sessionId);
 		expect(restored.ok).toBe(true);
 
-		trashed = await listDeletedSessionsForProgram(db, fixture.programId);
+		trashed = await listDeletedSessionsForProgram(db, userId, fixture.programId);
 		expect(trashed.map((s) => s.id)).not.toContain(started.sessionId);
 	});
 
 	it('hardDeleteSession removes session and cascades set/painEvent rows', async () => {
 		const fixture = await seedProgram();
-		const started = await startSessionForDay(db, fixture.dayId);
+		const started = await startSessionForDay(db, userId, fixture.dayId);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
-		await endSession(db, started.sessionId);
-		await softDeleteEndedSession(db, started.sessionId);
+		await endSession(db, userId, started.sessionId);
+		await softDeleteEndedSession(db, userId, started.sessionId);
 
 		const [seededSet] = await db
 			.select({ id: sets.id })
@@ -2137,7 +2148,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			.where(eq(painEvents.id, pain.id));
 		expect(beforePain).toHaveLength(1);
 
-		const del = await hardDeleteSession(db, started.sessionId);
+		const del = await hardDeleteSession(db, userId, started.sessionId);
 		expect(del.ok).toBe(true);
 
 		const [sessionRow] = await db
@@ -2161,18 +2172,18 @@ describe('soft-delete and hard-delete session guards', () => {
 
 	it('purgeDeletedSessionsForProgram removes only soft-deleted rows', async () => {
 		const fixture = await seedProgram();
-		const a = await startSessionForDay(db, fixture.dayId);
+		const a = await startSessionForDay(db, userId, fixture.dayId);
 		expect(a.ok).toBe(true);
 		if (!a.ok) return;
-		await endSession(db, a.sessionId);
-		await softDeleteEndedSession(db, a.sessionId);
+		await endSession(db, userId, a.sessionId);
+		await softDeleteEndedSession(db, userId, a.sessionId);
 
-		const b = await startSessionForDay(db, fixture.dayId);
+		const b = await startSessionForDay(db, userId, fixture.dayId);
 		expect(b.ok).toBe(true);
 		if (!b.ok) return;
-		await endSession(db, b.sessionId);
+		await endSession(db, userId, b.sessionId);
 
-		const result = await purgeDeletedSessionsForProgram(db, fixture.programId);
+		const result = await purgeDeletedSessionsForProgram(db, userId, fixture.programId);
 		expect(result).toEqual({ ok: true, purged: 1 });
 
 		const all = await db
@@ -2286,7 +2297,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -2394,7 +2405,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -2503,7 +2514,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			}
 		]);
 
-		const result = await startSessionForDay(db, day.id);
+		const result = await startSessionForDay(db, userId, day.id);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 
@@ -2544,15 +2555,15 @@ describe('soft-delete and hard-delete session guards', () => {
 		// connection, then runs. B was never in the confirmed count, so it
 		// must survive.
 		const fixture = await seedProgram();
-		const a = await startSessionForDay(db, fixture.dayId);
+		const a = await startSessionForDay(db, userId, fixture.dayId);
 		expect(a.ok).toBe(true);
 		if (!a.ok) return;
-		await endSession(db, a.sessionId);
-		await softDeleteEndedSession(db, a.sessionId);
-		const b = await startSessionForDay(db, fixture.dayId);
+		await endSession(db, userId, a.sessionId);
+		await softDeleteEndedSession(db, userId, a.sessionId);
+		const b = await startSessionForDay(db, userId, fixture.dayId);
 		expect(b.ok).toBe(true);
 		if (!b.ok) return;
-		await endSession(db, b.sessionId);
+		await endSession(db, userId, b.sessionId);
 
 		let injected = false;
 		const originalThen = QueryPromise.prototype.then;
@@ -2563,14 +2574,14 @@ describe('soft-delete and hard-delete session guards', () => {
 		) {
 			if (this instanceof PgDeleteBase && !injected) {
 				injected = true;
-				return softDeleteEndedSession(db, b.sessionId).then(() =>
+				return softDeleteEndedSession(db, userId, b.sessionId).then(() =>
 					originalThen.call(this, onFulfilled, onRejected)
 				);
 			}
 			return originalThen.call(this, onFulfilled, onRejected);
 		});
 		try {
-			const result = await purgeDeletedSessionsForProgram(db, fixture.programId, 1);
+			const result = await purgeDeletedSessionsForProgram(db, userId, fixture.programId, 1);
 			expect(result).toEqual({ ok: true, purged: 1 });
 		} finally {
 			spy.mockRestore();
@@ -2587,11 +2598,11 @@ describe('soft-delete and hard-delete session guards', () => {
 
 	it('hardDeleteSession refuses (409) when the session is restored between check and delete', async () => {
 		const fixture = await seedProgram();
-		const started = await startSessionForDay(db, fixture.dayId);
+		const started = await startSessionForDay(db, userId, fixture.dayId);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
-		await endSession(db, started.sessionId);
-		await softDeleteEndedSession(db, started.sessionId);
+		await endSession(db, userId, started.sessionId);
+		await softDeleteEndedSession(db, userId, started.sessionId);
 
 		// Simulate the race: hardDeleteSession's loadSession pre-check runs
 		// first, then a restore commits before the DELETE. We can't interleave
@@ -2600,19 +2611,19 @@ describe('soft-delete and hard-delete session guards', () => {
 		// would succeed but BEFORE the delete — approximated by restoring and
 		// verifying the in-transaction isNotNull guard makes it a 409 no-op.
 		// Path A (normal): soft-deleted → hard delete succeeds. Done first.
-		const del = await hardDeleteSession(db, started.sessionId);
+		const del = await hardDeleteSession(db, userId, started.sessionId);
 		expect(del.ok).toBe(true);
 
 		// Path B (race): restore, then hard-delete again. loadSession
 		// deleted-only returns 404 (session is live), so nothing is deleted.
-		const second = await startSessionForDay(db, fixture.dayId);
+		const second = await startSessionForDay(db, userId, fixture.dayId);
 		expect(second.ok).toBe(true);
 		if (!second.ok) return;
-		await endSession(db, second.sessionId);
-		await softDeleteEndedSession(db, second.sessionId);
-		await restoreSoftDeletedSession(db, second.sessionId);
+		await endSession(db, userId, second.sessionId);
+		await softDeleteEndedSession(db, userId, second.sessionId);
+		await restoreSoftDeletedSession(db, userId, second.sessionId);
 
-		const delLive = await hardDeleteSession(db, second.sessionId);
+		const delLive = await hardDeleteSession(db, userId, second.sessionId);
 		expect(delLive.ok).toBe(false);
 		if (delLive.ok) return;
 		expect(delLive.status).toBe(404);

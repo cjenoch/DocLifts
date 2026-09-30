@@ -81,7 +81,7 @@ async function startWorkout() {
 			initialLoad: 50
 		}))
 	);
-	const started = await startSessionForDay(db, day.id);
+	const started = await startSessionForDay(db, userId, day.id);
 	if (!started.ok) throw new Error(started.message);
 	// sessions.ts does not set user_id until T4; the machine actions reach
 	// lockActive(), which filters on it.
@@ -99,7 +99,8 @@ it('load returns 404 for a session id absent from the database', async () => {
 	const thrown = await Promise.resolve(
 		load({
 			params: { id: randomUUID() },
-			url: new URL('http://test.local/')
+			url: new URL('http://test.local/'),
+			locals: { user: { id: userId } }
 		} as Parameters<typeof load>[0])
 	).catch((e: unknown) => e);
 	expect((thrown as { status?: number })?.status).toBe(404);

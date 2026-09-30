@@ -80,7 +80,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		return acc;
 	}, {});
 
-	const trashSessions = await listDeletedSessionsForProgram(db, program.id, 50);
+	const trashSessions = await listDeletedSessionsForProgram(
+		db,
+		requireUser(locals).id,
+		program.id,
+		50
+	);
 
 	// True trash count for the purge expectedCount guard — the display list
 	// above is capped at 50, but the purgeTrash action re-counts with limit
@@ -130,7 +135,7 @@ const purgeTrashSchema = z.object({
 });
 
 export const actions: Actions = {
-	startSession: async ({ request }) => {
+	startSession: async ({ request, locals }) => {
 		const form = await request.formData();
 		const dayId = form.get('dayId');
 		if (typeof dayId !== 'string' || dayId.length === 0) {
@@ -141,7 +146,7 @@ export const actions: Actions = {
 			return fail(400, { message: 'Invalid dayId' });
 		}
 
-		const result = await startSessionForDay(db, parsedDayId.data);
+		const result = await startSessionForDay(db, requireUser(locals).id, parsedDayId.data);
 		if (!result.ok) {
 			return fail(result.status, { message: result.message });
 		}
@@ -149,7 +154,7 @@ export const actions: Actions = {
 		redirect(303, `/sessions/${result.sessionId}`);
 	},
 
-	deleteSession: async ({ request, params }) => {
+	deleteSession: async ({ request, params, locals }) => {
 		const form = await request.formData();
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid program id' });
@@ -163,6 +168,7 @@ export const actions: Actions = {
 
 		const ownedSession = await loadProgramOwnedSession(
 			db,
+			requireUser(locals).id,
 			parsed.data.sessionId,
 			params.id,
 			'ended-active'
@@ -171,14 +177,14 @@ export const actions: Actions = {
 			return fail(404, { message: 'Session not found for this program' });
 		}
 
-		const result = await softDeleteEndedSession(db, parsed.data.sessionId);
+		const result = await softDeleteEndedSession(db, requireUser(locals).id, parsed.data.sessionId);
 		if (!result.ok) {
 			return fail(result.status, { message: result.message });
 		}
 		return { ok: true };
 	},
 
-	restoreSession: async ({ request, params }) => {
+	restoreSession: async ({ request, params, locals }) => {
 		const form = await request.formData();
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid program id' });
@@ -192,6 +198,7 @@ export const actions: Actions = {
 
 		const ownedSession = await loadProgramOwnedSession(
 			db,
+			requireUser(locals).id,
 			parsed.data.sessionId,
 			params.id,
 			'deleted-only'
@@ -200,14 +207,18 @@ export const actions: Actions = {
 			return fail(404, { message: 'Session not found for this program' });
 		}
 
-		const result = await restoreSoftDeletedSession(db, parsed.data.sessionId);
+		const result = await restoreSoftDeletedSession(
+			db,
+			requireUser(locals).id,
+			parsed.data.sessionId
+		);
 		if (!result.ok) {
 			return fail(result.status, { message: result.message });
 		}
 		return { ok: true };
 	},
 
-	permanentDeleteSession: async ({ request, params }) => {
+	permanentDeleteSession: async ({ request, params, locals }) => {
 		const form = await request.formData();
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid program id' });
@@ -222,6 +233,7 @@ export const actions: Actions = {
 
 		const ownedSession = await loadProgramOwnedSession(
 			db,
+			requireUser(locals).id,
 			parsed.data.sessionId,
 			params.id,
 			'deleted-only'
@@ -230,14 +242,14 @@ export const actions: Actions = {
 			return fail(404, { message: 'Session not found for this program' });
 		}
 
-		const result = await hardDeleteSession(db, parsed.data.sessionId);
+		const result = await hardDeleteSession(db, requireUser(locals).id, parsed.data.sessionId);
 		if (!result.ok) {
 			return fail(result.status, { message: result.message });
 		}
 		return { ok: true };
 	},
 
-	purgeTrash: async ({ request, params }) => {
+	purgeTrash: async ({ request, params, locals }) => {
 		const form = await request.formData();
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid program id' });
@@ -251,7 +263,12 @@ export const actions: Actions = {
 		}
 
 		// Count check and delete are one transaction inside the helper.
-		const purged = await purgeDeletedSessionsForProgram(db, params.id, parsed.data.expectedCount);
+		const purged = await purgeDeletedSessionsForProgram(
+			db,
+			requireUser(locals).id,
+			params.id,
+			parsed.data.expectedCount
+		);
 		if (!purged.ok) {
 			return fail(purged.status, { message: purged.message });
 		}

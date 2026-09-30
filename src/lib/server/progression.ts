@@ -272,6 +272,7 @@ export function defaultIncrement(isLowerBody: boolean): number {
  */
 export async function computeConsecutiveBackwards(
 	db: Database,
+	userId: string,
 	exerciseId: string,
 	setRole: SetRole,
 	position: number,
@@ -350,6 +351,7 @@ export type HistoryRow = {
  */
 export async function getLastCompletedSet(
 	db: Database,
+	userId: string,
 	exerciseId: string,
 	setRole: SetRole,
 	position: number,

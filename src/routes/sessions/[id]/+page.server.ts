@@ -35,7 +35,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		error(400, 'Invalid session id');
 	}
 
-	const session = await loadSession(db, parsedSessionId.data, 'active');
+	const session = await loadSession(db, requireUser(locals).id, parsedSessionId.data, 'active');
 	if (!session) {
 		error(404, 'Session not found');
 	}
@@ -108,7 +108,15 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	// executed value shown right above it in the same row.
 	const histories = await Promise.all(
 		sessionSets.map((s) =>
-			getLastCompletedSet(db, s.exerciseId, s.setRole, s.position, session.id, s)
+			getLastCompletedSet(
+				db,
+				requireUser(locals).id,
+				s.exerciseId,
+				s.setRole,
+				s.position,
+				session.id,
+				s
+			)
 		)
 	);
 
@@ -176,7 +184,7 @@ const deleteEndedSessionSchema = z.object({
 });
 
 export const actions: Actions = {
-	removeSet: async ({ request, params }) => {
+	removeSet: async ({ request, params, locals }) => {
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid session id' });
 		}
@@ -189,7 +197,7 @@ export const actions: Actions = {
 			throw e;
 		}
 	},
-	appendSet: async ({ request, params }) => {
+	appendSet: async ({ request, params, locals }) => {
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid session id' });
 		}
@@ -247,16 +255,16 @@ export const actions: Actions = {
 		}
 		redirect(303, `/sessions/${params.id}`);
 	},
-	endSession: async ({ params }) => {
+	endSession: async ({ params, locals }) => {
 		const parsedSessionId = uuidParamSchema.safeParse(params.id);
 		if (!parsedSessionId.success) {
 			return fail(400, { message: 'Invalid session id' });
 		}
-		await endSession(db, parsedSessionId.data);
+		await endSession(db, requireUser(locals).id, parsedSessionId.data);
 		redirect(303, '/');
 	},
 
-	updateSet: async ({ request, params }) => {
+	updateSet: async ({ request, params, locals }) => {
 		const parsedSessionId = uuidParamSchema.safeParse(params.id);
 		if (!parsedSessionId.success) {
 			return fail(400, { setId: null, message: 'Invalid session id' });
@@ -278,6 +286,7 @@ export const actions: Actions = {
 
 		const result = await updateSetInSession(
 			db,
+			requireUser(locals).id,
 			parsedSessionId.data,
 			setId,
 			{
@@ -304,7 +313,7 @@ export const actions: Actions = {
 		return { savedSetId: result.setId };
 	},
 
-	deleteSession: async ({ request, params }) => {
+	deleteSession: async ({ request, params, locals }) => {
 		const parsedSessionId = uuidParamSchema.safeParse(params.id);
 		if (!parsedSessionId.success) {
 			return fail(400, { message: 'Invalid session id' });
@@ -318,12 +327,17 @@ export const actions: Actions = {
 			return fail(400, { message: 'Press d in the delete box to confirm' });
 		}
 
-		const activeSession = await loadSession(db, parsedSessionId.data, 'ended-active');
+		const activeSession = await loadSession(
+			db,
+			requireUser(locals).id,
+			parsedSessionId.data,
+			'ended-active'
+		);
 		if (!activeSession) {
 			return fail(404, { message: 'Session not found' });
 		}
 
-		const result = await softDeleteEndedSession(db, parsedSessionId.data);
+		const result = await softDeleteEndedSession(db, requireUser(locals).id, parsedSessionId.data);
 		if (!result.ok) {
 			return fail(result.status, { message: result.message });
 		}

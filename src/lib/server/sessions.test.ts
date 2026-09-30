@@ -308,6 +308,7 @@ describe('startSessionForDay: one-open-per-day idempotency', () => {
 
 		await expect(
 			db.insert(sessions).values({
+				userId,
 				dayId: fixture.dayId,
 				programId: fixture.programId,
 				endedAt: null
@@ -481,6 +482,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [priorSession] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: fixture.dayId,
 				programId: fixture.programId,
 				startedAt: priorStartedAt,
@@ -488,6 +490,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			})
 			.returning();
 		await db.insert(sets).values({
+			userId,
 			sessionId: priorSession.id,
 			exerciseId: fixture.exerciseId,
 			position: 1,
@@ -533,12 +536,14 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [openSession] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: otherDay.id,
 				programId: otherProgram.id,
 				endedAt: null
 			})
 			.returning();
 		await db.insert(sets).values({
+			userId,
 			sessionId: openSession.id,
 			exerciseId: fixture.exerciseId,
 			position: 1,
@@ -606,6 +611,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [priorSession] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(Date.now() - 120_000),
@@ -614,6 +620,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			.returning();
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: priorSession.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -626,6 +633,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				prescribedRir: 1
 			},
 			{
+				userId,
 				sessionId: priorSession.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -713,6 +721,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [priorSession] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(Date.now() - 120_000),
@@ -721,6 +730,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			.returning();
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: priorSession.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -733,6 +743,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				prescribedRir: 1
 			},
 			{
+				userId,
 				sessionId: priorSession.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -823,6 +834,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [priorSession] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(Date.now() - 120_000),
@@ -831,6 +843,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			.returning();
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: priorSession.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -843,6 +856,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				prescribedRir: 1
 			},
 			{
+				userId,
 				sessionId: priorSession.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -930,6 +944,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [priorSession] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(Date.now() - 120_000),
@@ -938,6 +953,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			.returning();
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: priorSession.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -950,6 +966,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				prescribedRir: 1
 			},
 			{
+				userId,
 				sessionId: priorSession.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -1026,6 +1043,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [priorSession] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(Date.now() - 120_000),
@@ -1033,6 +1051,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			})
 			.returning();
 		await db.insert(sets).values({
+			userId,
 			sessionId: priorSession.id,
 			exerciseId: ex.id,
 			position: 1,
@@ -1111,6 +1130,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [s1] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(base),
@@ -1120,6 +1140,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [s2] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(base + 120_000),
@@ -1129,6 +1150,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [s3] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(base + 240_000),
@@ -1138,6 +1160,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: s1.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -1151,6 +1174,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 20_000)
 			},
 			{
+				userId,
 				sessionId: s1.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -1164,6 +1188,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 20_000)
 			},
 			{
+				userId,
 				sessionId: s2.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -1177,6 +1202,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 140_000)
 			},
 			{
+				userId,
 				sessionId: s2.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -1190,6 +1216,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 140_000)
 			},
 			{
+				userId,
 				sessionId: s3.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -1203,6 +1230,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 260_000)
 			},
 			{
+				userId,
 				sessionId: s3.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -1295,6 +1323,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [s1] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(base),
@@ -1304,6 +1333,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [s2] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(base + 120_000),
@@ -1313,6 +1343,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 		const [s3] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(base + 240_000),
@@ -1322,6 +1353,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: s1.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -1335,6 +1367,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 20_000)
 			},
 			{
+				userId,
 				sessionId: s1.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -1348,6 +1381,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 20_000)
 			},
 			{
+				userId,
 				sessionId: s2.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -1361,6 +1395,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 140_000)
 			},
 			{
+				userId,
 				sessionId: s2.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -1374,6 +1409,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 140_000)
 			},
 			{
+				userId,
 				sessionId: s3.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -1387,6 +1423,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 				loggedAt: new Date(base + 260_000)
 			},
 			{
+				userId,
 				sessionId: s3.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -1827,6 +1864,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		const [priorSession] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: fixture.dayId,
 				programId: fixture.programId,
 				startedAt: priorStartedAt,
@@ -1839,6 +1877,7 @@ describe('startSessionForDay: null initialLoad cold start', () => {
 		// This proves pipeline wiring is engine output -> snap output, not raw
 		// history copy.
 		await db.insert(sets).values({
+			userId,
 			sessionId: priorSession.id,
 			exerciseId: fixture.exerciseId,
 			position: 1,
@@ -2264,6 +2303,7 @@ describe('soft-delete and hard-delete session guards', () => {
 		const [prior] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(Date.now() - 120_000),
@@ -2272,6 +2312,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			.returning();
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: prior.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -2284,6 +2325,7 @@ describe('soft-delete and hard-delete session guards', () => {
 				prescribedRir: 1
 			},
 			{
+				userId,
 				sessionId: prior.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -2375,6 +2417,7 @@ describe('soft-delete and hard-delete session guards', () => {
 		const [prior] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(Date.now() - 120_000),
@@ -2383,6 +2426,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			.returning();
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: prior.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -2395,6 +2439,7 @@ describe('soft-delete and hard-delete session guards', () => {
 				prescribedRir: 1
 			},
 			{
+				userId,
 				sessionId: prior.id,
 				exerciseId: ex.id,
 				position: 2,
@@ -2481,6 +2526,7 @@ describe('soft-delete and hard-delete session guards', () => {
 		const [prior] = await db
 			.insert(sessions)
 			.values({
+				userId,
 				dayId: day.id,
 				programId: prog.id,
 				startedAt: new Date(Date.now() - 120_000),
@@ -2489,6 +2535,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			.returning();
 		await db.insert(sets).values([
 			{
+				userId,
 				sessionId: prior.id,
 				exerciseId: ex.id,
 				position: 1,
@@ -2501,6 +2548,7 @@ describe('soft-delete and hard-delete session guards', () => {
 				prescribedRir: 1
 			},
 			{
+				userId,
 				sessionId: prior.id,
 				exerciseId: ex.id,
 				position: 2,

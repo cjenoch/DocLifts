@@ -289,6 +289,9 @@ export async function computeConsecutiveBackwards(
 		.innerJoin(sessions, eq(sets.sessionId, sessions.id))
 		.where(
 			and(
+				// Owner predicate first. The history filters below stay in their
+				// existing order; this scopes the read to one user and nothing else.
+				eq(sets.userId, userId),
 				eq(sets.exerciseId, exerciseId),
 				identityFilter(identity),
 				eq(sets.setRole, setRole),
@@ -371,6 +374,11 @@ export async function getLastCompletedSet(
 		.innerJoin(sessions, eq(sets.sessionId, sessions.id))
 		.where(
 			and(
+				// Owner predicate first. The three history filters below stay in
+				// their existing order; this scopes the read to one user and
+				// nothing else. `sets` carries its own user_id, so no join to
+				// `sessions` is needed to scope it.
+				eq(sets.userId, userId),
 				eq(sets.exerciseId, exerciseId),
 				identityFilter(identity),
 				eq(sets.setRole, setRole),

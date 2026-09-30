@@ -8,11 +8,11 @@
  */
 
 import { and, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type postgres from 'postgres';
 import { dayExercises, days, exercises, programs, sessions, sets } from './db/schema';
 import { computeConsecutiveBackwards, getLastCompletedSet } from './progression';
-import { resetTestDbWithUsers, setupTestDb, type TestDb } from './test-db';
+import { assertNoUnownedRows, resetTestDbWithUsers, setupTestDb, type TestDb } from './test-db';
 
 let db: TestDb;
 let client: postgres.Sql;
@@ -32,6 +32,13 @@ beforeAll(async () => {
 	end = handle.end;
 });
 
+// progression.ts is read-only, so this checks fixture hygiene rather than
+// production writes. Still worth having: a fixture row with a NULL owner is
+// indistinguishable from the production defect this module exists to prevent.
+afterEach(async () => {
+	await assertNoUnownedRows(client);
+});
+
 afterAll(async () => {
 	await end();
 });
@@ -41,7 +48,10 @@ beforeEach(async () => {
 	[user] = await resetTestDbWithUsers(db, client, 1, 'progression');
 	userId = user.id;
 
-	const [prog] = await db.insert(programs).values({ name: 'test program' }).returning();
+	const [prog] = await db
+		.insert(programs)
+		.values({ userId: userId, name: 'test program' })
+		.returning();
 	programId = prog.id;
 
 	const [day] = await db.insert(days).values({ programId, name: 'Day 1', position: 1 }).returning();
@@ -49,13 +59,13 @@ beforeEach(async () => {
 
 	const [ex] = await db
 		.insert(exercises)
-		.values({ name: 'Bench Press', equipmentType: 'bodyweight' })
+		.values({ userId: userId, name: 'Bench Press', equipmentType: 'bodyweight' })
 		.returning();
 	exerciseId = ex.id;
 
 	const [otherEx] = await db
 		.insert(exercises)
-		.values({ name: 'Squat', equipmentType: 'bodyweight' })
+		.values({ userId: userId, name: 'Squat', equipmentType: 'bodyweight' })
 		.returning();
 	otherExerciseId = otherEx.id;
 
@@ -72,10 +82,11 @@ beforeEach(async () => {
 const DAY_MS = 86_400_000;
 const BASE_DATE = new Date('2026-05-01T12:00:00Z').getTime();
 
-async function addSession(opts: { ended?: boolean } = {}): Promise<string> {
+async function addSession(opts: { ended?: boolean; owner?: string } = {}): Promise<string> {
 	const [s] = await db
 		.insert(sessions)
 		.values({
+			userId: opts.owner ?? userId,
 			dayId,
 			programId,
 			startedAt: new Date(),
@@ -87,6 +98,7 @@ async function addSession(opts: { ended?: boolean } = {}): Promise<string> {
 
 type AddSetOpts = {
 	sessionId: string;
+	owner?: string;
 	exerciseIdOverride?: string;
 	setRole?: 'warmup' | 'working' | 'top' | 'backoff';
 	position?: number;
@@ -100,6 +112,7 @@ async function addSet(opts: AddSetOpts): Promise<string> {
 	const [r] = await db
 		.insert(sets)
 		.values({
+			userId: opts.owner ?? userId,
 			sessionId: opts.sessionId,
 			exerciseId: opts.exerciseIdOverride ?? exerciseId,
 			position: opts.position ?? 1,
@@ -291,11 +304,11 @@ describe('getLastCompletedSet: history filter', () => {
 		const sId = await addSession({ ended: true });
 		await client`
 			INSERT INTO sets (
-				session_id, exercise_id, position, set_role, target_metric,
+				user_id, session_id, exercise_id, position, set_role, target_metric,
 				prescribed_load, prescribed_reps_min, prescribed_reps_max, prescribed_rir,
 				executed_load, executed_reps, executed_rir
 			) VALUES (
-				${sId}, ${exerciseId}, 1, 'top', 'reps',
+				${userId}, ${sId}, ${exerciseId}, 1, 'top', 'reps',
 				100, 3, 5, 1,
 				105, 5, 0
 			)
@@ -409,5 +422,72 @@ describe('consistency 14-day query semantics', () => {
 
 		const total = rows.reduce((acc, r) => acc + Number(r.count), 0);
 		expect(total).toBe(1);
+	});
+});
+
+// ---------- cross-tenant isolation ----------
+//
+// progression.ts reads history for whoever is asking. A's completed sets must
+// be invisible to B in both directions: B must not read A's last completed
+// set, and A's regressions must not count toward B's consecutive-backwards.
+//
+// The last test is the swap detector. (db, userId, exerciseId) are adjacent
+// string parameters, so TypeScript cannot catch A's id passed where B's
+// belongs. It surfaces as an empty result rather than a cross-tenant read.
+describe('cross-tenant isolation', () => {
+	let bob: string;
+
+	beforeEach(async () => {
+		[user, { id: bob }] = await resetTestDbWithUsers(db, client, 2, 'progression');
+		userId = user.id;
+
+		const [prog] = await db.insert(programs).values({ userId, name: 'p' }).returning();
+		programId = prog.id;
+		const [day] = await db
+			.insert(days)
+			.values({ programId, name: 'Day 1', position: 1 })
+			.returning();
+		dayId = day.id;
+		const [ex] = await db
+			.insert(exercises)
+			.values({ userId, name: 'Bench', equipmentType: 'bodyweight' })
+			.returning();
+		exerciseId = ex.id;
+		await db.insert(dayExercises).values({ dayId, exerciseId, position: 1, tier: 'main' });
+	});
+
+	it("another user's completed set is not returned by getLastCompletedSet", async () => {
+		const aSession = await addSession({ owner: userId });
+		await addSet({ sessionId: aSession, owner: userId, executedLoad: 225, executedReps: 5 });
+
+		const asBob = await getLastCompletedSet(db, bob, exerciseId, 'top', 1);
+		expect(asBob).toBeNull();
+
+		const asAlice = await getLastCompletedSet(db, userId, exerciseId, 'top', 1);
+		expect(asAlice?.executedLoad).toBe(225);
+	});
+
+	it("another user's regressions do not count toward consecutiveBackwards", async () => {
+		// A regresses twice: 200 -> 150 -> 100. If A's rows leaked, Bob's
+		// count would be 2.
+		const a1 = await addSession({ owner: userId });
+		await addSet({ sessionId: a1, owner: userId, executedLoad: 200 });
+		const a2 = await addSession({ owner: userId });
+		await addSet({ sessionId: a2, owner: userId, executedLoad: 150 });
+		const a3 = await addSession({ owner: userId });
+		await addSet({ sessionId: a3, owner: userId, executedLoad: 100 });
+
+		expect(await computeConsecutiveBackwards(db, bob, exerciseId, 'top', 1)).toBe(0);
+		expect(await computeConsecutiveBackwards(db, userId, exerciseId, 'top', 1)).toBe(2);
+	});
+
+	it('passing the owner id where another belongs returns the empty result', async () => {
+		const aSession = await addSession({ owner: userId });
+		await addSet({ sessionId: aSession, owner: userId, executedLoad: 225 });
+
+		// Swap detector: the id is right for the row's owner and wrong for the
+		// caller. A missing predicate would hand back A's data here.
+		expect(await getLastCompletedSet(db, userId, exerciseId, 'top', 1, undefined)).not.toBeNull();
+		expect(await getLastCompletedSet(db, bob, exerciseId, 'top', 1, undefined)).toBeNull();
 	});
 });

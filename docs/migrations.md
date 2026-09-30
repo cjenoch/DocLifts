@@ -148,3 +148,22 @@ restoring a dump taken before it.
 Automated rollback is deliberately absent. Rolling back the database without
 rolling back the web image leaves the two on different schemas, and image
 orchestration is a separate concern from this script.
+
+## Later
+
+Not scheduled. Recorded so the reasoning survives the end of the ownership work.
+
+- **`program_draft_requests` should key on `(user_id, request_id)`, not
+  `request_id` alone.** `request_id` is a global primary key, so a colliding id
+  from a second user falls through to the insert and surfaces a raw PostgreSQL 23505. The current handling hashes `userId` into the fingerprint and keeps the
+  lookup global, which turns a cross-user collision into the existing "different
+  request" refusal with no `program_id` leak. The residual oracle — a second user
+  learns that a random UUID is taken — is negligible for client-generated UUIDs.
+  The composite key is the cleaner shape but needs a primary-key migration.
+- **A branded `UserId` type, to catch the adjacent-parameter swap.**
+  `(db, userId, sessionId)` are adjacent `string` parameters, so TypeScript
+  cannot catch a caller that passes A's id where B's belongs. This is not
+  hypothetical: three such swaps in `machines.db.test.ts` were caught only by the
+  not-found rule turning them into test failures. A branded type would catch them
+  at compile time, but it is a sweep across every signature in the ownership
+  surface. Until then the cross-tenant tests are the detector.

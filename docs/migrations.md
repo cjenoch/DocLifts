@@ -154,8 +154,23 @@ orchestration is a separate concern from this script.
 `0008` (auth schema) → `0009` (user_id columns) → `0010` (drop
 `exercises_name_unique`, add `exercises_user_id_name_unique`) → `0011` are
 applied to production in ONE `db:migrate` call at release, which runs as a
-single transaction. Production is at migration 8 of 8 until then; 0009–0011
-have never been applied to it.
+single transaction.
+
+**Applied to production on 2026-09-30, as release 0.2.0** (`scripts/migrate-prod.sh`,
+one transaction, dump written and verified first). Verified immediately after:
+
+- all eight `user_id` columns report `is_nullable = NO`;
+- zero rows with a null `user_id` and zero rows owned by any id other than the
+  sentinel, across all eight tables;
+- every table's row count identical to the baseline captured immediately before
+  the migration (programs 4, gyms 2, exercises 52, sessions 31, sets 454,
+  pain_events 0, workout_log_imports 1, program_draft_requests 1);
+- `drizzle.__drizzle_migrations` 8 → 12.
+
+The sentinel was then claimed by bootstrap, so `auth."user"` now holds
+`chris@enoch.ai` rather than `owner@localhost`, with one `credential` account
+row. **The id did not change** — bootstrap claims the existing row rather than
+inserting a new user, which is what keeps every backfilled row attached.
 
 0011 sets the eight `user_id` columns NOT NULL. Order inside the file matters
 and is hand-written, because the generated content alone is insufficient: on a

@@ -71,6 +71,32 @@ function checkAccountsOnce(): void {
 }
 
 /**
+ * Authenticated pages must never be cached, by anyone.
+ *
+ * Found by driving the released build in a real browser: sign in, open
+ * /history, log out, press BACK. The browser did not re-request anything — it
+ * re-rendered /history from its own cache, showing the user's workouts to
+ * someone who had just signed out, with no login form and nothing they could
+ * do. The server-side session was already dead (0 rows in auth.session), so
+ * this was never a server authz bug: the page was in the browser's
+ * back/forward cache and nothing had told it not to keep it.
+ *
+ * Why the cache was allowed to: SvelteKit's no-store default is a dev-time
+ * behaviour, not an adapter-node build guarantee, and nothing here set a
+ * header. A response with no Cache-Control is heuristically cacheable.
+ *
+ * `no-store` rather than `private, no-cache`:
+ *   - `private` would stop shared caches but still permits the BACK button
+ *     (bfcache) and the browser's own store, which is the actual symptom;
+ *   - `no-store` covers all of it, bfcache included.
+ *
+ * `Vary: Cookie` so a shared cache in front of this app cannot hand one
+ * person's /history to another even if the policy above is ever loosened. The
+ * session lives in a cookie, so the response genuinely varies on it.
+ */
+const NO_STORE = { 'cache-control': 'no-store, must-revalidate', vary: 'Cookie' } as const;
+
+/**
  * The guard. Ahead of every render and every form action, for every method.
  *
  * The public-path check runs BEFORE the session lookup, so static assets and
@@ -83,6 +109,12 @@ const guard: Handle = async ({ event, resolve }) => {
 	checkAccountsOnce();
 
 	if (isPublicPath(event.url.pathname)) return resolve(event);
+
+	// Not public, so a session lookup is about to happen either way, and
+	// everything rendered from here is private to one account — whether or not
+	// the lookup succeeds, since an unauthenticated visitor gets a redirect and
+	// a redirect is not worth caching either. See NO_STORE.
+	event.setHeaders(NO_STORE);
 
 	const session = await auth.api.getSession({
 		headers: event.request.headers,

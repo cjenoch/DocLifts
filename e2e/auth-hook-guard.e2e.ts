@@ -176,6 +176,26 @@ describe('signed-in requests', () => {
 		expect(retry.status, 'a kept cookie must not authenticate once the session is gone').toBe(303);
 	});
 
+	// Found on 0.2.0, in a real browser, after the release was called done.
+	// The server was correct throughout: the session was destroyed, the
+	// cookies were cleared, and a client that kept the cookie was refused.
+	// What failed was that nothing told the BROWSER not to keep the page.
+	it('sends no-store on an authenticated page', async () => {
+		const res = await fetch(new URL('/history', origin), {
+			headers: { cookie },
+			redirect: 'manual'
+		});
+		expect(res.status).toBe(200);
+		// Without this, BACK after signing out re-renders the page from the
+		// browser's own cache: the user's workouts, with no login form, and
+		// nothing they can do about it. Measured in Chrome, not inferred.
+		expect(res.headers.get('cache-control')).toMatch(/no-store/i);
+		// A shared cache in front of this app must not be able to hand one
+		// person's history to another. The session is in a cookie, so the
+		// response genuinely varies on it.
+		expect(res.headers.get('vary')).toMatch(/cookie/i);
+	});
+
 	it('does not sign anyone out on GET /logout', async () => {
 		// A prefetch or crawler must never end a session.
 		const res = await fetch(new URL('/logout', origin), {

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { setupTestDb, resetTestDbWithUsers, type TestDb } from '$lib/server/test-db';
+import { setupTestDb, resetTestDbWithUsers, withTwoUsers, type TestDb } from '$lib/server/test-db';
 import { startSessionForDay } from '$lib/server/sessions';
 
 const testDb = vi.hoisted(() => ({ db: null as TestDb | null }));
@@ -39,22 +39,26 @@ type HistoryData = {
 	nextMonth: string | null;
 	sessions: { id: string }[];
 };
-const call = async (month: string | null): Promise<HistoryData> => {
+// The load reads requireUser(locals), so the test posts a signed-in owner
+// the way hooks.server.ts populates it.
+const call = async (month: string | null, ownerId: string = userId): Promise<HistoryData> => {
 	const url = new URL('http://test.local/history');
 	if (month !== null) url.searchParams.set('month', month);
-	const result = await load({ url } as Parameters<typeof load>[0]);
+	const result = await load({ url, locals: { user: { id: ownerId } } } as Parameters<
+		typeof load
+	>[0]);
 	if (!result || typeof result !== 'object') throw new Error('history load returned nothing');
 	return result as unknown as HistoryData;
 };
 
-async function sessionInMonth(year: number, monthIndex: number) {
+async function sessionInMonth(year: number, monthIndex: number, ownerId: string = userId) {
 	const db = testDb.db!;
-	const [program] = await db.insert(s.programs).values({ userId, name: 'P' }).returning();
+	const [program] = await db.insert(s.programs).values({ userId: ownerId, name: 'P' }).returning();
 	const [day] = await db
 		.insert(s.days)
 		.values({ programId: program.id, name: 'D', position: 1 })
 		.returning();
-	const started = await startSessionForDay(db, userId, day.id);
+	const started = await startSessionForDay(db, ownerId, day.id);
 	if (!started.ok) throw new Error(started.message);
 	await db
 		.update(s.sessions)
@@ -90,4 +94,19 @@ it('only returns sessions started within the requested month', async () => {
 	expect(january.sessions.map((r) => r.id)).toContain(sessionId);
 	const february = await call('2026-02');
 	expect(february.sessions.map((r) => r.id)).not.toContain(sessionId);
+});
+
+// Cross-tenant. Positive first: Alice sees her own session for the month, Bob
+// sees none of it. Without the positive half, a predicate returning nothing at
+// all would satisfy the negative.
+it("lists only the requesting user's sessions for the month", async () => {
+	const { alice, bob } = await withTwoUsers(testDb.db!);
+	const aliceSession = await sessionInMonth(2026, 0, alice);
+
+	const asAlice = await call('2026-01', alice);
+	expect(asAlice.sessions.map((s) => s.id)).toEqual([aliceSession]);
+
+	// Bob has a program and no session: the same month, a different owner.
+	const asBob = await call('2026-01', bob);
+	expect(asBob.sessions).toEqual([]);
 });

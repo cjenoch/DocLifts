@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
-import { setupTestDb, resetTestDb, type TestDb } from '$lib/server/test-db';
+import { setupTestDb, resetTestDbWithUsers, withTwoUsers, type TestDb } from '$lib/server/test-db';
 
 const testDb = vi.hoisted(() => ({ db: null as TestDb | null }));
 vi.mock('$lib/server/db', async () => {
@@ -20,24 +20,30 @@ import * as s from '$lib/server/db/schema';
 const IMPORT_LIMIT = 500;
 
 type ImportedHistoryData = {
-	workouts: { id: string; workoutDate: string | null }[];
+	workouts: { id: string; workoutDate: string | null; title: string }[];
 	total: number;
 	limit: number;
 };
-const callLoad = async (): Promise<ImportedHistoryData> => {
-	const result = await load({} as Parameters<typeof load>[0]);
+// The load reads requireUser(locals), so the test posts a signed-in owner
+// the way hooks.server.ts populates it.
+const callLoad = async (ownerId: string = userId): Promise<ImportedHistoryData> => {
+	const result = await load({ locals: { user: { id: ownerId } } } as Parameters<typeof load>[0]);
 	if (!result || typeof result !== 'object')
 		throw new Error('imported-history load returned nothing');
 	return result as unknown as ImportedHistoryData;
 };
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
+let user: { id: string; label: string };
+let userId: string;
 beforeAll(async () => {
 	harness = await setupTestDb();
 	testDb.db = harness.db;
 });
 beforeEach(async () => {
-	await resetTestDb(harness.client);
+	// Reset then create the fixture user, in that order, in one call.
+	[user] = await resetTestDbWithUsers(harness.db, harness.client, 1, 'imported');
+	userId = user.id;
 });
 afterAll(async () => {
 	await harness?.end();
@@ -49,6 +55,7 @@ async function seedImport() {
 		.insert(s.workoutLogImports)
 		.values({
 			id: crypto.randomUUID(),
+			userId,
 			sourceSha256: crypto.randomUUID(),
 			sourceName: 'notes.txt',
 			sourceText: 'raw'
@@ -107,4 +114,46 @@ it('caps the select at IMPORT_LIMIT and still reports the true total (L8)', asyn
 	const result = await callLoad();
 	expect(result.workouts).toHaveLength(IMPORT_LIMIT);
 	expect(result.total).toBe(IMPORT_LIMIT + 1);
+});
+
+// Cross-tenant. Positive first: Alice sees her own imported workouts, Bob
+// sees none of them. Without the positive half, a predicate returning nothing
+// at all would satisfy the negative.
+it("returns only the requesting user's imported workouts", async () => {
+	const db = testDb.db!;
+	const { alice, bob } = await withTwoUsers(db);
+
+	async function seedFor(ownerId: string, title: string) {
+		const [imp] = await db
+			.insert(s.workoutLogImports)
+			.values({
+				id: crypto.randomUUID(),
+				userId: ownerId,
+				sourceSha256: crypto.randomUUID(),
+				sourceName: `${title}.txt`,
+				sourceText: 'raw'
+			})
+			.returning();
+		await db.insert(s.importedWorkouts).values({
+			id: crypto.randomUUID(),
+			importId: imp.id,
+			sourceLine: 1,
+			workoutDate: '2026-01-05',
+			title,
+			dateNote: '',
+			lines: []
+		});
+	}
+
+	await seedFor(alice, 'Alice Workout');
+	await seedFor(bob, 'Bob Workout');
+
+	const asAlice = await callLoad(alice);
+	expect(asAlice.total).toBe(1);
+	expect(asAlice.workouts.map((w) => w.title)).toEqual(['Alice Workout']);
+
+	const asBob = await callLoad(bob);
+	expect(asBob.total).toBe(1);
+	expect(asBob.workouts.map((w) => w.title)).toEqual(['Bob Workout']);
+	expect(asBob.workouts.some((w) => w.title === 'Alice Workout')).toBe(false);
 });

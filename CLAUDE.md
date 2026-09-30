@@ -145,6 +145,44 @@ like a scoping bug. It is neither. Pass
 - **The gate is `pnpm test:e2e`** (`e2e/csp.e2e.ts`). It serves the production build, loads every route plus a client-side navigation in Chromium, and fails on any CSP violation or any app element carrying a `style` attribute. **"Every route" is enforced, not assumed:** `ROUTE_PATTERNS` lists all ten patterns and a test fails by name if any is listed but never reached — that assertion is what caught a shipping `unsafe-eval` violation on the two program-editor routes, which the earlier five-route crawl never visited. Add a route to that table when you add a route. Run it after any change to the CSP, to `app.html`, or to dependencies that render UI. It needs `pnpm build` first and a Chromium Playwright can launch (`PW_EXECUTABLE_PATH` if not the bundled one). **Locally it skips itself, with one warning line, when either is missing; set `CI=1` to make that a failure.** CI always runs it in required mode.
 - **One tolerated exception, by name:** SvelteKit's own `#svelte-announcer` live region raises a `style-src-attr` violation on every page. The framework hides it through the CSS object model anyway, so it has no visible effect. The e2e test ignores that single violation and asserts the announcer stays visually hidden after navigation. Do not widen the CSP for it, and do not add a second exception without the same proof.
 
+### No `$env/dynamic/*` reads at module scope in server code
+
+On adapter-node, `$env/dynamic/private` is populated by SvelteKit's
+`Server.init()`, which runs at **server startup** — after the server entry has
+already imported the module graph. Any read at module scope is therefore
+`undefined`, silently, for **every** variable and not just the one you were
+thinking about.
+
+Two things make this dangerous rather than merely broken:
+
+1. A `??` fallback converts a missing-variable error into a **plausible wrong
+   value**. `auth.ts` read `env.PUBLIC_ORIGIN` this way from T1a; `baseURL`
+   silently became `http://127.0.0.1:3000`, Better Auth's `isAuthPath()` matched
+   no request against it, and SvelteKit 404'd the entire `/api/auth/*` tree —
+   with the healthcheck green throughout.
+2. Nothing catches it until a request goes through the real HTTP handler. Every
+   check passed for four rounds because sign-in called `auth.api` directly and
+   never touched the handler path. Proven twice now; the served-build e2e is
+   the only gate that finds it.
+
+**The rules:**
+
+- Read `process.env` for any value a server module needs **at construction**
+  time. Server-only code doing this is not a smell — nothing in `src/lib/server/`
+  is ever bundled to the client, and the CLI already works this way.
+- **Never fall back to a default for a required production value. Throw.**
+  (`resolveBaseURL()` in `auth.ts` is the reference implementation.)
+- Prefer passing configuration in as an explicit argument, as `createAuth()` and
+  the `users.ts` operations already do. Module-scope reading is the fallback
+  case, not the default.
+
+**Corollary for hooks:** `handle` order is load-bearing. The guard returns
+`resolve(event)` immediately for any allowlisted path, so
+`sequence(guard, betterAuth)` means `svelteKitHandler` never runs. It is
+`sequence(betterAuth, guard)`. The allowlist entry is still correct — it is what
+stops the guard demanding a session for Better Auth's own endpoints — it just
+must not come first.
+
 ### Migrations: name everything, apply before you trust it
 
 Three rules, all from the 0009 round where three separate defects were

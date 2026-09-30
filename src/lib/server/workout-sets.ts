@@ -59,19 +59,31 @@ export async function appendWorkoutSet(
 		})
 		.parse(input);
 	return db.transaction(async (tx) => {
+		// Owner predicate in the same query that resolves the session, not a
+		// separate id-only pre-check. Another user's session reads as absent,
+		// so appending to it hits the same refusal as an unknown id.
 		const [session] = await tx
 			.select()
 			.from(sessions)
-			.where(eq(sessions.id, sessionId))
+			.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
 			.for('update');
 		if (!session || session.endedAt || session.deletedAt)
 			throw new MachineInputError('This workout is no longer active.');
 		const [source] = await tx
 			.select()
 			.from(sets)
-			.where(and(eq(sets.id, value.sourceSetId), eq(sets.sessionId, sessionId)));
+			.where(
+				and(eq(sets.id, value.sourceSetId), eq(sets.sessionId, sessionId), eq(sets.userId, userId))
+			);
 		if (!source) throw new MachineInputError('Exercise not found in this workout.');
-		const [existing] = await tx.select().from(sets).where(eq(sets.id, value.requestId));
+		// Idempotency lookup is scoped to the session it would append to. A
+		// requestId that exists under another owner is not this caller's, and
+		// the insert's primary key would reject it as a raw 23505 rather than
+		// as a conflict.
+		const [existing] = await tx
+			.select()
+			.from(sets)
+			.where(and(eq(sets.id, value.requestId), eq(sets.userId, userId)));
 		if (existing) {
 			if (
 				existing.sessionId !== sessionId ||

@@ -1,7 +1,7 @@
-import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { createTestUser, setupTestDb, resetTestDb } from './test-db';
+import { assertNoUnownedRows, createTestUser, setupTestDb, resetTestDb } from './test-db';
 import * as s from './db/schema';
 import { appendWorkoutSet, removeEmptyLastSet } from './workout-sets';
 import { addSessionExercise } from './machines';
@@ -11,6 +11,12 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
 	await resetTestDb(handle.client);
+});
+
+// appendWorkoutSet stamps the row it creates (f0), so this checks production
+// writes rather than fixture hygiene for that path.
+afterEach(async () => {
+	await assertNoUnownedRows(handle.client);
 });
 afterAll(async () => {
 	await handle?.end();
@@ -151,4 +157,74 @@ it('creates equipment inline atomically and retains machine identity on added se
 		})
 	).rejects.toThrow('type mismatch');
 	expect(await db.select().from(s.gyms)).toHaveLength(1);
+});
+
+// Cross-tenant: the session lookup carries eq(sessions.userId, userId) in the
+// same query, so another user's session reads as absent and the refusal is
+// identical to an unknown id — 'This workout is no longer active.' — with no
+// sets row written.
+it("refuses to append to another user's session and writes nothing", async () => {
+	const f = await fixture();
+	const bob = await createTestUser(f.db, 'workout-sets-bob');
+	const before = await f.db.select().from(s.sets);
+	await expect(
+		appendWorkoutSet(f.db, bob, f.session.id, {
+			sourceSetId: f.source.id,
+			requestId: crypto.randomUUID(),
+			setRole: 'working'
+		})
+	).rejects.toThrow('This workout is no longer active.');
+	const after = await f.db.select().from(s.sets);
+	expect(after.length).toBe(before.length);
+});
+
+// The swap detector: a sessionId where another user's belongs is refused the
+// same way, and Bob's own call against his own session still works. Without
+// this the first test could pass for the wrong reason.
+it('a session id belonging to another user is refused, not adopted', async () => {
+	const f = await fixture();
+	const bob = await createTestUser(f.db, 'workout-sets-bob');
+	// Bob needs his own program and day: a second open session on Alice's day
+	// violates the one-open-session-per-day constraint, and Bob touching her
+	// day is not a legal setup anyway.
+	const [bobsProgram] = await f.db
+		.insert(s.programs)
+		.values({ name: 'Bob Test', userId: bob })
+		.returning();
+	const [bobsDay] = await f.db
+		.insert(s.days)
+		.values({ programId: bobsProgram.id, name: 'Bob Push', position: 1 })
+		.returning();
+	const [bobsSession] = await f.db
+		.insert(s.sessions)
+		.values({ programId: bobsProgram.id, dayId: bobsDay.id, userId: bob })
+		.returning();
+	const [bobsSource] = await f.db
+		.insert(s.sets)
+		.values({
+			userId: bob,
+			sessionId: bobsSession.id,
+			exerciseId: f.exercise.id,
+			position: 2,
+			setRole: 'working',
+			targetMetric: 'seconds',
+			executedLoad: 30,
+			executedReps: 12
+		})
+		.returning();
+	// Bob may append to his own session.
+	const added = await appendWorkoutSet(f.db, bob, bobsSession.id, {
+		sourceSetId: bobsSource.id,
+		requestId: crypto.randomUUID(),
+		setRole: 'working'
+	});
+	expect(added.userId).toBe(bob);
+	// But not to Alice's, even with his own source set id.
+	await expect(
+		appendWorkoutSet(f.db, bob, f.session.id, {
+			sourceSetId: bobsSource.id,
+			requestId: crypto.randomUUID(),
+			setRole: 'working'
+		})
+	).rejects.toThrow('This workout is no longer active.');
 });

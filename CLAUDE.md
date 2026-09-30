@@ -119,6 +119,16 @@ The pipeline calls **`snapForEquipment(load, equipmentType)`**, not `snapToAchie
 
 Never call `snapToAchievable` directly from the pipeline. Always go through the router. (See `planning_v2_2.md` patch notes.)
 
+### Calling `mainPrefills` directly requires the machine identity
+
+`mainPrefills` takes an optional `PerformanceIdentity`. `startSessionForDay`
+supplies it implicitly, so every path through the session-start pipeline is
+fine by default. Calling `mainPrefills` directly in a test without it silently
+returns no history when a machine is bound: history is machine-scoped, the
+identity filter matches nothing, and the result looks like a cold start — or
+like a scoping bug. It is neither. Pass
+`{ gymEquipmentId, loadConvention }` whenever a machine is bound.
+
 ### Engine output is suggestion, never auto-applied
 
 - The user override path is one tap. Never bake a load into the prescribed field without giving the user an editable surface.

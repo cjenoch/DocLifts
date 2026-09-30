@@ -326,6 +326,26 @@ sign-ins in a row, no waiting — and fails at the fourth under the old
 config. A test that pins an implementation's number is a test that will
 happily pass while the behaviour is wrong.
 
+**Never exercise a control against the owner's account, email, or address.**
+Use `scratch-test@doclifts.invalid`. On 2026-09-30 a throttle verification sent
+ten wrong passwords at the owner's email key and locked him out of a working
+password for fifteen minutes. A scratch account existed the whole time. The same
+night, `user:create` had no `--password-stdin`, so making that scratch account
+required putting a secret in the process list — it has one now.
+
+**A test that cannot fail proves nothing, and SvelteKit's defaults hide it.**
+The version.json assertion originally accepted the literal `'dev'`, and it
+passed with the entire `version` block deleted from `svelte.config.js` because
+`'dev'` is the framework's own default. Always revert the fix and watch the
+test fail before believing it.
+
+**`event.setHeaders` cannot reach a thrown `redirect()`.** SvelteKit's
+`respond` builds that response itself (`redirect_response(e.status,
+e.location)`) and discards everything the hook set, so an unauthenticated
+request to a guarded page was answered `303 -> /login` with no cache policy at
+all. Returning a `Response` from `handle` does work — see
+`redirectWithNoStore` in `src/lib/server/redirect-no-store.ts`.
+
 **A control that counts the wrong thing is worse than no control.** Every
 value here was chosen without usage data. The refusal log is the instrument
 that corrects them: no refusals means the numbers are generous, refusals on a

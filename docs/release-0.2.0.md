@@ -679,3 +679,78 @@ documented reset, and a reminder that the numbers are per-process), and sign-in
 was re-verified afterwards.
 
 `doclifts-web:pre-0.2.1` deleted after all five passed.
+
+## 13. 0.2.2 — cache correctness and observability
+
+No migration. Ships before the 0.2.3 account work.
+
+### Before deploying
+
+```bash
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.2.2
+```
+
+Rollback:
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.2.2 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+The build stamps its commit sha into `/_app/version.json`, so set
+`DOCLIFTS_BUILD_SHA` in the production env before building:
+
+```bash
+DOCLIFTS_BUILD_SHA=$(git rev-parse --short HEAD) sudo -n scripts/compose-prod.sh up -d --build --wait web
+```
+
+### Production env after deploy
+
+`LOGIN_MAX_FAILURES=0` — failures slow, never lock. One account on a tailnet
+has no attacker to throttle, and a ceiling reachable by a typo is a
+self-lockout.
+
+### Three checks after `up -d --build --wait web`
+
+```bash
+# 1. /login is uncacheable, and the assets still are
+curl -sI https://enochnvps.tail29bbdb.ts.net/login | grep -i cache-control
+#   cache-control: no-store, must-revalidate
+curl -sI https://enochnvps.tail29bbdb.ts.net/_app/version.json | grep -i cache-control
+#   cache-control: public, max-age=0   (NOT no-store, or detection never fires)
+
+# 2. version.json carries the build id
+curl -s https://enochnvps.tail29bbdb.ts.net/_app/version.json
+#   {"version":"<sha>"}
+
+# 3. one wrong password from the SCRATCH account writes exactly one line
+sudo -n scripts/compose-prod.sh logs web --since 1m | grep login_attempt
+#   {"event":"login_attempt","ok":false,...,"reason":"bad_credentials",...}
+```
+
+### Then the experiment
+
+Chris signs in once from the Safari that failed, with the password he uses
+now. Paste the `login_attempt` line(s) verbatim into the record.
+
+- `ok: true` — the cache defect was the cause.
+- `ok: false` — the line's `status`, `reason`, `pw_len` and `pw_edge_ws` say
+  what actually happened, and 0.2.3 is designed against that.
+
+**Do not clear Safari's cache or cookies before this retry.** That is the
+instrument; fixing it destroys the evidence.
+
+### Scratch account
+
+```
+scratch-test@doclifts.invalid
+```
+
+Created with its own 23 exercises and zero access to any of the owner's rows —
+ownership is `NOT NULL`, so a cross-tenant read is a 404 by design. Every
+throttle test, probe and control runs against this account. Never the owner's.
+
+### Post-release
+
+Delete `doclifts-web:pre-0.2.2` once all three checks pass. A restart clears
+the in-memory throttle counters, so deploying is also a reset.

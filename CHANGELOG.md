@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — 0.2.2
+
+Three changes, all from one incident: being locked out of your own account with
+a correct password, and having no way to find out why.
+
+- **The sign-in page is no longer cacheable.** `/login` was public, so the
+  0.2.1 `no-store` deliberately skipped it — and because the page set no policy
+  of its own, a response with no `Cache-Control` is free for a browser to store.
+  Every rendered page is now `no-store` regardless of who can reach it, and
+  only immutable build assets keep their caching.
+- **A redirect to the login page carries `no-store` too.** An anonymous
+  request to a guarded page was answered `303 -> /login` with no cache policy at
+  all, because SvelteKit discards headers set on a thrown `redirect()`. The same
+  storeable-redirect problem, in a new place.
+- **One line per sign-in attempt.** Every attempt — success, wrong password,
+  missing field, throttle — writes one structured record with the outcome, the
+  status, a hashed email, a hashed user agent, the password's length, and
+  whether it arrived with a stray space on the end. Never the password, never
+  the address. Until this existed, a request that arrived and was rejected was
+  indistinguishable from one that never arrived at all, which cost an evening
+  of looking in the wrong place.
+- **Stale builds detect themselves.** The client polls the deployed build's
+  commit sha and reloads when it changes, instead of running old code against a
+  new server.
+
 ## 0.2.1
 
 Hotfix for three defects found by using the released app rather than testing

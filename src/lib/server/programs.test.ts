@@ -27,7 +27,7 @@ it('deep-copies every template child and keeps historical prescription reference
 		.returning();
 	const [e] = await db
 		.insert(s.exercises)
-		.values({ name: 'Press', equipmentType: 'machine-plate' })
+		.values({ name: 'Press', equipmentType: 'machine-plate', userId })
 		.returning();
 	const [dx] = await db
 		.insert(s.dayExercises)
@@ -53,6 +53,7 @@ it('deep-copies every template child and keeps historical prescription reference
 	const [session] = await db
 		.insert(s.sessions)
 		.values({
+			userId,
 			programId: p.id,
 			dayId: d.id,
 			startedAt: new Date('2026-01-01'),
@@ -62,6 +63,7 @@ it('deep-copies every template child and keeps historical prescription reference
 	const [set] = await db
 		.insert(s.sets)
 		.values({
+			userId,
 			sessionId: session.id,
 			exerciseId: e.id,
 			prescribedSetId: ps.id,

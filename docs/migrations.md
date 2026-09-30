@@ -149,6 +149,53 @@ Automated rollback is deliberately absent. Rolling back the database without
 rolling back the web image leaves the two on different schemas, and image
 orchestration is a separate concern from this script.
 
+## 0011 — ownership NOT NULL
+
+`0008` (auth schema) → `0009` (user_id columns) → `0010` (drop
+`exercises_name_unique`, add `exercises_user_id_name_unique`) → `0011` are
+applied to production in ONE `db:migrate` call at release, which runs as a
+single transaction. Production is at migration 8 of 8 until then; 0009–0011
+have never been applied to it.
+
+0011 sets the eight `user_id` columns NOT NULL. Order inside the file matters
+and is hand-written, because the generated content alone is insufficient: on a
+database with rows, `SET NOT NULL` fails on the first unowned row. So 0011
+inserts a sentinel into `auth."user"`, backfills eight tables, then alters.
+
+The sentinel is `00000000-0000-4000-8000-000000000001` / `owner@localhost`,
+`email_verified false`, and deliberately has NO row in `auth."account"` — so it
+is not an account anybody can sign in as. It is not a multi-user abstraction;
+it is the mechanism that gives pre-existing rows an owner, which
+`pnpm user:bootstrap` then claims for a real account at release. It is skipped
+entirely when all eight tables are empty, so a fresh install gets no litter.
+
+**Revert.** 0011 is reversible only while the sentinel is unclaimed. If
+`user:bootstrap` has already run, the correct action is to LEAVE the NOT NULL in
+place — the data is owned and correct, and dropping the constraint reopens the
+silent-unowned-insert hole that 0009–0011 exist to close.
+
+```sql
+-- Only if the sentinel is still unclaimed.
+DELETE FROM "auth"."user" WHERE id = '00000000-0000-4000-8000-000000000001';
+ALTER TABLE programs ALTER COLUMN "user_id" DROP NOT NULL;  -- and the other 7
+UPDATE programs SET user_id = NULL WHERE user_id = '00000000-0000-4000-8000-000000000001';
+```
+
+**Verified by applying, not by reading** (the CLAUDE.md rule-3 rule, and the
+reason 0011 is correct): the full pending chain 0008→0011 applied to a fresh
+restore of `pg_dump` of production, then per table `count(*)` and
+`count(*) WHERE user_id = <sentinel>` compared against the pre-migration
+baseline. All eight matched. This caught a defect no amount of reading would
+have: the sentinel's own guard was written `WHERE NOT EXISTS (...)` when it
+needed `WHERE EXISTS (...)`, so on production — which has 4 programs — the
+sentinel was never created and the very next statement failed the `programs`
+foreign key. The inversion is recorded in the file itself.
+
+**Out of band.** `workout_log_imports` and `imported_workouts` have no write
+path in the application; whatever loads the archive does so outside the
+codebase. After 0011 that load MUST set `user_id` or the insert is rejected.
+That sentence is the only protection the archive path has.
+
 ## Later
 
 Not scheduled. Recorded so the reasoning survives the end of the ownership work.

@@ -121,6 +121,7 @@ The VPS migration used the legacy Docker builder to work around a host build-env
 3. Build the web image with `scripts/compose-prod.sh build web` while the existing app runs.
 4. Switch the web container with `scripts/compose-prod.sh up -d --no-deps --no-build --wait web`.
 5. Verify health, open the app from an actual tailnet device, and check the affected user flow.
+6. If this release included `0011_ownership_not_null`, run `pnpm user:bootstrap` **before** signing in. Every pre-existing row was backfilled to a placeholder owner; bootstrap claims them for a real account. Until it runs, the app loads with a single sentinel-owned dataset rather than your own history. See `docs/migrations.md` §0011, including why 0011 is not worth reverting once bootstrap has claimed the rows.
 
 Rollback is a documented manual step, not automatic:
 

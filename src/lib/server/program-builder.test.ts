@@ -414,6 +414,7 @@ describe('transactional program builder', () => {
 		const [session] = await h.db
 			.insert(s.sessions)
 			.values({
+				userId,
 				programId: original.id,
 				dayId: before.days[0].id,
 				startedAt: new Date('2026-01-01'),
@@ -423,6 +424,7 @@ describe('transactional program builder', () => {
 		const [set] = await h.db
 			.insert(s.sets)
 			.values({
+				userId,
 				sessionId: session.id,
 				exerciseId: before.exercises[0].id,
 				prescribedSetId: before.ps[0].id,

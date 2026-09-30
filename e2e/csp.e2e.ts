@@ -179,6 +179,10 @@ run('production build: CSP and page render', () => {
 				executedRir: 1
 			},
 			{
+				// The NOT NULL flip caught this: the first set was stamped, this one
+				// was not, and the e2e fixture was the only insert path in the tree
+				// that svelte-check could not see.
+				userId: user.id,
 				sessionId,
 				exerciseId: exercise.id,
 				position: 2,

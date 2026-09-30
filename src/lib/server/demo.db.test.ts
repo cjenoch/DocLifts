@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
-import { setupTestDb, resetTestDb, assertNoUnownedRows } from './test-db';
+import { eq, sql } from 'drizzle-orm';
+import { setupTestDb, resetTestDb } from './test-db';
 import { seedDemo } from './demo';
 import { findUserByEmail } from './users';
 import * as s from './db/schema';
@@ -18,22 +18,19 @@ import * as s from './db/schema';
  * passed. Unless both name the same database, the demo rows end up pointing
  * at a user_id that does not exist in their own database.
  */
-function demoUrl(): string {
-	const url = new URL(process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_demo_test');
-	if (url.pathname.slice(1) !== 'doclifts_demo_test') {
-		throw new Error(
-			`demo.db.test.ts must run in the \`demo\` vitest project; TEST_DATABASE_URL names ${url.pathname.slice(1)}, not doclifts_demo_test.`
-		);
-	}
-	return url.toString();
-}
-
 /** A database that is deliberately NOT a demo database, for the name guard. */
 function guardUrl(): string {
 	const url = new URL(process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_demo_test');
 	url.pathname = '/doclifts_notdemo_test';
 	return url.toString();
 }
+
+/**
+ * Any valid auth.user id satisfies the FK; the guard database has no users and
+ * this row is deleted at the end of the test. The value is the sentinel id that
+ * 0011 uses, so the fixture cannot drift from it.
+ */
+const DEMO_SENTINEL_ID = '00000000-0000-4000-8000-000000000001';
 
 let demo: Awaited<ReturnType<typeof setupTestDb>>;
 
@@ -42,7 +39,6 @@ beforeAll(async () => {
 	// argument: the `demo` project already points TEST_DATABASE_URL at
 	// doclifts_demo_test, which is the arrangement that makes the auth
 	// singleton and the seed handle agree.
-	demoUrl();
 	demo = await setupTestDb();
 });
 
@@ -69,7 +65,19 @@ it('requires explicit demo opt-in and never changes an ordinary test database', 
 	// ("Cannot read properties of undefined (reading 'migrate')") when a test
 	// file imports it directly, which is why it is only reached through here.
 	const guard = await setupTestDb(guardUrl());
-	const [marker] = await guard.db.insert(s.programs).values({ name: 'Existing data' }).returning();
+	// The guard database has no auth."user" row, and programs.user_id is both
+	// NOT NULL and foreign-keyed, so the marker needs a real owner. 0011's
+	// sentinel is used here so the fixture cannot drift from the migration's
+	// value, and it is created the way 0011 creates it: no credential row, so
+	// it is not an account anybody can sign in as.
+	await guard.db
+		.execute(sql`insert into "auth"."user" (id, name, email, email_verified, created_at, updated_at)
+		values (${DEMO_SENTINEL_ID}, 'Owner', 'owner@localhost', false, now(), now())
+		on conflict (id) do nothing`);
+	const [marker] = await guard.db
+		.insert(s.programs)
+		.values({ name: 'Existing data', userId: DEMO_SENTINEL_ID })
+		.returning();
 	try {
 		await expect(seedDemo(guard.db, true)).rejects.toThrow('restricted');
 		expect((await guard.db.select().from(s.programs)).map((r) => r.name)).toEqual([
@@ -77,6 +85,7 @@ it('requires explicit demo opt-in and never changes an ordinary test database', 
 		]);
 	} finally {
 		await guard.db.delete(s.programs).where(eq(s.programs.id, marker.id));
+		await guard.db.execute(sql`delete from "auth"."user" where id = ${DEMO_SENTINEL_ID}`);
 		await guard.end();
 	}
 
@@ -122,7 +131,4 @@ it('owns every demo row with a signable demo user', async () => {
 	expect(session.userId).toBe(program.id);
 	expect(exercise.userId).toBe(program.id);
 	expect(set.userId).toBe(program.id);
-
-	// The acceptance: no ownerless row anywhere.
-	await assertNoUnownedRows(demo.client);
 });

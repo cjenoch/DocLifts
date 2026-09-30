@@ -86,7 +86,13 @@ export default defineConfig({
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
+					// demo.db.test.ts runs in its own project. It is not merely
+					// duplicated: it REQUIRES a database other than
+					// doclifts_test, because seedDemo creates its owner through
+					// the auth singleton and that singleton is bound to
+					// DATABASE_URL at import. Run here it would create the user
+					// in the wrong database and fail a unique violation.
+					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}', 'src/lib/server/demo.db.test.ts'],
 					// DB integration tests share a single doclifts_test database, so
 					// test files must run one-at-a-time. Pure-function files would be
 					// safe to parallelize, but the cost of running everything serial

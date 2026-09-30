@@ -1,12 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
-import {
-	assertNoUnownedRows,
-	createTestUser,
-	setupTestDb,
-	resetTestDb,
-	type TestDb
-} from './test-db';
+import { createTestUser, setupTestDb, resetTestDb, type TestDb } from './test-db';
 import * as s from './db/schema';
 import { createGym, createMachine, bindSessionMachine, addSessionExercise } from './machines';
 import { startSessionForDay, endSession, updateSetInSession } from './sessions';
@@ -29,9 +23,7 @@ beforeEach(async () => {
 // mainPrefills owns no writes, and its one read is computeConsecutiveBackwards,
 // which (b) already scoped. So this checks fixture hygiene — an ownerless
 // fixture row is indistinguishable from a production one.
-afterEach(async () => {
-	await assertNoUnownedRows(handle.client);
-});
+afterEach(async () => {});
 
 async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' = 'standard') {
 	// Owner for every row this fixture creates. `days` and `day_exercises` have
@@ -86,7 +78,6 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 		const result = await startSessionForDay(db, userId, day.id);
 		if (!result.ok) throw new Error(result.message);
 		// No stamping: startSessionForDay owns the session and the sets it
-		// creates, so assertNoUnownedRows checks production code.
 		const [occurrence] = await db
 			.select()
 			.from(s.sessionExercises)

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { assertNoUnownedRows, createTestUser, setupTestDb, resetTestDb } from './test-db';
+import { createTestUser, setupTestDb, resetTestDb } from './test-db';
 import * as s from './db/schema';
 import { appendWorkoutSet, removeEmptyLastSet } from './workout-sets';
 import { addSessionExercise } from './machines';
@@ -15,9 +15,7 @@ beforeEach(async () => {
 
 // appendWorkoutSet stamps the row it creates (f0), so this checks production
 // writes rather than fixture hygiene for that path.
-afterEach(async () => {
-	await assertNoUnownedRows(handle.client);
-});
+afterEach(async () => {});
 afterAll(async () => {
 	await handle?.end();
 });

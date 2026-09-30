@@ -74,7 +74,9 @@ export const workoutLogImports = pgTable(
 		sourceText: text('source_text').notNull(),
 		importedAt: timestamp('imported_at').notNull().defaultNow(),
 		/** Owner. `text` not `uuid` — see programs.userId. No onDelete: NO ACTION. */
-		userId: text('user_id').references(() => authUsers.id)
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id)
 	},
 	(t) => ({
 		userSourceSha256Unique: unique('workout_log_imports_user_sha256_unique').on(
@@ -145,7 +147,9 @@ export const programs = pgTable(
 		 * handled explicitly. (Contrast Better Auth's own auth.* FKs, which
 		 * do cascade — correct for auth rows, wrong for these.)
 		 */
-		userId: text('user_id').references(() => authUsers.id)
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id)
 	},
 	(t) => ({
 		sourceProgramIdIdx: index('programs_source_program_id_idx').on(t.sourceProgramId),
@@ -168,7 +172,9 @@ export const programDraftRequests = pgTable(
 		 * No onDelete: NO ACTION, so deleting an account cannot silently
 		 * delete workout history.
 		 */
-		userId: text('user_id').references(() => authUsers.id)
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id)
 	},
 	(t) => ({
 		programIdx: index('program_draft_requests_program_idx').on(t.programId),
@@ -229,7 +235,9 @@ export const exercises = pgTable(
 		 * notes/isLowerBody/targets are theirs alone. `text` not `uuid` — see
 		 * programs.userId. No onDelete: NO ACTION.
 		 */
-		userId: text('user_id').references(() => authUsers.id)
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id)
 	},
 	(t) => ({
 		/**
@@ -320,7 +328,9 @@ export const gyms = pgTable(
 		 * No onDelete: NO ACTION, so deleting an account cannot silently
 		 * delete the gym (and everything hanging off it).
 		 */
-		userId: text('user_id').references(() => authUsers.id)
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id)
 	},
 	(t) => ({
 		userIdIdx: index('gyms_user_id_idx').on(t.userId)
@@ -476,7 +486,9 @@ export const sessions = pgTable(
 		 * No onDelete: NO ACTION, so deleting an account cannot silently
 		 * delete workout history.
 		 */
-		userId: text('user_id').references(() => authUsers.id)
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id)
 	},
 	(t) => ({
 		dayStartedAtIdx: index('sessions_day_started_at_idx').on(
@@ -603,7 +615,9 @@ export const sets = pgTable(
 		 * No onDelete: NO ACTION, so deleting an account cannot silently
 		 * delete workout history.
 		 */
-		userId: text('user_id').references(() => authUsers.id)
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id)
 	},
 	(t) => ({
 		sessionIdIdx: index('sets_session_id_idx').on(t.sessionId),
@@ -696,7 +710,9 @@ export const painEvents = pgTable(
 		 * No onDelete: NO ACTION, so deleting an account cannot silently
 		 * delete workout history.
 		 */
-		userId: text('user_id').references(() => authUsers.id)
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id)
 	},
 	(t) => ({
 		exerciseOccurredIdx: index('pain_events_exercise_occurred_idx').on(

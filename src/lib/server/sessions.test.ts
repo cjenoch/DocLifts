@@ -2172,6 +2172,7 @@ describe('soft-delete and hard-delete session guards', () => {
 		const [pain] = await db
 			.insert(painEvents)
 			.values({
+				userId,
 				sessionId: started.sessionId,
 				setId: seededSet.id,
 				exerciseId: fixture.exerciseId,

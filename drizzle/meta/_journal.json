@@ -78,6 +78,13 @@
       "when": 1790714158639,
       "tag": "0010_drop_exercise_name_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790766062298,
+      "tag": "0011_ownership_not_null",
+      "breakpoints": true
     }
   ]
 }

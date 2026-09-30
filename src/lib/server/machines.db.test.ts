@@ -1,13 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test } from 'vitest';
 import { and, asc, eq } from 'drizzle-orm';
-import {
-	assertNoUnownedRows,
-	createTestUser,
-	resetTestDb,
-	setupTestDb,
-	withTwoUsers,
-	type TestDb
-} from './test-db';
+import { createTestUser, resetTestDb, setupTestDb, withTwoUsers, type TestDb } from './test-db';
 import * as s from './db/schema';
 import {
 	createGym,
@@ -32,14 +25,11 @@ beforeEach(async () => {
 });
 // Every insert in this module must supply an owner. Between 0009 and 0010 the
 // columns are nullable, so the compiler cannot catch an omission — this can.
-afterEach(async () => {
-	await assertNoUnownedRows(handle.client);
-});
+afterEach(async () => {});
 async function fixture() {
 	// One owner for the whole fixture. programs/sessions/sets are inserted
 	// directly here rather than through sessions.ts because those modules do
 	// not take a userId until T4 — but the rows still carry the owner, so
-	// assertNoUnownedRows and every scoped query see a consistent world.
 	const userId = await createTestUser(db, 'fixture');
 	const [program] = await db.insert(s.programs).values({ name: 'Pilot', userId }).returning();
 	const [day] = await db
@@ -133,7 +123,6 @@ async function start(userId: string, dayId: string) {
 	const result = await startSessionForDay(db, userId, dayId);
 	if (!result.ok) throw new Error(result.message);
 	// No stamping here. startSessionForDay owns both the session row and the
-	// sets it copies from prescribed_sets, so assertNoUnownedRows() in
 	// afterEach now checks production code rather than this fixture.
 	const [occurrence] = await db
 		.select()

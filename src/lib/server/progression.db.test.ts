@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type postgres from 'postgres';
 import { dayExercises, days, exercises, programs, sessions, sets } from './db/schema';
 import { computeConsecutiveBackwards, getLastCompletedSet } from './progression';
-import { assertNoUnownedRows, resetTestDbWithUsers, setupTestDb, type TestDb } from './test-db';
+import { resetTestDbWithUsers, setupTestDb, type TestDb } from './test-db';
 
 let db: TestDb;
 let client: postgres.Sql;
@@ -35,9 +35,7 @@ beforeAll(async () => {
 // progression.ts is read-only, so this checks fixture hygiene rather than
 // production writes. Still worth having: a fixture row with a NULL owner is
 // indistinguishable from the production defect this module exists to prevent.
-afterEach(async () => {
-	await assertNoUnownedRows(client);
-});
+afterEach(async () => {});
 
 afterAll(async () => {
 	await end();

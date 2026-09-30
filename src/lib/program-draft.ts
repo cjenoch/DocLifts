@@ -1,5 +1,21 @@
 import { z } from 'zod';
 
+// zod 4 probes for `eval` availability on first use with a caught
+// `new Function('')`. The throw is swallowed, so nothing breaks, but a strict
+// CSP still reports it as a `securitypolicyviolation` — which is exactly what
+// the e2e crawl caught on /programs/new and /programs/[id]/edit, the only two
+// routes that load this module client-side. zod's own source names the switch:
+// `allowsEval` in zod/v4/core/util.js returns false under `globalConfig.jitless`
+// with the comment "Skip the probe under `jitless`: strict CSPs report the
+// caught `new Function` as a `securitypolicyviolation`".
+//
+// This module is shared client and server, so the setting applies wherever zod
+// loads. `jitless` only disables zod's compiled fast path for object parsing,
+// which is irrelevant at this app's payload sizes. No CSP change and no
+// dependency change: the one tolerated `style-src-attr` exception in CLAUDE.md
+// stays the only exception.
+z.config({ jitless: true });
+
 // Serialized JSON characters, shared by review and both POST actions.
 export const MAX_PROGRAM_DRAFT_CHARS = 250_000;
 // Leave headroom below adapter-node's default 512 KiB body limit.

@@ -40,6 +40,10 @@ import { z } from 'zod';
 import { auth } from './auth';
 import type { Database } from './progression';
 import { eq } from 'drizzle-orm';
+
+/** The 0011 sentinel's placeholder email. Duplicated from bootstrap.ts on purpose:
+ *  bootstrap.ts imports this file, so importing back would be a cycle. */
+const SENTINEL_EMAIL = 'owner@localhost';
 import { authUsers } from './db/auth-schema';
 
 /** Better Auth lowercases emails itself; do it first so a duplicate check
@@ -149,4 +153,89 @@ export async function findUserByEmail(db: Database, email: string): Promise<stri
 		.from(authUsers)
 		.where(eq(authUsers.email, email.toLowerCase()));
 	return row?.id ?? null;
+}
+
+/**
+ * Replace an account's password. T5's `pnpm user:set-password`.
+ *
+ * WHY updatePassword AND NOT linkAccount AGAIN
+ * -------------------------------------------
+ * `internalAdapter.updatePassword(userId, password)` matches the account row on
+ * (userId, providerId 'credential', accountId === userId) and SETS the column.
+ * linkAccount, which createUser uses, is an INSERT: calling it a second time
+ * for the same account would violate the account table's unique constraint
+ * rather than change anything. Reading better-auth 1.7.6's
+ * dist/db/internal-adapter.mjs:627 rather than guessing the method name —
+ * updatePassword is not in the .d.mts surface, so it is only discoverable in
+ * the implementation.
+ *
+ * IT DOES NOT HASH — YOU MUST
+ * ---------------------------
+ * This is the trap that cost an hour, and the test is what caught it.
+ * `internal-adapter.mjs:627` reads
+ *
+ *   updatePassword: async (userId, password) => {
+ *     await updateManyWithHooks({ password }, [ ... ], "account", void 0);
+ *   }
+ *
+ * and `updateManyWithHooks` in db/with-hooks.mjs writes `actualData` verbatim
+ * to the column. There is no hashing anywhere in that path, despite the name.
+ * So the caller MUST hash, exactly as linkAccount callers do — a raw password
+ * lands in the column as plain text and every later sign-in fails with
+ * "Invalid password hash".
+ *
+ * Assumed the opposite on the first pass because the method is named
+ * `updatePassword` rather than `setPasswordHash`. Verified against
+ * signInEmail (not against the database) so the assertion is "this account can
+ * sign in", not "this column looks like a hash".
+ *
+ * Password limits are checked first, through the same resolved-config path as
+ * createUser, so the CLI cannot set a password that sign-in would reject.
+ */
+export async function setPassword(db: Database, input: { email: string; password: string }) {
+	const limits = await passwordLimits();
+	// The unclaimed 0011 sentinel's email is `owner@localhost`, which fails zod's
+	// email regex (it requires a dot and a TLD). Without this branch an operator
+	// who tries to reset the sentinel's password before bootstrapping gets an
+	// opaque Zod error instead of the one instruction that helps. Matched on the
+	// literal placeholder so it stays correct if either side is renamed.
+	if (input.email.trim().toLowerCase() === SENTINEL_EMAIL) {
+		throw new Error(
+			`${SENTINEL_EMAIL} is the 0011 sentinel, which has no password to reset. ` +
+				`Run pnpm user:bootstrap to claim it with a real email and password.`
+		);
+	}
+	const email = z
+		.string()
+		.trim()
+		.email()
+		.max(320)
+		.transform((v) => v.toLowerCase())
+		.parse(input.email);
+	const password = z
+		.string()
+		.min(limits.min, `Password must be at least ${limits.min} characters`)
+		.max(limits.max, `Password must be at most ${limits.max} characters`)
+		.parse(input.password);
+
+	const [row] = await db
+		.select({ id: authUsers.id })
+		.from(authUsers)
+		.where(eq(authUsers.email, email));
+	if (!row) throw new Error(`No user with email ${email}`);
+
+	// An account with no credential row cannot be given a password by update:
+	// it matches on the credential provider and would silently update nothing.
+	const ctx = await auth.$context;
+	const accounts = await ctx.internalAdapter.findAccounts(row.id);
+	const credential = accounts.find((a) => a.providerId === 'credential');
+	if (!credential) {
+		throw new Error(
+			`User ${email} has no credential account, so there is no password to replace. ` +
+				`If this is the 0011 sentinel, use pnpm user:bootstrap to claim it.`
+		);
+	}
+
+	await ctx.internalAdapter.updatePassword(row.id, await ctx.password.hash(password));
+	return { id: row.id, email };
 }

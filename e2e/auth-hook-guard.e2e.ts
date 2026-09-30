@@ -196,6 +196,38 @@ describe('signed-in requests', () => {
 		expect(res.headers.get('vary')).toMatch(/cookie/i);
 	});
 
+	// Spec §1. A signed-in user reaching the form by back button or bookmark
+	// must never see it, and must not consume a counter on the way.
+	//
+	// Note the implementation differs from the spec's wording: it reads
+	// `locals.user` per the spec, but the guard deliberately leaves
+	// `locals.user` null on public paths so an unauthenticated page render
+	// costs no session lookup. /login is public. So this does its own
+	// getSession, which it already did before this test existed. Same
+	// behaviour, and the reason is load-bearing rather than incidental.
+	it('sends a signed-in user from /login to home', async () => {
+		const res = await fetch(new URL('/login', origin), {
+			headers: { cookie },
+			redirect: 'manual'
+		});
+		expect(res.status).toBe(303);
+		expect(res.headers.get('location')).toBe('/');
+		// And it must not be a login POST, or a signed-in user's back button
+		// would re-submit credentials.
+		expect(res.headers.get('location')).not.toMatch(/api\/auth/);
+	});
+
+	it('offers a way to sign out, and that way is a POST form', async () => {
+		const res = await fetch(new URL('/', origin), { headers: { cookie } });
+		const html = await res.text();
+		// A working POST action existed the whole time and was never rendered
+		// anywhere, so there was no way to log out from the UI at all.
+		expect(html, 'no logout control is rendered').toMatch(/action=["']\/logout["']/i);
+		// A link would let a prefetch or an <img> sign the user out. The route
+		// answers 405 to GET precisely to make that impossible.
+		expect(html, 'logout must not be a GET link').not.toMatch(/href=["']\/logout["']/i);
+	});
+
 	it('does not sign anyone out on GET /logout', async () => {
 		// A prefetch or crawler must never end a session.
 		const res = await fetch(new URL('/logout', origin), {

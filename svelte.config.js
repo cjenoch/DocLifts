@@ -1,4 +1,5 @@
 import adapter from '@sveltejs/adapter-node';
+import { execSync } from 'node:child_process';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -8,6 +9,21 @@ const config = {
 	},
 	kit: {
 		adapter: adapter(),
+		// Stale-build detection.
+		//
+		// The 0.2.1 lockout ended with a browser unable to sign in and no way to
+		// tell why. SvelteKit's own answer is these two settings: `_app/version.json`
+		// serves `version.name`, and a client whose value differs from what it
+		// loaded detects a new deploy and forces a full reload instead of running
+		// stale client code against a new server.
+		//
+		// Built from git so the value changes exactly when the deployed code
+		// does. Falls back to 'dev' outside a checkout; that is still a valid,
+		// stable value, it simply never differs between builds.
+		version: {
+			pollInterval: 60_000,
+			name: process.env.DOCLIFTS_BUILD_SHA || gitSha()
+		},
 		// L13: strict Content-Security-Policy. mode 'nonce' makes SvelteKit
 		// add per-request nonces to its own inline hydration scripts/styles,
 		// so script-src/style-src stay locked to 'self' with no
@@ -58,5 +74,21 @@ const config = {
 		}
 	}
 };
+
+/**
+ * The git sha at build time, or a stable placeholder.
+ *
+ * `DOCLIFTS_BUILD_SHA` is the explicit override the release runbook sets, so a
+ * source-less runtime image does not need a .git directory to be identifiable.
+ */
+function gitSha() {
+	try {
+		return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+			.toString()
+			.trim();
+	} catch {
+		return 'dev';
+	}
+}
 
 export default config;

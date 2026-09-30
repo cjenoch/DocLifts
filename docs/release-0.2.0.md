@@ -9,24 +9,29 @@ that it works."
 correct. `/history` filters `deleted_at IS NULL`, so soft-deleted rows are
 deliberately hidden.
 
-> **Treat the absolute numbers below as a dated measurement, not a
-> specification.** These were read on 2026-09-30: 30 session rows, 1
-> soft-deleted, 29 visible across four months (2026-05: 10, 2026-06: 13,
-> 2026-07: 3, 2026-09: 3). **The same day, a session was logged at 16:44 and the
-> totals moved to 31 / 454 sets.** Production is a live database and this
-> document will go stale.
+> **Treat the numbers in this document as a dated measurement, not a
+> specification.** They were read on 2026-09-30 immediately before the release.
+> **Production is a live database and this document will go stale** — a session
+> logged later changes the totals, which is normal and not a fault.
 >
-> The invariant is the _arithmetic_, and that is what steps 3 and 8 verify:
+> The invariant is the _arithmetic_, and that is what step 8 verifies. The real
+> filter is in `historyForMonth` (`src/lib/server/history.ts`): sessions that are
+> `deleted_at IS NULL` **and join a `days` row and a `programs` row**. There is
+> **no `ended_at` condition** — an unfinished session still appears, which is
+> correct: you want to see a session you started and did not finish.
 >
 > ```text
-> visible (sum of the month pages)  ==  sessions where ended_at is not null
->                                              and deleted_at is null
-> visible + soft_deleted            ==  total session rows
+> total_sessions            ==  the raw `select count(*) from sessions`
+> history_shows             ==  total_sessions - soft_deleted
+>                        (and: history_shows must be unchanged by the release)
 > ```
 >
-> A count that breaks that identity is a real fault. A count that differs from
-> the numbers in this paragraph is not — re-read it with the queries in step 8
-> and move on. **Do not raise an alarm about 29, or about 30, or about 31.**
+> The one historical trap: the T5-era figures of 29-visible-across-four-months
+> are **no longer reproducible** and should not be compared to. The current
+> data shows 9 + 12 across 2026-05 and 2026-06, because the nine unfinished
+> sessions and the one soft-deleted row move the picture. **Do not raise an
+> alarm about any absolute number here. Reconcile the arithmetic, or stop and
+> say so.**
 
 **Production is at migration 8 of 11.** This release applies 0008, 0009, 0010
 and 0011 in a single transaction.
@@ -388,11 +393,19 @@ be automated, and it is the one that proves the browser-visible behavior.
    against a count you take _now_, not a number written down earlier:
 
    ```bash
-   scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc "
-     select 'visible='||count(*) from sessions
-     where ended_at is not null and deleted_at is null;
-     select 'soft_deleted='||count(*) from sessions where deleted_at is not null;"
+   scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -c "
+     select
+       (select count(*) from sessions) as total_sessions,
+       (select count(*) from sessions where deleted_at is not null) as soft_deleted,
+       (select count(*) from sessions s
+          join days d on d.id = s.day_id
+          join programs p on p.id = s.program_id
+         where s.deleted_at is null) as history_shows;"
    ```
+
+   Expected: `history_shows` = `total_sessions` − `soft_deleted`, and
+   `history_shows` identical to your step-3 baseline. On 2026-09-30 that was
+   31 / 1 / 30.
 
    `/history` is a single-month view, so step through each month and add them
    up. The sum must equal `visible`, and `visible + soft_deleted` must equal the

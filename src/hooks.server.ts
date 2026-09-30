@@ -38,7 +38,8 @@ import { sequence } from '@sveltejs/kit/hooks';
 import { redirect, type Handle } from '@sveltejs/kit';
 import { auth } from '$lib/server/auth';
 import { db } from '$lib/server/db';
-import { isPublicPath, resolveAuthRedirect } from '$lib/server/request-user';
+import { isAssetPath, isPublicPath, resolveAuthRedirect } from '$lib/server/request-user';
+import { redirectWithNoStore } from '$lib/server/redirect-no-store';
 import { warnIfNoLoginCapableAccount } from '$lib/server/startup-account-check';
 
 /**
@@ -108,14 +109,29 @@ const NO_STORE = { 'cache-control': 'no-store, must-revalidate', vary: 'Cookie' 
 const guard: Handle = async ({ event, resolve }) => {
 	checkAccountsOnce();
 
+	// A redirect is a response too, and it is produced by `throw redirect(...)`
+	// BELOW — which unwinds before `resolve` is ever called. Setting headers
+	// inside the branch that throws therefore never reaches the wire, so an
+	// unauthenticated GET of a guarded page was answered 303 with NO cache
+	// policy: a 303 to /login, storeable by the browser, which is the 0.2.1
+	// back-button defect wearing a different hat.
+	//
+	// So the headers go on here, BEFORE any possible throw — once, and only
+	// once. `event.setHeaders` throws `"cache-control" header is already set`
+	// if the same key is applied twice, which it is not idempotent; setting it
+	// at both the top and the point of decision turns every page into a 500.
+	if (!isAssetPath(event.url.pathname)) event.setHeaders(NO_STORE);
+
+	// Public, but not an asset. `/login` is exactly this: reachable without a
+	// session, and still uncacheable. The 0.2.1 split on "public" alone left it
+	// with no policy at all, which a browser is free to treat as cacheable.
+	// NO_STORE is already set above for every non-asset path, which includes
+	// every public page. Only assets skip it, and only assets should.
 	if (isPublicPath(event.url.pathname)) return resolve(event);
 
 	// Not public, so a session lookup is about to happen either way, and
-	// everything rendered from here is private to one account — whether or not
-	// the lookup succeeds, since an unauthenticated visitor gets a redirect and
-	// a redirect is not worth caching either. See NO_STORE.
-	event.setHeaders(NO_STORE);
-
+	// everything rendered from here is private to one account.
+	// NO_STORE was already set above, before the redirect could be thrown.
 	const session = await auth.api.getSession({
 		headers: event.request.headers,
 		// No body: we only read, and passing one would consume the stream
@@ -132,7 +148,15 @@ const guard: Handle = async ({ event, resolve }) => {
 		// 303 so the browser re-issues a GET: a redirected POST must not
 		// re-run the action it was blocked from.
 		const target = resolveAuthRedirect(event.url);
-		redirect(303, target === '/login' ? '/login' : `/login?next=${encodeURIComponent(target)}`);
+		// Apply the cache policy to the thrown response, not just to the path
+		// that would have rendered. `redirect()` unwinds past `resolve`, so the
+		// headers set above are discarded with everything else and the browser
+		// receives a bare 303 — which it is free to store, and did.
+		return redirectWithNoStore(
+			303,
+			target === '/login' ? '/login' : `/login?next=${encodeURIComponent(target)}`,
+			event
+		);
 	}
 
 	return resolve(event);

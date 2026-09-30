@@ -13,6 +13,8 @@ import { getLastCompletedSet, type HistoryRow } from '$lib/server/progression';
 import {
 	endSession,
 	loadSession,
+	loadSessionDay,
+	loadSessionSets,
 	softDeleteEndedSession,
 	updateSetInSession
 } from '$lib/server/sessions';
@@ -40,23 +42,13 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		error(404, 'Session not found');
 	}
 
-	const [day] = await db.select().from(days).where(eq(days.id, session.dayId)).limit(1);
+	const { day, dayExs } = await loadSessionDay(db, requireUser(locals).id, session.dayId);
 	if (!day) {
-		// Defensive: FK guarantees existence.
-		error(500, 'Day missing for session');
+		// FK guarantees the row exists, so this is either corruption or a
+		// program owned by someone else. Either way the session page has
+		// nothing to render.
+		error(404, 'Session not found');
 	}
-
-	// Day's exercise ordering + tier (for grouping + display).
-	const dayExs = await db
-		.select({
-			exerciseId: dayExercises.exerciseId,
-			position: dayExercises.position,
-			tier: dayExercises.tier,
-			progressionPolicy: dayExercises.progressionPolicy
-		})
-		.from(dayExercises)
-		.where(eq(dayExercises.dayId, day.id))
-		.orderBy(asc(dayExercises.position));
 
 	const exerciseMeta = new Map(
 		dayExs.map((de) => [
@@ -69,38 +61,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		])
 	);
 
-	const sessionSets = await db
-		.select({
-			id: sets.id,
-			exerciseId: sets.exerciseId,
-			exerciseName: sql<string>`coalesce(${sessionExercises.exerciseName}, ${exercises.name})`,
-			sessionExerciseId: sets.sessionExerciseId,
-			gymEquipmentId: sets.gymEquipmentId,
-			loadConvention: sets.loadConvention,
-			machineLabel: sessionExercises.machineLabel,
-			gymName: sessionExercises.gymName,
-			modelName: sessionExercises.modelName,
-			occurrencePosition: sessionExercises.position,
-			occurrenceTier: sessionExercises.tier,
-			occurrencePolicy: sessionExercises.progressionPolicy,
-			position: sets.position,
-			setRole: sets.setRole,
-			targetMetric: sets.targetMetric,
-			prescribedLoad: sets.prescribedLoad,
-			prescribedRepsMin: sets.prescribedRepsMin,
-			prescribedRepsMax: sets.prescribedRepsMax,
-			prescribedRir: sets.prescribedRir,
-			suggestionReasoning: sets.suggestionReasoning,
-			executedLoad: sets.executedLoad,
-			executedReps: sets.executedReps,
-			executedRir: sets.executedRir,
-			notes: sets.notes
-		})
-		.from(sets)
-		.innerJoin(exercises, eq(sets.exerciseId, exercises.id))
-		.leftJoin(sessionExercises, eq(sessionExercises.id, sets.sessionExerciseId))
-		.where(eq(sets.sessionId, session.id))
-		.orderBy(asc(sets.position));
+	const sessionSets = await loadSessionSets(db, requireUser(locals).id, session.id);
 
 	// Per-set history for inline display. N+1 by design (MVP).
 	// Exclude THIS session — once it ends, its own set would otherwise become

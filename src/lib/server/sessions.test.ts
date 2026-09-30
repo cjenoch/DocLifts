@@ -33,7 +33,9 @@ import {
 	restoreSoftDeletedSession,
 	softDeleteEndedSession,
 	startSessionForDay,
-	updateSetInSession
+	updateSetInSession,
+	loadSessionDay,
+	loadSessionSets
 } from './sessions';
 import { resetTestDbWithUsers, setupTestDb, withTwoUsers, type TestDb } from './test-db';
 
@@ -2715,6 +2717,57 @@ describe('cross-tenant isolation', () => {
 			.returning();
 		return day;
 	}
+
+	// T4 sweep: loadSessionDay and loadSessionSets used to run as inline queries
+	// in the route. Positive-first — the owner succeeds first, then the other
+	// user is refused — because a test that only asserts the refusal passes
+	// against a function that always returns nothing.
+	it('loadSessionDay returns the owner their own day, and null to another user', async () => {
+		const { alice, bob } = await withTwoUsers(db);
+		const aliceDay = await dayFor(alice);
+
+		const mine = await loadSessionDay(db, alice, aliceDay.id);
+		expect(mine.day).toBeDefined();
+		expect(mine.day?.id).toBe(aliceDay.id);
+
+		const theirs = await loadSessionDay(db, bob, aliceDay.id);
+		expect(theirs.day).toBeNull();
+		expect(theirs.dayExs).toEqual([]);
+	});
+
+	it('loadSessionSets returns the owner their own sets, and none to another user', async () => {
+		const { alice, bob } = await withTwoUsers(db);
+		const aliceDay = await dayFor(alice);
+		const started = await startSessionForDay(db, alice, aliceDay.id);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+		// startSessionForDay works from an existing day; it does not create
+		// exercises, so this user needs one before a set can reference it.
+		const [exercise] = await db
+			.insert(exercises)
+			.values({ userId: alice, name: 'Bench Press', equipmentType: 'barbell' })
+			.returning();
+		const rows = await db
+			.insert(sets)
+			.values({
+				userId: alice,
+				sessionId: started.sessionId,
+				exerciseId: exercise.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps',
+				prescribedLoad: 45
+			})
+			.returning();
+		expect(rows.length).toBe(1);
+
+		const mine = await loadSessionSets(db, alice, started.sessionId);
+		expect(mine).toHaveLength(1);
+		expect(mine[0].id).toBe(rows[0].id);
+
+		const theirs = await loadSessionSets(db, bob, started.sessionId);
+		expect(theirs).toEqual([]);
+	});
 
 	it('findOpenSessionForDay returns a user their own open session, and nothing for another', async () => {
 		const { alice, bob } = await withTwoUsers(db);

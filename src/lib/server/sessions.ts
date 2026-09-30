@@ -846,3 +846,111 @@ export async function updateSetInSession(
 		return { ok: true, setId };
 	});
 }
+
+/**
+ * Everything the session page needs to render, as three reads.
+ *
+ * MOVED HERE BY THE T4 SWEEP. The route used to run these itself. It was not a
+ * cross-tenant leak — every query was keyed off `session.id` from an
+ * already-owner-verified `loadSession`, so no other user's row was reachable —
+ * but it violated the rule that a route is a thin wrapper, and a query sitting
+ * in a route is a query nobody audits when the ownership model changes.
+ *
+ * `dayExercises` is owned through its day through its program, and `days` is
+ * NOT NULL `program_id` per the session-start integrity rule, so both are
+ * reached by joining to the program the session belongs to and filtering on
+ * `programs.user_id` directly. That is deliberately not `eq(days.id, ...)`:
+ * the id arrives from the URL, and an owner predicate that rides on the id
+ * alone is the shape D6 exists to prevent.
+ */
+export type SessionDayExercises = Awaited<ReturnType<typeof sessionDayExercises>>['rows'];
+
+async function sessionDayExercises(db: Database, userId: string, dayId: string) {
+	const rows = await db
+		.select({
+			exerciseId: dayExercises.exerciseId,
+			position: dayExercises.position,
+			tier: dayExercises.tier,
+			progressionPolicy: dayExercises.progressionPolicy
+		})
+		.from(dayExercises)
+		.innerJoin(days, eq(dayExercises.dayId, days.id))
+		.innerJoin(programs, eq(days.programId, programs.id))
+		.where(and(eq(dayExercises.dayId, dayId), eq(programs.userId, userId)))
+		.orderBy(asc(dayExercises.position));
+	return { rows };
+}
+
+export type SessionSets = Awaited<ReturnType<typeof sessionSetsForDay>>['rows'];
+
+async function sessionSetsForDay(db: Database, userId: string, sessionId: string) {
+	const rows = await db
+		.select({
+			id: sets.id,
+			exerciseId: sets.exerciseId,
+			exerciseName: sql<string>`coalesce(${sessionExercises.exerciseName}, ${exercises.name})`,
+			sessionExerciseId: sets.sessionExerciseId,
+			gymEquipmentId: sets.gymEquipmentId,
+			loadConvention: sets.loadConvention,
+			machineLabel: sessionExercises.machineLabel,
+			gymName: sessionExercises.gymName,
+			modelName: sessionExercises.modelName,
+			occurrencePosition: sessionExercises.position,
+			occurrenceTier: sessionExercises.tier,
+			occurrencePolicy: sessionExercises.progressionPolicy,
+			position: sets.position,
+			setRole: sets.setRole,
+			targetMetric: sets.targetMetric,
+			prescribedLoad: sets.prescribedLoad,
+			prescribedRepsMin: sets.prescribedRepsMin,
+			prescribedRepsMax: sets.prescribedRepsMax,
+			prescribedRir: sets.prescribedRir,
+			suggestionReasoning: sets.suggestionReasoning,
+			executedLoad: sets.executedLoad,
+			executedReps: sets.executedReps,
+			executedRir: sets.executedRir,
+			notes: sets.notes
+		})
+		.from(sets)
+		.innerJoin(exercises, eq(sets.exerciseId, exercises.id))
+		.leftJoin(sessionExercises, eq(sessionExercises.id, sets.sessionExerciseId))
+		.where(and(eq(sets.sessionId, sessionId), eq(sets.userId, userId)))
+		.orderBy(asc(sets.position));
+	return { rows };
+}
+
+/**
+ * The day a session was started from, and that day's exercise ordering.
+ *
+ * `programs.user_id` is the predicate, joined from the day rather than taken
+ * from the URL — see the note on sessionDayExercises.
+ */
+export async function loadSessionDay(
+	db: Database,
+	userId: string,
+	dayId: string
+): Promise<{ day: typeof days.$inferSelect | null; dayExs: SessionDayExercises }> {
+	const [day] = await db
+		.select({ day: days })
+		.from(days)
+		.innerJoin(programs, eq(days.programId, programs.id))
+		.where(and(eq(days.id, dayId), eq(programs.userId, userId)))
+		.limit(1);
+	if (!day) {
+		// The FK guarantees the row exists, so a miss here means it belongs to
+		// someone else. Reported as absent, never as a 403 (D6).
+		return { day: null, dayExs: [] };
+	}
+	const { rows: dayExs } = await sessionDayExercises(db, userId, dayId);
+	return { day: day.day, dayExs };
+}
+
+/** The set rows for a session, scoped to its owner. */
+export async function loadSessionSets(
+	db: Database,
+	userId: string,
+	sessionId: string
+): Promise<SessionSets> {
+	const { rows } = await sessionSetsForDay(db, userId, sessionId);
+	return rows;
+}

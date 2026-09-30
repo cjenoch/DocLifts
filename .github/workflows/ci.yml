@@ -108,6 +108,18 @@ jobs:
       - name: Server tests (Postgres integration)
         run: pnpm run test:unit --project server
 
+      # The demo seed, in its own project against doclifts_demo_test. It is a
+      # separate `--project` call because `--project server` filters it out:
+      # without this step the seed path never runs, which is exactly the
+      # coverage hole (g0) closed — see the commit body of ade4072.
+      #
+      # CREATE DATABASE is required and available: the postgres:16 service
+      # runs with POSTGRES_USER=doclifts, which is a superuser. The demo
+      # project's own config sets DATABASE_URL and TEST_DATABASE_URL to
+      # doclifts_demo_test, and setupTestDb creates the database if absent.
+      - name: Demo seed tests (own database)
+        run: pnpm run test:unit --project demo
+
       # Component tests in a real Chromium via vitest browser mode. Formerly a
       # separate Browser CI workflow, which GitHub auto-disabled for repo
       # inactivity on 2026-08-02 and which then silently never ran again.

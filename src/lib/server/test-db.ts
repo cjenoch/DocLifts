@@ -187,6 +187,34 @@ export async function withTwoUsers(db: TestDb): Promise<{ alice: string; bob: st
 	return { alice, bob };
 }
 
+/**
+ * Reset, then create fixture users — in THAT order, and only through this.
+ *
+ * `resetTestDb` truncates `auth.user`, so a user created before the reset is
+ * gone by the time the test body runs and every owned insert fails the owner
+ * FK with a confusing message. That mistake appeared in two files during the
+ * accounts work, so the wrong order is now unrepresentable rather than merely
+ * discouraged: there is no exported way to create a fixture user without also
+ * resetting first.
+ *
+ * @param users how many users to create; 0 resets only.
+ * @returns the created users, in a stable order, for `withTwoUsers`-style use.
+ */
+export async function resetTestDbWithUsers(
+	db: TestDb,
+	client: postgres.Sql,
+	users = 1,
+	label = 'test'
+): Promise<{ id: string; label: string }[]> {
+	await resetTestDb(client);
+	const out: { id: string; label: string }[] = [];
+	for (let i = 0; i < users; i++) {
+		const name = users === 1 ? label : `${label}-${i + 1}`;
+		out.push({ id: await createTestUser(db, name), label: name });
+	}
+	return out;
+}
+
 export async function resetTestDb(client: postgres.Sql): Promise<void> {
 	await client`
 		TRUNCATE

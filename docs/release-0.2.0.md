@@ -5,12 +5,28 @@ observation) and an expected value, plus an abort condition. No step says "check
 that it works."
 
 **Read this first, because it will look like a bug.** After bootstrap,
-`/history` shows **29** sessions, not 30. That is correct. Production holds 30
-session rows, one of which is soft-deleted, and `/history` filters
-`deleted_at IS NULL`. The visible total is 29 across four months
-(2026-05: 10, 2026-06: 13, 2026-07: 3, 2026-09: 3). **Do not raise an alarm
-about 29.** The verification in step 8 checks the per-month sums against these
-numbers, not against 30.
+`/history` shows **fewer** sessions than the database holds, and that is
+correct. `/history` filters `deleted_at IS NULL`, so soft-deleted rows are
+deliberately hidden.
+
+> **Treat the absolute numbers below as a dated measurement, not a
+> specification.** These were read on 2026-09-30: 30 session rows, 1
+> soft-deleted, 29 visible across four months (2026-05: 10, 2026-06: 13,
+> 2026-07: 3, 2026-09: 3). **The same day, a session was logged at 16:44 and the
+> totals moved to 31 / 454 sets.** Production is a live database and this
+> document will go stale.
+>
+> The invariant is the _arithmetic_, and that is what steps 3 and 8 verify:
+>
+> ```text
+> visible (sum of the month pages)  ==  sessions where ended_at is not null
+>                                              and deleted_at is null
+> visible + soft_deleted            ==  total session rows
+> ```
+>
+> A count that breaks that identity is a real fault. A count that differs from
+> the numbers in this paragraph is not — re-read it with the queries in step 8
+> and move on. **Do not raise an alarm about 29, or about 30, or about 31.**
 
 **Production is at migration 8 of 11.** This release applies 0008, 0009, 0010
 and 0011 in a single transaction.
@@ -131,7 +147,35 @@ scripts/migrate-prod.sh
 Expected, in order: a `pg_dump` written and verified with `pg_restore --list`,
 then migrations 0008–0011 applied in one transaction.
 
-**Verify — counts match the pre-migration values exactly:**
+**Verify — capture the pre-migration counts, then compare after.** Do this
+_before_ running `migrate-prod.sh`; it is the baseline step 3 compares against:
+
+```bash
+scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc "
+  select 'programs='||count(*) from programs
+  union all select 'gyms='||count(*) from gyms
+  union all select 'exercises='||count(*) from exercises
+  union all select 'sessions='||count(*) from sessions
+  union all select 'sets='||count(*) from sets
+  union all select 'pain_events='||count(*) from pain_events
+  union all select 'workout_log_imports='||count(*) from workout_log_imports
+  union all select 'program_draft_requests='||count(*) from program_draft_requests;"
+```
+
+Write those numbers down. Then migrate, then re-run the same command and
+compare.
+
+> **Do not compare against a hard-coded baseline.** Production is a live
+> database: a workout logged between writing this runbook and running it changes
+> the counts, and a frozen baseline turns that normal event into a false abort
+> mid-migration. This already happened once — the T5 baseline said `sessions 30,
+sets 435`, and by 2026-09-30 evening production held **31 sessions and 454
+> sets** because a session was logged at 16:44 that day. The migration does not
+> touch row counts, so _any_ difference between your two readings is a real
+> problem; comparing to a number written down days ago is not a verification, it
+> is a coincidence waiting to fail.
+
+**Verify — counts unchanged across the migration:**
 
 ```bash
 scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -c "
@@ -148,23 +192,17 @@ scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -c "
   order by 1;"
 ```
 
-Expected:
+Expected: **identical to the pre-migration reading above**, plus two new rows:
 
 ```
-programs                4
-gyms                    2
-exercises              52
-sessions               30
-sets                  435
-pain_events             0
-workout_log_imports     1
-program_draft_requests  1
 auth.user                1
 auth.account             0
 ```
 
-**`auth.account` is 0 here and that is correct** — it becomes 1 in step 5, after
-bootstrap.
+**`auth.account` is 0 here and that is correct** — it becomes 1 in step 7, after
+bootstrap. **Every other count must be byte-identical to your pre-migration
+reading.** 0008–0011 add columns and a NOT NULL constraint; they insert no
+application rows.
 
 **Verify — the eight ownership columns are `NOT NULL`, and nothing is stranded:**
 
@@ -346,18 +384,28 @@ be automated, and it is the one that proves the browser-visible behavior.
    (Headers alternative: `curl -skI` on the sign-in response and read
    `Set-Cookie`.) A non-`Secure` cookie here means the forwarded-proto handling
    is wrong and the session would travel in clear over HTTP.
-3. **Verify `/history` shows 29 sessions**, and check the per-month counts:
+3. **Verify `/history` shows every ended, non-deleted session** — and check it
+   against a count you take _now_, not a number written down earlier:
 
-   | month     | expected |
-   | --------- | -------- |
-   | 2026-05   | 10       |
-   | 2026-06   | 13       |
-   | 2026-07   | 3        |
-   | 2026-09   | 3        |
-   | **total** | **29**   |
+   ```bash
+   scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc "
+     select 'visible='||count(*) from sessions
+     where ended_at is not null and deleted_at is null;
+     select 'soft_deleted='||count(*) from sessions where deleted_at is not null;"
+   ```
 
-   `/history` is a single-month view — it shows one month at a time, so step
-   through all four. **29, not 30** (see the top of this document).
+   `/history` is a single-month view, so step through each month and add them
+   up. The sum must equal `visible`, and `visible + soft_deleted` must equal the
+   total from step 3. **The database holds more sessions than the page shows,
+   and that is correct** — the view filters `deleted_at IS NULL`, so soft-deleted
+   rows are deliberately hidden (see the top of this document).
+
+   > The absolute numbers moved and will move again: the 29-vs-30 explanation at
+   > the top of this document was measured on 2026-09-30, and a session logged
+   > that same afternoon took the total to 31. What is invariant is the
+   > _arithmetic_ — visible + soft-deleted = total — and that is what this step
+   > checks. A month count that does not reconcile against the query is a real
+   > problem; a month count that differs from this document is not.
 
 4. **Create a gym** through the form. This exercises the CSRF path: behind
    Tailscale Serve, SvelteKit only accepts the POST if `PROTOCOL_HEADER` and

@@ -107,8 +107,10 @@ it('removes only the last unlogged set without renumbering or deleting logged da
 		requestId: randomUUID(),
 		setRole: 'working'
 	});
-	await expect(removeEmptyLastSet(db, session.id, source.id)).rejects.toThrow('Logged sets');
-	await removeEmptyLastSet(db, session.id, added.id);
+	await expect(removeEmptyLastSet(db, userId, session.id, source.id)).rejects.toThrow(
+		'Logged sets'
+	);
+	await removeEmptyLastSet(db, userId, session.id, added.id);
 	expect(await db.select().from(s.sets)).toEqual([source]);
 });
 it('creates equipment inline atomically and retains machine identity on added sets', async () => {
@@ -227,4 +229,72 @@ it('a session id belonging to another user is refused, not adopted', async () =>
 			setRole: 'working'
 		})
 	).rejects.toThrow('This workout is no longer active.');
+});
+
+// Cross-tenant for removeEmptyLastSet. Same shape as the appendWorkoutSet pair:
+// the positive case first, so the negative cannot pass for the wrong reason.
+it('lets a user remove the last empty set from their own session', async () => {
+	const f = await fixture();
+	const bob = await createTestUser(f.db, 'workout-sets-remove-bob');
+	const [bobsProgram] = await f.db
+		.insert(s.programs)
+		.values({ name: 'Bob Remove', userId: bob })
+		.returning();
+	const [bobsDay] = await f.db
+		.insert(s.days)
+		.values({ programId: bobsProgram.id, name: 'Bob Remove Day', position: 1 })
+		.returning();
+	const [bobsSession] = await f.db
+		.insert(s.sessions)
+		.values({ programId: bobsProgram.id, dayId: bobsDay.id, userId: bob })
+		.returning();
+	const rows = await f.db
+		.insert(s.sets)
+		.values([
+			{
+				userId: bob,
+				sessionId: bobsSession.id,
+				exerciseId: f.exercise.id,
+				position: 1,
+				setRole: 'working',
+				targetMetric: 'reps'
+			},
+			{
+				userId: bob,
+				sessionId: bobsSession.id,
+				exerciseId: f.exercise.id,
+				position: 2,
+				setRole: 'working',
+				targetMetric: 'reps'
+			}
+		])
+		.returning();
+	// Position 2 is last, so removing it is legal.
+	await removeEmptyLastSet(f.db, bob, bobsSession.id, rows[1].id);
+	const left = await f.db.select().from(s.sets).where(eq(s.sets.sessionId, bobsSession.id));
+	expect(left.map((r) => r.id)).toEqual([rows[0].id]);
+});
+
+it("refuses to remove a set from another user's session and leaves the row intact", async () => {
+	const f = await fixture();
+	const bob = await createTestUser(f.db, 'workout-sets-remove-bob');
+	// Add a second empty set so position 2 is last and would be removable if
+	// the owner predicate were missing. Only the owner check stands between
+	// this call and a cross-tenant delete.
+	const [empty] = await f.db
+		.insert(s.sets)
+		.values({
+			userId: f.userId,
+			sessionId: f.session.id,
+			exerciseId: f.exercise.id,
+			position: 3,
+			setRole: 'working',
+			targetMetric: 'seconds'
+		})
+		.returning();
+	await expect(removeEmptyLastSet(f.db, bob, f.session.id, empty.id)).rejects.toThrow(
+		'This workout is no longer active.'
+	);
+	const still = await f.db.select().from(s.sets).where(eq(s.sets.id, empty.id));
+	expect(still.length).toBe(1);
 });

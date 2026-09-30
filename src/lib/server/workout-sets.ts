@@ -4,20 +4,28 @@ import { sessions, sets } from './db/schema';
 import type { Database } from './progression';
 import { MachineInputError } from './machines';
 
-export async function removeEmptyLastSet(db: Database, sessionId: string, setId: string) {
+export async function removeEmptyLastSet(
+	db: Database,
+	userId: string,
+	sessionId: string,
+	setId: string
+) {
 	z.string().uuid().parse(setId);
 	return db.transaction(async (tx) => {
+		// Owner predicate in the same query that resolves the session, matching
+		// appendWorkoutSet. Another user's session reads as absent, so the
+		// refusal is identical to an unknown id and nothing is deleted.
 		const [session] = await tx
 			.select()
 			.from(sessions)
-			.where(eq(sessions.id, sessionId))
+			.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
 			.for('update');
 		if (!session || session.endedAt || session.deletedAt)
 			throw new MachineInputError('This workout is no longer active.');
 		const [row] = await tx
 			.select()
 			.from(sets)
-			.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)));
+			.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId), eq(sets.userId, userId)));
 		if (!row) throw new MachineInputError('Set not found.');
 		if (
 			row.executedLoad != null ||

@@ -189,7 +189,12 @@ export const actions: Actions = {
 			return fail(400, { message: 'Invalid session id' });
 		}
 		try {
-			await removeEmptyLastSet(db, params.id, String((await request.formData()).get('setId')));
+			await removeEmptyLastSet(
+				db,
+				requireUser(locals).id,
+				params.id,
+				String((await request.formData()).get('setId'))
+			);
 			return { removed: true };
 		} catch (e) {
 			if (e instanceof z.ZodError || e instanceof MachineInputError)

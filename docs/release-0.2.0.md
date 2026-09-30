@@ -630,3 +630,52 @@ DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.2.1 \
 
 Delete `doclifts-web:pre-0.2.1` once the above passes. The throttle's
 in-memory counters are cleared by the restart, so the deploy is also a reset.
+
+### Deployed 2026-09-30
+
+`0.2.1` = `62c3d6e`, tagged and pushed. CI run [36784882502](https://github.com/cjenoch/DocLifts/actions/runs/36784882502) green on that sha, including the 17 CSP tests that are skipped locally.
+
+No migration. `web` was rebuilt and recreated; `db` was untouched (same container
+ID across the deploy).
+
+All five browser checks passed over Tailscale Serve:
+
+| Check                                             | Result                                       |
+| ------------------------------------------------- | -------------------------------------------- |
+| sign-out control visible on an authenticated page | yes, reads "Sign out"; a form, not a link    |
+| sign out, press BACK                              | lands on `/login`; no workout data rendered  |
+| `/login` while signed in                          | 303 to `/`                                   |
+| five sign-out / sign-in cycles, no waiting        | 5/5, 4.2s total                              |
+| one wrong password, then the correct one          | wrong rejected 400, correct accepted at once |
+
+Corroborating headers, measured on the same deploy:
+
+```
+GET /history (authenticated)   200  cache-control: no-store, must-revalidate
+                                       vary: Cookie
+GET /_app/immutable/…css        cache-control: public, max-age=0, must-revalidate
+GET /history (no cookie)        303 -> /login
+GET /history (stale cookie)     303 -> /login   (after sign-out)
+session cookie                  Max-Age=2592000  (30 days)
+```
+
+The throttle was then exercised on production: ten wrong passwords from one
+address refused a subsequent **correct** password with a positive wait, and the
+structured line appeared as designed —
+
+```json
+{
+	"event": "login_throttle",
+	"kind": "refuse",
+	"key_type": "email",
+	"count": 10,
+	"retry_after_s": 876
+}
+```
+
+— with no address and no password in it. That test left the email key at its
+ceiling, so the container was restarted to clear the in-memory counters (the
+documented reset, and a reminder that the numbers are per-process), and sign-in
+was re-verified afterwards.
+
+`doclifts-web:pre-0.2.1` deleted after all five passed.

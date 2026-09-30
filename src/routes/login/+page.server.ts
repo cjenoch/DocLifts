@@ -10,6 +10,7 @@ import {
 	type ThrottleKeys
 } from '$lib/server/login-throttle';
 import { isSafeNext } from '$lib/server/request-user';
+import { logLoginAttempt } from '$lib/server/login-attempt-log';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ request }) => {
@@ -33,6 +34,13 @@ export const actions: Actions = {
 		const next = form.get('next');
 
 		if (!email || !password) {
+			logLoginAttempt(request, {
+				ok: false,
+				status: 400,
+				reason: 'validation',
+				email,
+				password
+			});
 			return fail(400, { email, error: 'Enter your email and password.', retryAfter: null });
 		}
 
@@ -46,10 +54,34 @@ export const actions: Actions = {
 		const throttleKeys: ThrottleKeys = { ip: clientIpFrom(request.headers), email };
 		const decision = await checkLoginThrottle(loginThrottle, throttleKeys);
 		if (decision.kind === 'refuse') {
+			logLoginAttempt(request, {
+				ok: false,
+				status: 429,
+				reason: 'throttled',
+				email,
+				password,
+				retryAfterS: decision.retryAfterSeconds,
+				keyType: decision.keyType
+			});
 			return fail(429, {
 				email,
-				error: 'Too many failed sign-in attempts. Try again shortly.',
+				error: `Too many failed sign-in attempts. Try again in about ${decision.retryAfterSeconds} seconds.`,
 				retryAfter: String(decision.retryAfterSeconds)
+			});
+		}
+
+		if (decision.kind === 'delay') {
+			// Logged BEFORE the sleep, so a slow response has an explanation
+			// sitting in the log for the duration of the delay rather than
+			// after it.
+			logLoginAttempt(request, {
+				ok: false,
+				status: 0,
+				reason: 'throttled',
+				email,
+				password,
+				delayMs: decision.delayMs,
+				keyType: decision.keyType
 			});
 		}
 
@@ -75,6 +107,14 @@ export const actions: Actions = {
 		// redirected — a redirect would discard the message and bounce the user
 		// straight back to a blank form.
 		if (result.status === 429) {
+			logLoginAttempt(request, {
+				ok: false,
+				status: 429,
+				reason: 'throttled',
+				email,
+				password,
+				retryAfterS: SIGN_IN_WINDOW_SECONDS
+			});
 			return fail(429, {
 				email,
 				error: 'Too many sign-in attempts. Try again shortly.',
@@ -97,6 +137,13 @@ export const actions: Actions = {
 			// clears both keys, so neither success nor the mere act of trying
 			// can accumulate toward a refusal.
 			recordLoginFailure(loginThrottle, throttleKeys);
+			logLoginAttempt(request, {
+				ok: false,
+				status: result.status,
+				reason: 'bad_credentials',
+				email,
+				password
+			});
 			return fail(400, { email, error: 'That email and password do not match.', retryAfter: null });
 		}
 
@@ -115,6 +162,10 @@ export const actions: Actions = {
 		// getSetCookie() rather than get(), because several Set-Cookie headers
 		// can be emitted.
 		clearLoginFailures(loginThrottle, throttleKeys);
+		// Logged LAST, after the cookies are forwarded, so `ok: true` means a
+		// session actually exists rather than "the password was right". That
+		// distinction is the whole value of the line.
+		logLoginAttempt(request, { ok: true, status: result.status, reason: 'ok', email, password });
 
 		for (const raw of result.headers.getSetCookie()) {
 			for (const [name, attrs] of parseSetCookieHeader(raw)) {

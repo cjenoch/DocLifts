@@ -1,9 +1,17 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
-import { createTestUser, setupTestDb, resetTestDb, type TestDb } from './test-db';
+import {
+	assertNoUnownedRows,
+	createTestUser,
+	setupTestDb,
+	resetTestDb,
+	type TestDb
+} from './test-db';
 import * as s from './db/schema';
 import { createGym, createMachine, bindSessionMachine, addSessionExercise } from './machines';
 import { startSessionForDay, endSession, updateSetInSession } from './sessions';
+import { getLastCompletedSet } from './progression';
+import { mainPrefills } from './main-prefill';
 
 let db: TestDb;
 let handle: Awaited<ReturnType<typeof setupTestDb>>;
@@ -18,10 +26,16 @@ beforeEach(async () => {
 	await resetTestDb(handle.client);
 });
 
+// mainPrefills owns no writes, and its one read is computeConsecutiveBackwards,
+// which (b) already scoped. So this checks fixture hygiene — an ownerless
+// fixture row is indistinguishable from a production one.
+afterEach(async () => {
+	await assertNoUnownedRows(handle.client);
+});
+
 async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' = 'standard') {
-	// Owner for every row this fixture creates. machines.ts scopes by userId as
-	// of T3; programs/sessions do not take one until T4, so the session is
-	// stamped after start (see start() below) rather than at insert.
+	// Owner for every row this fixture creates. `days` and `day_exercises` have
+	// no user_id column; ownership reaches them through the program.
 	const userId = await createTestUser(db, 'main-prefill');
 	const [program] = await db
 		.insert(s.programs)
@@ -71,12 +85,8 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 	async function start() {
 		const result = await startSessionForDay(db, userId, day.id);
 		if (!result.ok) throw new Error(result.message);
-		// startSessionForDay does not set user_id until T4; lockActive() filters
-		// on it, so stamp it here or every bind below reports 'Session not found'.
-		await db.update(s.sessions).set({ userId }).where(eq(s.sessions.id, result.sessionId));
-		// startSessionForDay also creates the `sets` rows and does not stamp an
-		// owner until T4.
-		await db.update(s.sets).set({ userId }).where(eq(s.sets.sessionId, result.sessionId));
+		// No stamping: startSessionForDay owns the session and the sets it
+		// creates, so assertNoUnownedRows checks production code.
 		const [occurrence] = await db
 			.select()
 			.from(s.sessionExercises)
@@ -110,7 +120,7 @@ async function fixture(bound: boolean, policy: 'standard' | 'cautious' | 'hold' 
 		}
 		await endSession(db, userId, run.sessionId);
 	}
-	return { userId, start, completed, binding, exercise };
+	return { userId, start, completed, binding, exercise, machine };
 }
 
 describe.each([false, true])('MAIN caller contract (machine bound=%s)', (bound) => {
@@ -204,4 +214,79 @@ it('quick-added MAIN has one top followed by backoffs', async () => {
 		.where(eq(s.sets.sessionExerciseId, occurrence.id))
 		.orderBy(asc(s.sets.position));
 	expect(rows.map((r) => r.setRole)).toEqual(['top', 'backoff', 'backoff']);
+});
+
+// mainPrefills owns no writes, and its one read is computeConsecutiveBackwards,
+// which (b) already scoped. The `history` on each MainSlot is passed in by the
+// caller, and startSessionForDay gets it from the now owner-scoped
+// getLastCompletedSet. So this is a test that the CALLER scoped it: history
+// belonging to one user must not reach another user's prefill output.
+describe.each([false, true])('caller-supplied history scoping (bound=%s)', (bound) => {
+	it("gives a second user cold-start output, not the first user's progressed load", async () => {
+		const f = await fixture(bound);
+		await f.completed(10, 10, 100, 80);
+		const bob = await createTestUser(db, 'main-prefill-bob');
+
+		// With a machine bound, history is machine-scoped: the identity filter
+		// must match the bound machine or the lookup finds nothing. The other
+		// tests in this file get this through startSessionForDay; calling
+		// mainPrefills directly means supplying it.
+		const identity = bound
+			? { gymEquipmentId: f.machine.id, loadConvention: 'displayed' as const }
+			: undefined;
+
+		const slotsFor = async (userId: string) => [
+			{
+				position: 1,
+				setRole: 'warmup' as const,
+				targetRepsMax: 10,
+				targetRepsMin: 8,
+				targetRir: 1,
+				history: null
+			},
+			{
+				position: 2,
+				setRole: 'top' as const,
+				targetRepsMax: 10,
+				targetRepsMin: 8,
+				targetRir: 1,
+				history: await getLastCompletedSet(db, userId, f.exercise.id, 'top', 2, undefined, identity)
+			},
+			{
+				position: 3,
+				setRole: 'backoff' as const,
+				targetRepsMax: 10,
+				targetRepsMin: 8,
+				targetRir: 1,
+				history: null
+			}
+		];
+
+		const asAlice = await mainPrefills(
+			db,
+			f.userId,
+			f.exercise.id,
+			await slotsFor(f.userId),
+			'standard',
+			false,
+			identity
+		);
+		const asBob = await mainPrefills(
+			db,
+			bob,
+			f.exercise.id,
+			await slotsFor(bob),
+			'standard',
+			false
+		);
+
+		// Bob's slot history is null, so his output is cold start: no load and no
+		// reasoning derived from Alice's completed sets.
+		expect(asBob.get(2)?.load).toBeNull();
+		expect(asBob.get(2)?.reasoning).toBeNull();
+		// Not vacuous: Alice's own call carries a real load derived from her
+		// completed sets, so the assertions above distinguish the two callers
+		// rather than holding regardless.
+		expect(asAlice.get(2)?.load).not.toBeNull();
+	});
 });

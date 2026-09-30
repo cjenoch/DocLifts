@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from './progression';
 import * as s from './db/schema';
 import { createUser, findUserByEmail } from './users';
@@ -58,10 +58,34 @@ export async function seedDemo(db: Database, enabled: boolean) {
 			throw new Error(
 				'Demo seeding requires an empty database; existing users were left untouched.'
 			);
+		// Occupancy is judged on OTHER owners' rows, not on raw presence.
+		//
+		// Since T5, creating the demo owner fires the auth starter-exercise
+		// hook, so `exercises` already holds 23 rows belonging to the demo
+		// user by the time we get here — on the very first seed. A raw
+		// `exists (...)` check refuses that as "not empty", which made the
+		// seed impossible to run at all. The guard's actual purpose is "do
+		// not touch a database that holds someone else's data", so that is
+		// what it now tests: any row in any owned table whose user_id is not
+		// the demo owner's.
+		//
+		// A stale empty demo database from before T5 (owner present, no
+		// starter list) still reaches the `already seeded` check above, so
+		// nothing re-seeds over it; compose.demo.yml's tmpfs means the normal
+		// path starts from nothing anyway.
+		// All EIGHT owned tables, which is the same list 0011 makes NOT NULL.
+		// Deliberately exhaustive rather than "the tables the seed writes":
+		// a guard that only checks some tables is a guard that silently stops
+		// protecting the others when someone adds a ninth.
 		const [occupied] = await tx.execute<{ present: boolean }>(sql`select exists (
-			select id from programs union all select id from exercises union all select id from sessions
-			union all select id from sets union all select id from gyms union all select id from equipment_models
-			union all select id from workout_log_imports union all select id from imported_workouts
+			select 1 from programs where user_id <> ${owner.id}
+			union all select 1 from gyms where user_id <> ${owner.id}
+			union all select 1 from exercises where user_id <> ${owner.id}
+			union all select 1 from sessions where user_id <> ${owner.id}
+			union all select 1 from sets where user_id <> ${owner.id}
+			union all select 1 from pain_events where user_id <> ${owner.id}
+			union all select 1 from workout_log_imports where user_id <> ${owner.id}
+			union all select 1 from program_draft_requests where user_id <> ${owner.id}
 		) as present`);
 		if (occupied.present)
 			throw new Error('Demo seeding requires an empty database; existing data was left untouched.');
@@ -117,10 +141,28 @@ export async function seedDemo(db: Database, enabled: boolean) {
 				.returning();
 			const entries = [];
 			for (const [index, [name, equipmentType, load]] of spec.exercises.entries()) {
-				const [exercise] = await tx
+				// onConflictDoNothing, then read the row back by (userId, name).
+				//
+				// The demo owner's starter exercise list already arrived from the
+				// auth create hook, and every name below is in it — so this insert
+				// collides by design and returns zero rows. `.returning()` alone
+				// would leave `exercise` undefined and the next insert would fail
+				// on an undefined id, which is a baffling failure for a normal
+				// path. Selecting by the compound key works whether the row was
+				// just created or already present, so the demo does not depend on
+				// whether the hook is enabled.
+				await tx
 					.insert(s.exercises)
 					.values({ userId: owner.id, name, equipmentType, isLowerBody: dayIndex === 2 })
-					.returning();
+					.onConflictDoNothing({ target: [s.exercises.userId, s.exercises.name] });
+				const [exercise] = await tx
+					.select()
+					.from(s.exercises)
+					.where(and(eq(s.exercises.userId, owner.id), eq(s.exercises.name, name)))
+					.limit(1);
+				if (!exercise) {
+					throw new Error(`Demo seed could not resolve exercise "${name}"`);
+				}
 				const [machine] = await tx
 					.insert(s.gymEquipment)
 					.values({ gymId: gym.id, localLabel: `Demo ${name}`, equipmentType })

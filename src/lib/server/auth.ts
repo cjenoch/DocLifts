@@ -10,6 +10,8 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { env } from '$env/dynamic/private';
+import { exercises } from './db/schema';
+import { STARTER_EXERCISES } from './starter-exercises';
 import { building } from '$app/environment';
 import { db } from './db';
 import { authTables } from './db/auth-schema';
@@ -136,6 +138,56 @@ export const auth = betterAuth({
 	 * is set (multi-instance deployments need it — in-memory state is
 	 * per-process).
 	 */
+	/**
+	 * T5: every new account gets the starter exercise list.
+	 *
+	 * `databaseHooks.user.create.after` rather than a call inside `createUser`,
+	 * because createUser is not the only way an account comes into being: this
+	 * hook fires for `pnpm user:bootstrap`, `pnpm user:create`, and any future
+	 * open sign-up, with no path able to forget it. A call inside createUser
+	 * would be one more place to remember.
+	 *
+	 * Confirmed for 1.7.6 that `internalAdapter.createUser` runs these hooks —
+	 * users.ts's createUser goes through that adapter, which is the point:
+	 * users.ts never has to know this hook exists.
+	 *
+	 * onConflictDoNothing on (user_id, name), the unique index created by 0010
+	 * (`exercises_user_id_name_unique`), so re-running is a no-op rather than a
+	 * duplicate. seedDemo depends on that too: the demo user's nine exercises
+	 * arrive from HERE, and its own inserts collide by design.
+	 *
+	 * A failure here must not roll back the account: `user.create.after` runs
+	 * after the user exists, so throwing would leave a user with no starter
+	 * list AND an error the operator sees as "user creation failed". Log and
+	 * continue — `pnpm user:bootstrap` reports the gap explicitly, and an empty
+	 * exercise list is recoverable while a half-created account is not.
+	 */
+	databaseHooks: {
+		user: {
+			create: {
+				after: async (user) => {
+					try {
+						await db
+							.insert(exercises)
+							.values(
+								STARTER_EXERCISES.map((e) => ({
+									userId: user.id,
+									name: e.name,
+									equipmentType: e.equipmentType,
+									isLowerBody: e.isLowerBody ?? false
+								}))
+							)
+							.onConflictDoNothing({
+								target: [exercises.userId, exercises.name]
+							});
+					} catch (cause) {
+						console.error(`[auth] starter exercise list failed for user ${user.id}:`, cause);
+					}
+				}
+			}
+		}
+	},
+
 	rateLimit: {
 		enabled: true,
 		...(env.DOCLIFTS_RATE_LIMIT_STORAGE === 'database' ? { storage: 'database' as const } : {})

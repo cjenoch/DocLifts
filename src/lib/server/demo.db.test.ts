@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { setupTestDb, resetTestDb } from './test-db';
 import { seedDemo } from './demo';
 import { findUserByEmail } from './users';
+import { STARTER_EXERCISES } from './starter-exercises';
 import * as s from './db/schema';
 
 /**
@@ -96,7 +97,22 @@ it('seeds repeatably without resetting edited demo records', async () => {
 	expect(await seedDemo(demo.db, true)).toBe('seeded fictional demo data');
 	expect(await demo.db.select().from(s.sessions)).toHaveLength(8);
 	expect(await demo.db.select().from(s.sets)).toHaveLength(48);
-	expect(await demo.db.select().from(s.exercises)).toHaveLength(9);
+	// 23, not the 9 the seed itself inserts: since T5 the demo owner's account
+	// creation fires the auth starter-exercise hook, so it already holds all 23
+	// starter exercises. The seed's nine names are all in that list, so those
+	// inserts now collide on (user_id, name) and reuse the existing rows rather
+	// than creating second copies — which is why the count is the hook's list
+	// and not 9 + 23. The demo therefore shows a realistic exercise picker
+	// instead of a nine-item one, and 23 is the real number.
+	expect(await demo.db.select().from(s.exercises)).toHaveLength(STARTER_EXERCISES.length);
+	// The nine the demo program actually uses must still be present, by id, or
+	// a bug that renamed or skipped them would hide behind the count above.
+	const usedNames = ['Dumbbell press', 'Cable fly', 'Leg press', 'Calf raise'];
+	const used = await demo.db
+		.select({ name: s.exercises.name })
+		.from(s.exercises)
+		.where(inArray(s.exercises.name, usedNames));
+	expect(used).toHaveLength(usedNames.length);
 	const [program] = await demo.db.select().from(s.programs);
 	await demo.db
 		.update(s.programs)

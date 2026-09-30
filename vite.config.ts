@@ -96,6 +96,27 @@ export default defineConfig({
 			},
 
 			{
+				// The demo seed must have DATABASE_URL and TEST_DATABASE_URL both
+				// pointing at doclifts_demo_test, because `createUser` writes
+				// through the `auth` singleton and the demo rows go to the
+				// handle the caller passes. Keying that off the base config is
+				// not possible: vitest 4 does not pass the project name to the
+				// config function, so the rewrite cannot be conditional on it.
+				// A sibling config file sets the variable before importing this
+				// one, which is the earliest point it can take effect. See the
+				// file's own comment.
+				extends: './vite.demo.config.ts',
+				test: {
+					name: 'demo',
+					environment: 'node',
+					include: ['src/lib/server/demo.db.test.ts'],
+					fileParallelism: false,
+					hookTimeout: 120_000,
+					testTimeout: 60_000
+				}
+			},
+
+			{
 				extends: './vite.config.ts',
 				test: {
 					name: 'e2e',

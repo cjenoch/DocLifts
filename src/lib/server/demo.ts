@@ -1,19 +1,63 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Database } from './progression';
 import * as s from './db/schema';
+import { createUser, findUserByEmail } from './users';
 
 const demoProgramId = 'd3e00000-0000-4000-8000-000000000001';
+
+// The demo owner is a dedicated, shared, disposable account (work order T5):
+// one user that owns every demo row, created by seedDemo itself. Not the
+// operator's account and not the 0011 sentinel — the demo stack is reset on a
+// schedule and the account resets with it. Every insert below stamps this id,
+// because 0011 makes the owned columns NOT NULL.
+const DEMO_EMAIL = process.env.DOCLIFTS_DEMO_EMAIL ?? 'demo@doclifts.local';
+const DEMO_PASSWORD = process.env.DOCLIFTS_DEMO_PASSWORD ?? 'doclifts-demo-2026';
+const DEMO_NAME = 'Demo User';
 
 /** Fictional fixtures only. No truncation, overwrite, or production DB fallback. */
 export async function seedDemo(db: Database, enabled: boolean) {
 	if (!enabled) throw new Error('Demo seeding requires DOCLIFTS_DEMO=1.');
+	// The database-name guard runs FIRST, before anything is written. Creating
+	// the demo user before checking the name would leave an auth.user row in a
+	// database seedDemo was about to refuse — a write on the path that exists
+	// precisely to avoid writing.
+	//
+	// The check itself still happens inside the transaction below, on the same
+	// connection, so the name read and the first write are in one snapshot.
+	const [name] = await db.execute<{ name: string }>(sql`select current_database() as name`);
+	if (!/^doclifts_demo(?:_test)?$/.test(name.name))
+		throw new Error('Demo seeding is restricted to the doclifts_demo database.');
+
+	// Created outside the transaction below: createUser goes through Better
+	// Auth's own adapter and connection, so it cannot join our tx.
+	//
+	// Find-or-create, not create. A second seedDemo call must still reach the
+	// "already seeded" short-circuit, and createUser throws on a duplicate
+	// email — an unconditional create would turn that idempotence into a
+	// duplicate-email error.
+	const existingOwner = await findUserByEmail(db, DEMO_EMAIL);
+	const owner = existingOwner
+		? { id: existingOwner, email: DEMO_EMAIL, name: DEMO_NAME }
+		: await createUser(db, { email: DEMO_EMAIL, password: DEMO_PASSWORD, name: DEMO_NAME });
+
 	return db.transaction(async (tx) => {
-		const [database] = await tx.execute<{ name: string }>(sql`select current_database() as name`);
-		if (!/^doclifts_demo(?:_test)?$/.test(database.name))
-			throw new Error('Demo seeding is restricted to the doclifts_demo database.');
+		// Name already checked above, before any write. The advisory lock is
+		// taken here so two concurrent seeds cannot both pass the emptiness
+		// check and both insert.
 		await tx.execute(sql`select pg_advisory_xact_lock(74632101)`);
 		if ((await tx.select().from(s.programs).where(eq(s.programs.id, demoProgramId))).length)
 			return 'already seeded';
+		// auth.user is checked separately and first: the demo owner was just
+		// created above, so a UNION here would both match the row we just made
+		// and fail outright — auth.user.id is text while every public table's
+		// id is uuid, and Postgres will not match them in one UNION.
+		const [otherUsers] = await tx.execute<{ n: number }>(
+			sql`select count(*)::int as n from auth.user where id <> ${owner.id}`
+		);
+		if (Number(otherUsers?.n ?? 0) > 0)
+			throw new Error(
+				'Demo seeding requires an empty database; existing users were left untouched.'
+			);
 		const [occupied] = await tx.execute<{ present: boolean }>(sql`select exists (
 			select id from programs union all select id from exercises union all select id from sessions
 			union all select id from sets union all select id from gyms union all select id from equipment_models
@@ -25,12 +69,16 @@ export async function seedDemo(db: Database, enabled: boolean) {
 			.insert(s.programs)
 			.values({
 				id: demoProgramId,
+				userId: owner.id,
 				name: 'Demo · Three-day training',
 				description:
 					'Fictional workouts for exploring DocLifts. These are sample records, not training advice.'
 			})
 			.returning();
-		const [gym] = await tx.insert(s.gyms).values({ name: 'Demo Gym' }).returning();
+		const [gym] = await tx
+			.insert(s.gyms)
+			.values({ userId: owner.id, name: 'Demo Gym' })
+			.returning();
 		const specs = [
 			{
 				name: 'Push',
@@ -71,7 +119,7 @@ export async function seedDemo(db: Database, enabled: boolean) {
 			for (const [index, [name, equipmentType, load]] of spec.exercises.entries()) {
 				const [exercise] = await tx
 					.insert(s.exercises)
-					.values({ name, equipmentType, isLowerBody: dayIndex === 2 })
+					.values({ userId: owner.id, name, equipmentType, isLowerBody: dayIndex === 2 })
 					.returning();
 				const [machine] = await tx
 					.insert(s.gymEquipment)
@@ -109,6 +157,7 @@ export async function seedDemo(db: Database, enabled: boolean) {
 				const [session] = await tx
 					.insert(s.sessions)
 					.values({
+						userId: owner.id,
 						dayId: day.id,
 						programId: program.id,
 						startedAt,
@@ -142,6 +191,7 @@ export async function seedDemo(db: Database, enabled: boolean) {
 						.returning();
 					await tx.insert(s.sets).values(
 						[1, 2].map((position) => ({
+							userId: owner.id,
 							sessionId: session.id,
 							sessionExerciseId: occurrence.id,
 							exerciseId: exercise.id,

@@ -153,6 +153,16 @@ orchestration is a separate concern from this script.
 
 Not scheduled. Recorded so the reasoning survives the end of the ownership work.
 
+- **The import archive is populated out of band, and after 0011 that has a
+  hard requirement.** `workout_log_imports` and `imported_workouts` have no
+  write path in the application: the only inserts into either table anywhere
+  in the tree are three in `src/routes/imported-history/page.server.test.ts`.
+  Whatever loads the archive does so outside the codebase. After 0011 sets
+  `workout_log_imports.user_id` NOT NULL, any out-of-band load **must** set
+  `user_id` or the insert is rejected outright. There is no application code
+  to update, which makes that sentence the only protection the archive path
+  has — a future loader that omits the column fails loudly at the database
+  rather than writing an unowned row, which is the intended outcome.
 - **`program_draft_requests` should key on `(user_id, request_id)`, not
   `request_id` alone.** `request_id` is a global primary key, so a colliding id
   from a second user falls through to the insert and surfaces a raw PostgreSQL 23505. The current handling hashes `userId` into the fingerprint and keeps the

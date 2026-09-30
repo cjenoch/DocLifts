@@ -55,12 +55,29 @@ function dbNameFromUrl(testUrl: string): string {
 	return path.slice(1);
 }
 
-export async function setupTestDb(): Promise<{
+/**
+ * `urlOverride` is for the one caller that must reach a different database than
+ * the rest of the suite: demo.db.test.ts, whose seed writes through the app's
+ * `auth` singleton and therefore needs DATABASE_URL and TEST_DATABASE_URL to
+ * name the same demo database (see vite.demo.config.ts). Every other caller
+ * passes nothing and is unaffected.
+ *
+ * The override is still checked against the same `_test` rule db/index.ts
+ * enforces, reimplemented locally rather than imported — that module builds
+ * the production `db` singleton at import time, which test code must not
+ * trigger. So a test still cannot hand this function a real database name.
+ */
+export async function setupTestDb(urlOverride?: string): Promise<{
 	db: TestDb;
 	client: postgres.Sql;
 	end: () => Promise<void>;
 }> {
-	const testUrl = process.env.TEST_DATABASE_URL ?? DEFAULT_TEST_URL;
+	const testUrl = urlOverride ?? process.env.TEST_DATABASE_URL ?? DEFAULT_TEST_URL;
+	if (urlOverride && !dbNameFromUrl(urlOverride).endsWith('_test')) {
+		throw new Error(
+			`Refusing setupTestDb override: database name must end in _test, got ${dbNameFromUrl(urlOverride)}`
+		);
+	}
 	const dbName = dbNameFromUrl(testUrl);
 
 	// NOTE: this does NOT protect the app's `db` singleton. That is created at

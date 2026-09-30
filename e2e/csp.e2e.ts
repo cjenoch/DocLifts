@@ -231,6 +231,27 @@ run('production build: CSP and page render', () => {
 		return { page, status: response?.status(), ...(await audit(page)), consoleErrors };
 	}
 
+	// Same crawl, no session. Only /login is reachable this way; the guard
+	// answers 303 for everything else, which is asserted in the e2e guard
+	// tests rather than here.
+	async function visitLoggedOut(path: string) {
+		const page = await browser.newPage();
+		const consoleErrors: string[] = [];
+		page.on('console', (msg) => {
+			if (msg.type() === 'error') consoleErrors.push(msg.text());
+		});
+		await page.addInitScript(() => {
+			window.__cspViolations = [];
+			document.addEventListener('securitypolicyviolation', (e) => {
+				window.__cspViolations.push(
+					`${e.violatedDirective} blocked ${e.blockedURI || 'inline'}: ${e.sample || ''}`.trim()
+				);
+			});
+		});
+		const response = await page.goto(origin + path, { waitUntil: 'networkidle' });
+		return { page, status: response?.status(), ...(await audit(page)), consoleErrors };
+	}
+
 	/**
 	 * Collects CSP violations and the elements carrying a `style` attribute.
 	 *
@@ -266,32 +287,56 @@ run('production build: CSP and page render', () => {
 		}
 	}
 
-	const routes = ['/', '/history', '/reports', '/gyms', '/imported-history'];
+	// The crawl floor. Every route the app serves must be reached by this file,
+	// and `reached` below fails the suite by name if a pattern is ever added to
+	// this table without being visited. Patterns resolve against the fixture's
+	// programId/sessionId; a pattern with no value resolves to itself.
+	const ROUTE_PATTERNS = [
+		'/',
+		'/history',
+		'/reports',
+		'/gyms',
+		'/imported-history',
+		'/programs/new',
+		'/programs/{id}',
+		'/programs/{id}/edit',
+		'/sessions/{id}',
+		'/login'
+	] as const;
+	type RoutePattern = (typeof ROUTE_PATTERNS)[number];
+	const reached = new Set<string>();
 
-	for (const path of routes) {
-		it(`${path} renders with no CSP violation`, async () => {
-			const { page, status, violations, appStyledElements } = await visit(path);
-			expect(status, serverLog).toBe(200);
-			expect(violations).toEqual([]);
-			expect(appStyledElements).toEqual([]);
+	function resolvePattern(pattern: RoutePattern): string {
+		if (pattern === '/programs/{id}') return `/programs/${programId}`;
+		if (pattern === '/programs/{id}/edit') return `/programs/${programId}/edit`;
+		if (pattern === '/sessions/{id}') return `/sessions/${sessionId}`;
+		return pattern;
+	}
+
+	for (const pattern of ROUTE_PATTERNS) {
+		it(`${pattern} renders with no CSP violation`, async () => {
+			const path = resolvePattern(pattern);
+			// /login is the one pattern that must be reached logged out: it is
+			// the redirect target, so reaching it authenticated would only test
+			// the guard's 303, never the page.
+			const { page, status, violations, appStyledElements } =
+				pattern === '/login' ? await visitLoggedOut(path) : await visit(path);
+			// /login is the one pattern reached logged out, where the guard's
+			// redirect is not in play and the page answers 200 directly. Every
+			// other pattern is authenticated and must be a 200, never a 303.
+			expect(status, `${path} -> ${serverLog}`).toBe(200);
+			expect(violations, path).toEqual([]);
+			expect(appStyledElements, path).toEqual([]);
+			reached.add(pattern);
 			await page.close();
 		});
 	}
 
-	it('/programs/[id] renders with no CSP violation', async () => {
-		const { page, status, violations, appStyledElements } = await visit(`/programs/${programId}`);
-		expect(status, serverLog).toBe(200);
-		expect(violations).toEqual([]);
-		expect(appStyledElements).toEqual([]);
-		await page.close();
-	});
-
-	it('/sessions/[id] renders with no CSP violation', async () => {
-		const { page, status, violations, appStyledElements } = await visit(`/sessions/${sessionId}`);
-		expect(status, serverLog).toBe(200);
-		expect(violations).toEqual([]);
-		expect(appStyledElements).toEqual([]);
-		await page.close();
+	// A pattern that is listed but never visited would otherwise disappear
+	// silently from the floor the moment someone adds it. Fail by name.
+	it('every route pattern was actually reached', () => {
+		const missing = ROUTE_PATTERNS.filter((p) => !reached.has(p));
+		expect(missing, `never reached: ${missing.join(', ')}`).toEqual([]);
 	});
 
 	it('client-side navigation stays clean and the route announcer stays hidden', async () => {

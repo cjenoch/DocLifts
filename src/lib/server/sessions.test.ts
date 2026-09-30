@@ -9,7 +9,7 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { and, asc, eq, isNull, QueryPromise } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, QueryPromise } from 'drizzle-orm';
 import { PgDeleteBase } from 'drizzle-orm/pg-core';
 import type postgres from 'postgres';
 import {
@@ -24,6 +24,8 @@ import {
 } from './db/schema';
 import {
 	endSession,
+	findOpenSessionForDay,
+	loadSession,
 	hardDeleteSession,
 	listDeletedSessionsForProgram,
 	loadProgramOwnedSession,
@@ -33,7 +35,7 @@ import {
 	startSessionForDay,
 	updateSetInSession
 } from './sessions';
-import { resetTestDbWithUsers, setupTestDb, type TestDb } from './test-db';
+import { resetTestDbWithUsers, setupTestDb, withTwoUsers, type TestDb } from './test-db';
 
 let db: TestDb;
 let client: postgres.Sql;
@@ -87,7 +89,7 @@ async function seedProgram(
 ): Promise<ProgramFixture> {
 	const [prog] = await db
 		.insert(programs)
-		.values({ name: opts.programName ?? 'Test Program' })
+		.values({ userId, name: opts.programName ?? 'Test Program' })
 		.returning();
 
 	const [day] = await db
@@ -98,6 +100,7 @@ async function seedProgram(
 	const [ex] = await db
 		.insert(exercises)
 		.values({
+			userId,
 			name: opts.exerciseName ?? 'Bench Press',
 			equipmentType: opts.equipmentType ?? 'bodyweight',
 			isLowerBody: opts.isLowerBody ?? false
@@ -386,18 +389,18 @@ describe('startSessionForDay: snapshot semantics', () => {
 	it('inserts one sets row per prescribed_set, in (exercise, set) order', async () => {
 		// Build a day with 2 exercises, exercise 1 has 2 prescribed sets, exercise
 		// 2 has 1 prescribed set → expect 3 sets total in the right order.
-		const [prog] = await db.insert(programs).values({ name: 'multi' }).returning();
+		const [prog] = await db.insert(programs).values({ userId, name: 'multi' }).returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day', position: 1 })
 			.returning();
 		const [ex1] = await db
 			.insert(exercises)
-			.values({ name: 'Bench', equipmentType: 'bodyweight' })
+			.values({ userId, name: 'Bench', equipmentType: 'bodyweight' })
 			.returning();
 		const [ex2] = await db
 			.insert(exercises)
-			.values({ name: 'Row', equipmentType: 'bodyweight' })
+			.values({ userId, name: 'Row', equipmentType: 'bodyweight' })
 			.returning();
 		const [dx1] = await db
 			.insert(dayExercises)
@@ -527,7 +530,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 
 		const [otherProgram] = await db
 			.insert(programs)
-			.values({ name: 'blank-row poison host' })
+			.values({ userId, name: 'blank-row poison host' })
 			.returning();
 		const [otherDay] = await db
 			.insert(days)
@@ -565,14 +568,14 @@ describe('startSessionForDay: prefill pipeline', () => {
 	});
 
 	it('holds SECONDARY progression when only one working set clears (all-working-set gate)', async () => {
-		const [prog] = await db.insert(programs).values({ name: 'secondary gate' }).returning();
+		const [prog] = await db.insert(programs).values({ userId, name: 'secondary gate' }).returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day 1', position: 1 })
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'Cable Row', equipmentType: 'cable' })
+			.values({ userId, name: 'Cable Row', equipmentType: 'cable' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -676,14 +679,17 @@ describe('startSessionForDay: prefill pipeline', () => {
 	});
 
 	it('advances SECONDARY progression when all working sets clear', async () => {
-		const [prog] = await db.insert(programs).values({ name: 'secondary advance' }).returning();
+		const [prog] = await db
+			.insert(programs)
+			.values({ userId, name: 'secondary advance' })
+			.returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day 1', position: 1 })
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'Cable Pulldown', equipmentType: 'cable' })
+			.values({ userId, name: 'Cable Pulldown', equipmentType: 'cable' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -786,14 +792,14 @@ describe('startSessionForDay: prefill pipeline', () => {
 	});
 
 	it('holds SECONDARY when a position clears position 1\u2019s range but not its own (M2)', async () => {
-		const [prog] = await db.insert(programs).values({ name: 'm2 hold' }).returning();
+		const [prog] = await db.insert(programs).values({ userId, name: 'm2 hold' }).returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day 1', position: 1 })
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'M2 Press', equipmentType: 'cable' })
+			.values({ userId, name: 'M2 Press', equipmentType: 'cable' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -899,14 +905,14 @@ describe('startSessionForDay: prefill pipeline', () => {
 	});
 
 	it('advances SECONDARY when every position clears its own range (M2)', async () => {
-		const [prog] = await db.insert(programs).values({ name: 'm2 advance' }).returning();
+		const [prog] = await db.insert(programs).values({ userId, name: 'm2 advance' }).returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day 1', position: 1 })
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'M2 Press Advance', equipmentType: 'cable' })
+			.values({ userId, name: 'M2 Press Advance', equipmentType: 'cable' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -1009,14 +1015,14 @@ describe('startSessionForDay: prefill pipeline', () => {
 	});
 
 	it('warmup rows bypass engine even when warmup history exists', async () => {
-		const [prog] = await db.insert(programs).values({ name: 'warmup bypass' }).returning();
+		const [prog] = await db.insert(programs).values({ userId, name: 'warmup bypass' }).returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day 1', position: 1 })
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'Bench Warmup Test', equipmentType: 'dumbbell' })
+			.values({ userId, name: 'Bench Warmup Test', equipmentType: 'dumbbell' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -1083,7 +1089,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 	it('non-MAIN deload checks all working positions (position-1-only no longer forces deload)', async () => {
 		const [prog] = await db
 			.insert(programs)
-			.values({ name: 'secondary deload aggregate' })
+			.values({ userId, name: 'secondary deload aggregate' })
 			.returning();
 		const [day] = await db
 			.insert(days)
@@ -1091,7 +1097,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'Cable Row Aggregate Deload', equipmentType: 'cable' })
+			.values({ userId, name: 'Cable Row Aggregate Deload', equipmentType: 'cable' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -1276,7 +1282,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 	it('non-MAIN deload triggers when all working positions are backwards twice', async () => {
 		const [prog] = await db
 			.insert(programs)
-			.values({ name: 'secondary deload all positions' })
+			.values({ userId, name: 'secondary deload all positions' })
 			.returning();
 		const [day] = await db
 			.insert(days)
@@ -1284,7 +1290,7 @@ describe('startSessionForDay: prefill pipeline', () => {
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'Cable Row Deload Trigger', equipmentType: 'cable' })
+			.values({ userId, name: 'Cable Row Deload Trigger', equipmentType: 'cable' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -1916,18 +1922,18 @@ describe('startSessionForDay: pairwise prescribedSetId and prescribedLoad correc
 		// (e.g. different ordering, off-by-one) would misroute loads to wrong rows.
 		// This test seeds four prescribed sets at DISTINCT initialLoads across two
 		// exercises and verifies each resulting sets row is correctly paired.
-		const [prog] = await db.insert(programs).values({ name: 'pairwise-check' }).returning();
+		const [prog] = await db.insert(programs).values({ userId, name: 'pairwise-check' }).returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day', position: 1 })
 			.returning();
 		const [ex1] = await db
 			.insert(exercises)
-			.values({ name: 'Squat', equipmentType: 'bodyweight' })
+			.values({ userId, name: 'Squat', equipmentType: 'bodyweight' })
 			.returning();
 		const [ex2] = await db
 			.insert(exercises)
-			.values({ name: 'Leg Press', equipmentType: 'bodyweight' })
+			.values({ userId, name: 'Leg Press', equipmentType: 'bodyweight' })
 			.returning();
 
 		const [dx1] = await db
@@ -2239,7 +2245,7 @@ describe('soft-delete and hard-delete session guards', () => {
 	it('same exercise twice in one day: non-main decisions are per-occurrence, not merged (dayExerciseId keying)', async () => {
 		const [prog] = await db
 			.insert(programs)
-			.values({ name: 'duplicate occurrence fix' })
+			.values({ userId, name: 'duplicate occurrence fix' })
 			.returning();
 		const [day] = await db
 			.insert(days)
@@ -2247,7 +2253,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'DB Curl Dup', equipmentType: 'dumbbell' })
+			.values({ userId, name: 'DB Curl Dup', equipmentType: 'dumbbell' })
 			.returning();
 		// Same exercise at two day positions, DIFFERENT policies: occurrence 1
 		// standard (engine decides), occurrence 2 cautious (engine holds).
@@ -2370,14 +2376,17 @@ describe('soft-delete and hard-delete session guards', () => {
 	});
 
 	it('partial history on a SECONDARY exercise holds the whole exercise (no per-position engine call)', async () => {
-		const [prog] = await db.insert(programs).values({ name: 'partial history fix' }).returning();
+		const [prog] = await db
+			.insert(programs)
+			.values({ userId, name: 'partial history fix' })
+			.returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day 1', position: 1 })
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'Partial Hist Triceps', equipmentType: 'cable' })
+			.values({ userId, name: 'Partial Hist Triceps', equipmentType: 'cable' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -2479,14 +2488,17 @@ describe('soft-delete and hard-delete session guards', () => {
 	});
 
 	it('backoff row on a SECONDARY exercise holds with the no-rule reasoning, not "incomplete history"', async () => {
-		const [prog] = await db.insert(programs).values({ name: 'secondary backoff text' }).returning();
+		const [prog] = await db
+			.insert(programs)
+			.values({ userId, name: 'secondary backoff text' })
+			.returning();
 		const [day] = await db
 			.insert(days)
 			.values({ programId: prog.id, name: 'Day 1', position: 1 })
 			.returning();
 		const [ex] = await db
 			.insert(exercises)
-			.values({ name: 'Backoff Text Row', equipmentType: 'cable' })
+			.values({ userId, name: 'Backoff Text Row', equipmentType: 'cable' })
 			.returning();
 		const [dx] = await db
 			.insert(dayExercises)
@@ -2681,5 +2693,85 @@ describe('soft-delete and hard-delete session guards', () => {
 			.from(sessions)
 			.where(eq(sessions.id, second.sessionId));
 		expect(row).toBeDefined();
+	});
+});
+
+// ---------- cross-tenant isolation ----------
+//
+// Positive case first in each pair, so a negative assertion cannot pass for
+// the wrong reason. Bob builds his own program and day: reaching into Alice's
+// day is not a legal setup, and after the day-through-program predicate it is
+// not a reachable one either.
+describe('cross-tenant isolation', () => {
+	async function dayFor(ownerId: string) {
+		const [program] = await db
+			.insert(programs)
+			.values({ userId: ownerId, name: 'Bob Program' })
+			.returning();
+		const [day] = await db
+			.insert(days)
+			.values({ programId: program.id, name: 'Bob Day', position: 1 })
+			.returning();
+		return day;
+	}
+
+	it('findOpenSessionForDay returns a user their own open session, and nothing for another', async () => {
+		const { alice, bob } = await withTwoUsers(db);
+		const aliceDay = await dayFor(alice);
+		const [open] = await db
+			.insert(sessions)
+			.values({ userId: alice, programId: aliceDay.programId, dayId: aliceDay.id })
+			.returning();
+		expect(await findOpenSessionForDay(db, alice, aliceDay.id)).toBe(open.id);
+		expect(await findOpenSessionForDay(db, bob, aliceDay.id)).toBeNull();
+	});
+
+	it("startSessionForDay refuses another user's day and writes no session", async () => {
+		const { alice, bob } = await withTwoUsers(db);
+		const aliceDay = await dayFor(alice);
+		const before = await db.select().from(sessions);
+		expect(await startSessionForDay(db, bob, aliceDay.id)).toMatchObject({
+			ok: false,
+			status: 404
+		});
+		expect((await db.select().from(sessions)).length).toBe(before.length);
+	});
+
+	it('startSessionForDay gives each user a distinct session on their own day', async () => {
+		const { alice, bob } = await withTwoUsers(db);
+		const a = await startSessionForDay(db, alice, (await dayFor(alice)).id);
+		const b = await startSessionForDay(db, bob, (await dayFor(bob)).id);
+		expect(a.ok).toBe(true);
+		expect(b.ok).toBe(true);
+		if (!a.ok || !b.ok) return;
+		expect(a.sessionId).not.toBe(b.sessionId);
+		const rows = await db
+			.select()
+			.from(sessions)
+			.where(inArray(sessions.id, [a.sessionId, b.sessionId]));
+		expect(rows.find((r) => r.id === a.sessionId)?.userId).toBe(alice);
+		expect(rows.find((r) => r.id === b.sessionId)?.userId).toBe(bob);
+	});
+
+	it("endSession refuses another user's session and leaves it open", async () => {
+		const { alice, bob } = await withTwoUsers(db);
+		const started = await startSessionForDay(db, alice, (await dayFor(alice)).id);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+		// endSession reports a miss as { updated: false }, not a 404 — the
+		// route layer turns that into the 404. What matters here is that the
+		// row is untouched.
+		expect(await endSession(db, bob, started.sessionId)).toEqual({ updated: false });
+		const [row] = await db.select().from(sessions).where(eq(sessions.id, started.sessionId));
+		expect(row.endedAt).toBeNull();
+	});
+
+	it("loadSession returns null for another user's session", async () => {
+		const { alice, bob } = await withTwoUsers(db);
+		const started = await startSessionForDay(db, alice, (await dayFor(alice)).id);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+		expect(await loadSession(db, alice, started.sessionId, 'active')).not.toBeNull();
+		expect(await loadSession(db, bob, started.sessionId, 'active')).toBeNull();
 	});
 });

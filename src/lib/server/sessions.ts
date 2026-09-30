@@ -15,6 +15,7 @@ import {
 	dayExercises,
 	days,
 	exercises,
+	programs,
 	prescribedSets,
 	sessions,
 	sessionExercises,
@@ -76,16 +77,20 @@ export async function startSessionForDay(
 	userId: string,
 	dayId: string
 ): Promise<StartSessionResult> {
+	// `days` has no user_id; ownership is reached through the program, so the
+	// day is resolved by joining to the program it belongs to. Another user's
+	// day reads as absent, which is the same 404 an unknown day gets.
 	const [day] = await db
 		.select({ id: days.id, programId: days.programId })
 		.from(days)
-		.where(eq(days.id, dayId))
+		.innerJoin(programs, eq(programs.id, days.programId))
+		.where(and(eq(days.id, dayId), eq(programs.userId, userId)))
 		.limit(1);
 	if (!day) {
 		return { ok: false, status: 404, message: 'Day not found' };
 	}
 
-	const existing = await findOpenSessionForDay(db, day.id);
+	const existing = await findOpenSessionForDay(db, userId, day.id);
 	if (existing) {
 		return { ok: true, sessionId: existing };
 	}
@@ -353,18 +358,32 @@ export async function startSessionForDay(
 		// rejected ours. Re-fetch the winner and return its id so the caller
 		// is unblocked. (Postgres SQLSTATE 23505 = unique_violation.)
 		if (isUniqueViolation(err)) {
-			const winner = await findOpenSessionForDay(db, day.id);
+			const winner = await findOpenSessionForDay(db, userId, day.id);
 			if (winner) return { ok: true, sessionId: winner };
 		}
 		throw err;
 	}
 }
 
-async function findOpenSessionForDay(db: Database, dayId: string): Promise<string | null> {
+// Exported for the direct cross-tenant test in sessions.test.ts. Callers pass
+// the owner explicitly rather than relying on the day having been resolved for
+// them, so a caller cannot hand one user's open session to another.
+export async function findOpenSessionForDay(
+	db: Database,
+	userId: string,
+	dayId: string
+): Promise<string | null> {
 	const [row] = await db
 		.select({ id: sessions.id })
 		.from(sessions)
-		.where(and(eq(sessions.dayId, dayId), isNull(sessions.endedAt), isNull(sessions.deletedAt)))
+		.where(
+			and(
+				eq(sessions.userId, userId),
+				eq(sessions.dayId, dayId),
+				isNull(sessions.endedAt),
+				isNull(sessions.deletedAt)
+			)
+		)
 		.limit(1);
 	return row?.id ?? null;
 }
@@ -396,7 +415,9 @@ export async function loadSession(
 
 	if (mode === 'active') {
 		const [session] = await base
-			.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt)))
+			.where(
+				and(eq(sessions.userId, userId), eq(sessions.id, sessionId), isNull(sessions.deletedAt))
+			)
 			.limit(1);
 		return session ?? null;
 	}
@@ -404,7 +425,12 @@ export async function loadSession(
 	if (mode === 'ended-active') {
 		const [session] = await base
 			.where(
-				and(eq(sessions.id, sessionId), isNull(sessions.deletedAt), isNotNull(sessions.endedAt))
+				and(
+					eq(sessions.userId, userId),
+					eq(sessions.id, sessionId),
+					isNull(sessions.deletedAt),
+					isNotNull(sessions.endedAt)
+				)
 			)
 			.limit(1);
 		return session ?? null;
@@ -412,7 +438,9 @@ export async function loadSession(
 
 	if (mode === 'deleted-only') {
 		const [session] = await base
-			.where(and(eq(sessions.id, sessionId), isNotNull(sessions.deletedAt)))
+			.where(
+				and(eq(sessions.userId, userId), eq(sessions.id, sessionId), isNotNull(sessions.deletedAt))
+			)
 			.limit(1);
 		return session ?? null;
 	}
@@ -443,6 +471,7 @@ export async function loadProgramOwnedSession(
 			.from(sessions)
 			.where(
 				and(
+					eq(sessions.userId, userId),
 					eq(sessions.id, sessionId),
 					eq(sessions.programId, programId),
 					isNull(sessions.deletedAt)
@@ -458,6 +487,7 @@ export async function loadProgramOwnedSession(
 			.from(sessions)
 			.where(
 				and(
+					eq(sessions.userId, userId),
 					eq(sessions.id, sessionId),
 					eq(sessions.programId, programId),
 					isNull(sessions.deletedAt),
@@ -474,6 +504,7 @@ export async function loadProgramOwnedSession(
 			.from(sessions)
 			.where(
 				and(
+					eq(sessions.userId, userId),
 					eq(sessions.id, sessionId),
 					eq(sessions.programId, programId),
 					isNotNull(sessions.deletedAt)
@@ -504,7 +535,13 @@ export async function listDeletedSessionsForProgram(
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
-		.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
+		.where(
+			and(
+				eq(sessions.userId, userId),
+				eq(sessions.programId, programId),
+				isNotNull(sessions.deletedAt)
+			)
+		)
 		.orderBy(desc(sessions.deletedAt))
 		.limit(limit);
 }
@@ -523,7 +560,12 @@ export async function softDeleteEndedSession(
 		.update(sessions)
 		.set({ deletedAt: new Date() })
 		.where(
-			and(eq(sessions.id, session.id), isNull(sessions.deletedAt), isNotNull(sessions.endedAt))
+			and(
+				eq(sessions.userId, userId),
+				eq(sessions.id, session.id),
+				isNull(sessions.deletedAt),
+				isNotNull(sessions.endedAt)
+			)
 		);
 	return { ok: true };
 }
@@ -541,7 +583,9 @@ export async function restoreSoftDeletedSession(
 	await db
 		.update(sessions)
 		.set({ deletedAt: null })
-		.where(and(eq(sessions.id, session.id), isNotNull(sessions.deletedAt)));
+		.where(
+			and(eq(sessions.userId, userId), eq(sessions.id, session.id), isNotNull(sessions.deletedAt))
+		);
 	return { ok: true };
 }
 
@@ -562,7 +606,9 @@ export async function hardDeleteSession(
 	const deleted = await db.transaction(async (tx) => {
 		return tx
 			.delete(sessions)
-			.where(and(eq(sessions.id, session.id), isNotNull(sessions.deletedAt)))
+			.where(
+				and(eq(sessions.userId, userId), eq(sessions.id, session.id), isNotNull(sessions.deletedAt))
+			)
 			.returning({ id: sessions.id });
 	});
 	if (deleted.length === 0) {
@@ -600,7 +646,13 @@ export async function purgeDeletedSessionsForProgram(
 		const trashed = await tx
 			.select({ id: sessions.id })
 			.from(sessions)
-			.where(and(eq(sessions.programId, programId), isNotNull(sessions.deletedAt)))
+			.where(
+				and(
+					eq(sessions.userId, userId),
+					eq(sessions.programId, programId),
+					isNotNull(sessions.deletedAt)
+				)
+			)
 			.for('update');
 		if (expectedCount !== undefined && trashed.length !== expectedCount) {
 			return {
@@ -615,6 +667,7 @@ export async function purgeDeletedSessionsForProgram(
 			.delete(sessions)
 			.where(
 				and(
+					eq(sessions.userId, userId),
 					inArray(
 						sessions.id,
 						trashed.map((t) => t.id)
@@ -646,7 +699,14 @@ export async function endSession(
 	const result = await db
 		.update(sessions)
 		.set({ endedAt: new Date() })
-		.where(and(eq(sessions.id, session.id), isNull(sessions.endedAt), isNull(sessions.deletedAt)))
+		.where(
+			and(
+				eq(sessions.userId, userId),
+				eq(sessions.id, session.id),
+				isNull(sessions.endedAt),
+				isNull(sessions.deletedAt)
+			)
+		)
 		.returning({ id: sessions.id });
 	return { updated: result.length > 0 };
 }
@@ -726,7 +786,9 @@ export async function updateSetInSession(
 		const [session] = await tx
 			.select()
 			.from(sessions)
-			.where(and(eq(sessions.id, sessionId), isNull(sessions.deletedAt)))
+			.where(
+				and(eq(sessions.userId, userId), eq(sessions.id, sessionId), isNull(sessions.deletedAt))
+			)
 			.for('update');
 		if (!session) {
 			return { ok: false, setId, status: 404, message: 'Session not found' };
@@ -748,7 +810,7 @@ export async function updateSetInSession(
 		const [currentSet] = await tx
 			.select()
 			.from(sets)
-			.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)));
+			.where(and(eq(sets.userId, userId), eq(sets.id, setId), eq(sets.sessionId, sessionId)));
 		if (!currentSet)
 			return { ok: false, setId, status: 404, message: 'Set not found in this session' };
 		const identity = `${currentSet.gymEquipmentId ?? 'legacy'}:${currentSet.loadConvention}`;
@@ -771,7 +833,7 @@ export async function updateSetInSession(
 				executedRir: parsed.data.executedRir,
 				notes: parsed.data.notes
 			})
-			.where(and(eq(sets.id, setId), eq(sets.sessionId, sessionId)))
+			.where(and(eq(sets.userId, userId), eq(sets.id, setId), eq(sets.sessionId, sessionId)))
 			.returning({ id: sets.id });
 
 		if (updated.length === 0) {

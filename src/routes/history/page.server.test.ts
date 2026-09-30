@@ -49,7 +49,7 @@ const call = async (month: string | null): Promise<HistoryData> => {
 
 async function sessionInMonth(year: number, monthIndex: number) {
 	const db = testDb.db!;
-	const [program] = await db.insert(s.programs).values({ name: 'P' }).returning();
+	const [program] = await db.insert(s.programs).values({ userId, name: 'P' }).returning();
 	const [day] = await db
 		.insert(s.days)
 		.values({ programId: program.id, name: 'D', position: 1 })

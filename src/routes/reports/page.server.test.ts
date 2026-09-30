@@ -35,14 +35,19 @@ afterAll(async () => {
 
 async function endedSessionWithCompletedSets() {
 	const db = testDb.db!;
-	const [program] = await db.insert(s.programs).values({ name: 'P' }).returning();
+	const [program] = await db.insert(s.programs).values({ userId, name: 'P' }).returning();
 	const [day] = await db
 		.insert(s.days)
 		.values({ programId: program.id, name: 'D', position: 1 })
 		.returning();
 	const [exercise] = await db
 		.insert(s.exercises)
-		.values({ name: 'Press', canonicalMovement: 'chest_press', equipmentType: 'machine-plate' })
+		.values({
+			userId,
+			name: 'Press',
+			canonicalMovement: 'chest_press',
+			equipmentType: 'machine-plate'
+		})
 		.returning();
 	const [dx] = await db
 		.insert(s.dayExercises)

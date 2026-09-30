@@ -83,10 +83,8 @@ async function startWorkout() {
 	);
 	const started = await startSessionForDay(db, userId, day.id);
 	if (!started.ok) throw new Error(started.message);
-	// sessions.ts does not set user_id until T4; the machine actions reach
-	// lockActive(), which filters on it.
-	await db.update(s.sessions).set({ userId }).where(eq(s.sessions.id, started.sessionId));
-	await db.update(s.sets).set({ userId }).where(eq(s.sets.sessionId, started.sessionId));
+	// No stamping: startSessionForDay owns the session and the sets it creates
+	// since (f0), so lockActive() resolves it without help.
 	const rows = await db
 		.select()
 		.from(s.sets)
@@ -94,6 +92,21 @@ async function startWorkout() {
 		.orderBy(asc(s.sets.position));
 	return { sessionId: started.sessionId, sets: rows };
 }
+
+it("load returns 404 for another user's session", async () => {
+	const f = await startWorkout();
+	const bob = await createTestUser(harness.db, 'sessions-route-bob');
+	// Bob is past the guard but does not own the session, so the route's
+	// not-found rule applies rather than a 403.
+	const thrown = await Promise.resolve(
+		load({
+			params: { id: f.sessionId },
+			url: new URL('http://test.local/'),
+			locals: { user: { id: bob } }
+		} as Parameters<typeof load>[0])
+	).catch((e: unknown) => e);
+	expect((thrown as { status?: number })?.status).toBe(404);
+});
 
 it('load returns 404 for a session id absent from the database', async () => {
 	const thrown = await Promise.resolve(

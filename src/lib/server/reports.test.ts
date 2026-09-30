@@ -37,7 +37,10 @@ beforeEach(async () => {
 });
 
 async function seedDay() {
-	const [program] = await db.insert(programs).values({ name: 'Reports Program' }).returning();
+	const [program] = await db
+		.insert(programs)
+		.values({ userId, name: 'Reports Program' })
+		.returning();
 	const [day] = await db
 		.insert(days)
 		.values({ programId: program.id, name: 'A', position: 1 })
@@ -45,6 +48,7 @@ async function seedDay() {
 	const [exercise] = await db
 		.insert(exercises)
 		.values({
+			userId,
 			name: `Rows-${crypto.randomUUID().slice(0, 8)}`,
 			equipmentType: 'bodyweight'
 		})

@@ -50,60 +50,76 @@
  * Hence: forward ONE value, taken from the left of the chain, and say why.
  *
  * ---------------------------------------------------------------------------
- * CURRENTLY BLOCKED BY A ZOD VERSION CONFLICT — DO NOT "FIX" THE PROXY FOR THIS
+ * A SECOND, LATER DEFECT THIS FILE SURVIVED: the auth route 404'd entirely
  * ---------------------------------------------------------------------------
- * Calling `auth.handler` reaches Better Auth's IP resolution, which is:
+ * Re-routing the action to `auth.handler` is necessary but not sufficient. The
+ * handler is only reached for requests Better Auth recognises as its own:
  *
- *   @better-auth/core 1.7.6, dist/utils/ip.mjs
- *     var ipv4Schema = z$1.ipv4();
- *     return z$1.validate(ipv4Schema, ip);
+ *   better-auth 1.7.6, dist/integrations/svelte-kit.mjs
+ *     function isAuthPath(url, options) {
+ *       const baseURL = new URL(`${options.baseURL}${options.basePath || "/api/auth"}`);
+ *       if (_url.origin !== baseURL.origin) return false;
+ *       ...
+ *     }
  *
- * `z.validate` exists only in zod >= 4.6. `pnpm why zod` shows TWO copies:
+ * So with a wrong `baseURL`, EVERY /api/auth/* request falls through to
+ * SvelteKit's router and 404s with an HTML page (x-sveltekit-page: true), not
+ * a JSON error. That is what the first round of this fix actually measured, and
+ * it looked exactly like a missing route.
  *
- *   zod@4.4.3   doclifts@0.1.0 (dependencies)      <- package.json says ^4.4.3
- *   zod@4.6.5   @better-auth/core, better-auth, better-call
+ * Two causes, both silent, both fixed at the source rather than worked around:
  *
- * The production build emits `import * as z$1 from 'zod'` for the core package —
- * a BARE specifier, externalized rather than bundled, because the only zod copy
- * in the bundle is 4.6.5 while the import stays external. At runtime that
- * resolves to the app's top-level node_modules/zod, which is 4.4.3, where
- * `validate` is `undefined`. The handler then throws
- * `TypeError: z$1.validate is not a function` and returns a generic
- * `{"type":"error"}` with status 500.
+ *   1. `handle` was `sequence(guard, betterAuth)`. The guard returns
+ *      `resolve(event)` immediately for any allowlisted path, and `/api/auth` is
+ *      allowlisted — so `svelteKitHandler` never ran at all. Order is now
+ *      `sequence(betterAuth, guard)`.
+ *   2. `auth.ts` read `env.PUBLIC_ORIGIN` from `$env/dynamic/private` at MODULE
+ *      SCOPE. That object is populated by SvelteKit's `Server.init()`, which
+ *      runs at server startup — after the server entry has already imported
+ *      this graph. So it was `{}` and `baseURL` silently fell back to
+ *      `http://127.0.0.1:3000`, an origin no request ever carries. Now
+ *      `process.env`, with a hard failure in production instead of a fallback.
  *
- * The symptom is deliberately obscure: /login returns 500 for EVERY sign-in,
- * including correct credentials, which reads like an auth misconfiguration
- * rather than a dependency resolution problem.
- *
- * The fix is a one-line dependency change — `zod` to `^4.6.5` in package.json,
- * which `pnpm why` shows is safe because DocLifts is the ONLY consumer of
- * 4.4.3. It is NOT made here: dependency changes are the owner's call, and a
- * security fix should not arrive bundled with a lockfile change nobody
- * approved.
- *
- * Verified in the meantime, and both halves matter:
- *   - `node -e "import('zod').then(m => console.log(typeof m.validate))"`
- *       -> "undefined", version 4.4.3
- *   - the 4.6.5 copy under better-auth's own node_modules
- *       -> "function"
- *
- * e2e/rate-limit.e2e.ts is written and will pass once the version is resolved;
- * it is the test that found this and it is the test that proves the fix.
+ * And compose passed the variable only as `ORIGIN`, which adapter-node uses for
+ * its own CSRF origin. It is now passed under its real name as well.
  */
 
-import { env } from '$env/dynamic/private';
 import { auth } from './auth';
 
 /**
  * The absolute origin the auth handler should see.
  *
- * Falls back to the dev default so `pnpm dev` and the test harness work with no
- * environment set. In production ORIGIN is required by docker-compose.yml, so
- * this is never guessing there.
+ * `process.env`, not `$env/dynamic/private`: this module is imported at module
+ * scope, before SvelteKit's `Server.init()` populates the dynamic env object, so
+ * `env.PUBLIC_ORIGIN` would be undefined here no matter what the container had.
+ * The reasoning is written out in full in auth.ts — this is the same trap.
+ *
+ * MUST equal `auth.options.baseURL`. If these two disagree, the proxied request
+ * carries an origin that `isAuthPath` will not match against the configured
+ * baseURL, and every sign-in 404s. Both read the same variable for that reason.
  */
 function authOrigin(): string {
-	return env.PUBLIC_ORIGIN ?? 'http://127.0.0.1:3000';
+	return process.env.PUBLIC_ORIGIN ?? 'http://127.0.0.1:3000';
 }
+
+/**
+ * The sign-in rate-limit WINDOW, in seconds.
+ *
+ * Better Auth 1.7.6 sends NO `Retry-After` header on a 429 — measured against
+ * the served build, `headers.get('retry-after')` is `null` on the refused
+ * request. So a UI that wants to tell the user how long to wait cannot read it
+ * from the response and has to state the window itself.
+ *
+ * This constant therefore duplicates a library default, which is exactly the
+ * kind of copy that drifts. It is exported from ONE place, asserted in
+ * e2e/rate-limit.e2e.ts as `WINDOW_SECONDS` measured against the running server,
+ * so a Better Auth upgrade that changes the default fails the e2e rather than
+ * quietly making this message wrong.
+ *
+ * Source: better-auth 1.7.6, dist/api/rate-limiter/index.mjs
+ *   getDefaultSpecialRules() -> path starts with /sign-in: window 10, max 3
+ */
+export const SIGN_IN_WINDOW_SECONDS = 10;
 
 /** The auth route, which is `baseURL`'s path + Better Auth's basePath. */
 export const SIGN_IN_ROUTE = '/api/auth/sign-in/email';

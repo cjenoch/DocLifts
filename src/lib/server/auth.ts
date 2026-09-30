@@ -18,7 +18,6 @@
  * and `DrizzleAdapterConfig`, not from memory. See db/auth-schema.ts for the
  * table-naming rationale and auth-core.ts for the configuration itself.
  */
-import { env } from '$env/dynamic/private';
 import { building } from '$app/environment';
 import { createAuth, type Auth } from './auth-core';
 import { db } from './db';
@@ -48,8 +47,37 @@ import { db } from './db';
  * module until T2 added the first one, at which point `pnpm build` started
  * requiring a secret it should never have needed.
  */
+/**
+ * Read a server-side variable from `process.env`, not from `$env/dynamic/private`.
+ *
+ * WHY NOT `$env/dynamic/private`
+ * -----------------------------
+ * `env` is populated by SvelteKit's `Server.init()`, which runs at SERVER
+ * STARTUP. This module builds the auth instance at MODULE SCOPE — it has to,
+ * because `hooks.server.ts` and every route import `auth` as a binding.
+ *
+ * Module scope is evaluated when the module is first imported, which for the
+ * server entry happens BEFORE `Server.init()`. So `$env/dynamic/private` is
+ * still `{}` at the moment this line runs, and every read of `env.X` here
+ * returns undefined — silently, and for every variable, not just this one.
+ *
+ * That is not theoretical. It is why `baseURL` was `http://127.0.0.1:3000` in a
+ * live container: `PUBLIC_ORIGIN` was correctly present in the environment, but
+ * `env.PUBLIC_ORIGIN` was undefined, the `??` fallback engaged, and Better
+ * Auth's `isAuthPath` then matched no /api/auth request against that origin —
+ * so the entire auth endpoint tree 404'd while the healthcheck stayed green.
+ *
+ * `process.env` is correct here and is what the CLI already uses. A server-only
+ * module reading process.env is not a smell; the rule that matters is that
+ * CLIENT code must not, and nothing in `src/lib/server/` is ever bundled to the
+ * client.
+ */
+function serverEnv(name: string): string | undefined {
+	return process.env[name];
+}
+
 function requireSecret(): string {
-	const secret = env.BETTER_AUTH_SECRET;
+	const secret = serverEnv('BETTER_AUTH_SECRET');
 	if (!secret) {
 		throw new Error(
 			'BETTER_AUTH_SECRET not set — check .env (generate with: openssl rand -base64 32)'
@@ -58,11 +86,44 @@ function requireSecret(): string {
 	return secret;
 }
 
+/**
+ * The origin Better Auth builds its baseURL and cookies from.
+ *
+ * WHY THIS FALLS LOUDLY OUTSIDE DEV AND TEST
+ * -----------------------------------------
+ * This used to be `env.PUBLIC_ORIGIN ?? 'http://127.0.0.1:3000'` at every call
+ * site, and that silent fallback hid a real deployment bug for an entire round.
+ *
+ * In production the variable arrives as `ORIGIN` in the container (adapter-node
+ * reads that for its own CSRF check), while `$env/dynamic/private` is populated
+ * only from variables present under their REAL names. So `env.PUBLIC_ORIGIN`
+ * was undefined, the fallback engaged, and Better Auth's baseURL became
+ * `http://127.0.0.1:3000` — an origin no request ever has. `isAuthPath` then
+ * compared every /api/auth request against it, matched nothing, and SvelteKit
+ * answered 404 for the entire auth endpoint tree. The healthcheck was green the
+ * whole time.
+ *
+ * A fallback that produces a plausible-looking wrong value is worse than no
+ * fallback: it converts a missing-variable error into a silent misconfiguration.
+ * Outside dev and test this throws at module load — which adapter-node turns
+ * into a non-zero exit before the listener opens, so the failure is a container
+ * that refuses to start rather than an app that serves 404s.
+ */
+function resolveBaseURL(value: string | undefined): string {
+	if (value) return value;
+	if (building || process.env.NODE_ENV !== 'production') return 'http://127.0.0.1:3000';
+	throw new Error(
+		'PUBLIC_ORIGIN not set — it must be the origin the browser uses ' +
+			'(e.g. https://enochnvps.tail29bbdb.ts.net). It is required in production; ' +
+			'without it Better Auth cannot match /api/auth requests and every one 404s.'
+	);
+}
+
 export const auth: Auth = createAuth(db, {
 	secret: building ? 'build-time-placeholder-never-used-at-runtime' : requireSecret(),
-	baseURL: env.PUBLIC_ORIGIN ?? 'http://127.0.0.1:3000',
-	openSignup: env.DOCLIFTS_OPEN_SIGNUP === '1',
-	rateLimitStorage: env.DOCLIFTS_RATE_LIMIT_STORAGE === 'database' ? 'database' : 'memory'
+	baseURL: resolveBaseURL(serverEnv('PUBLIC_ORIGIN')),
+	openSignup: serverEnv('DOCLIFTS_OPEN_SIGNUP') === '1',
+	rateLimitStorage: serverEnv('DOCLIFTS_RATE_LIMIT_STORAGE') === 'database' ? 'database' : 'memory'
 });
 
 export type { Auth };

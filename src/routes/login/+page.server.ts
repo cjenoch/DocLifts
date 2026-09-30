@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
 import { auth } from '$lib/server/auth';
-import { signInViaHandler } from '$lib/server/auth-proxy';
+import { signInViaHandler, SIGN_IN_WINDOW_SECONDS } from '$lib/server/auth-proxy';
 import { isSafeNext } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -54,10 +54,14 @@ export const actions: Actions = {
 			return fail(429, {
 				email,
 				error: 'Too many sign-in attempts. Try again shortly.',
-				// Present only here. Every fail() above returns the same key with
-				// null, so the action's return type is one shape rather than a
-				// union the page component then has to narrow.
-				retryAfter: result.headers.get('retry-after')
+				// Better Auth 1.7.6 sends no Retry-After on a 429 (measured: the
+				// header is null), so fall back to the limiter's own window. The
+				// header is still preferred if a future version adds it, because
+				// then the library is authoritative and this is not.
+				retryAfter: result.headers.get('retry-after') ?? String(SIGN_IN_WINDOW_SECONDS)
+				// Every fail() above returns the same key with null, so the
+				// action's return type is one shape rather than a union the page
+				// component then has to narrow.
 			});
 		}
 

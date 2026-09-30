@@ -127,6 +127,14 @@ export async function startTestServer(): Promise<{
 			HOST: '127.0.0.1',
 			PORT: String(port),
 			ORIGIN: origin,
+			// PUBLIC_ORIGIN too, under its own name. Better Auth's baseURL comes
+			// from `env.PUBLIC_ORIGIN`; adapter-node fills $env/dynamic/private
+			// only from variables present in the environment under their real
+			// names. ORIGIN alone leaves baseURL on its hardcoded
+			// `http://127.0.0.1:3000` fallback, isAuthPath matches nothing, and
+			// every /api/auth/* request 404s through SvelteKit's router instead
+			// of reaching Better Auth. Found by the rate-limit e2e.
+			PUBLIC_ORIGIN: origin,
 			DATABASE_URL: testDatabaseUrl(),
 			BETTER_AUTH_SECRET: TEST_AUTH_SECRET
 		},

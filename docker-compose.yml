@@ -56,6 +56,18 @@ services:
       # Tailscale Serve HTTPS name; it is required, not defaulted, so a
       # half-configured release fails at boot rather than serving http cookies.
       ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in the production env file; use scripts/compose-prod.sh}
+      # PUBLIC_ORIGIN must ALSO be passed under its own name, not just folded
+      # into ORIGIN. `auth.ts` reads `env.PUBLIC_ORIGIN` to build Better Auth's
+      # baseURL, and adapter-node populates $env/dynamic/private only from
+      # variables present in the container's environment under their real
+      # names. With ORIGIN alone, baseURL silently fell back to its
+      # hardcoded `http://127.0.0.1:3000`, and Better Auth's `isAuthPath` then
+      # compared every /api/auth request against that origin, matched nothing,
+      # and let SvelteKit answer 404. A whole auth endpoint tree, invisible
+      # because a fallback masked a missing variable.
+      #
+      # Set both to the same value, and never let them drift.
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in the production env file; use scripts/compose-prod.sh}
       # Behind Tailscale Serve the socket sees plain HTTP and a Host of
       # localhost unless these say otherwise. Without them adapter-node builds
       # url.origin as http://localhost, every POST 403s on the CSRF check, and

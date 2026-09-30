@@ -109,4 +109,24 @@ const guard: Handle = async ({ event, resolve }) => {
 const betterAuth: Handle = ({ event, resolve }) =>
 	svelteKitHandler({ event, resolve, auth, building });
 
-export const handle: Handle = sequence(guard, betterAuth);
+/**
+ * ORDER MATTERS, AND IT IS THE OPPOSITE OF WHAT IT LOOKS LIKE.
+ *
+ *   sequence(guard, betterAuth)  -- guard wins for allowlisted paths
+ *   sequence(betterAuth, guard)  -- correct
+ *
+ * `guard` returns `resolve(event)` immediately for any path in its public
+ * allowlist, and `/api/auth` is in that list. With `guard` first, EVERY
+ * /api/auth/* request was answered by SvelteKit's router instead of reaching
+ * Better Auth's handler — `svelteKitHandler` never ran at all.
+ *
+ * That is why /api/auth/* returned an HTML 404 page (x-sveltekit-page: true),
+ * not a JSON error, and why the sign-in rate limit could not be exercised
+ * against the handler even after the action was re-routed to it.
+ *
+ * The allowlist entry for /api/auth is still correct and still needed: with
+ * betterAuth first it is what stops the guard from demanding a session for
+ * Better Auth's own endpoints. But the allowlist is for the GUARD's benefit, not
+ * a claim about routing order.
+ */
+export const handle: Handle = sequence(betterAuth, guard);

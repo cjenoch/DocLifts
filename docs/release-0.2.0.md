@@ -1028,3 +1028,140 @@ earlier explanation — SvelteKit consuming the `cookie` header — was wrong. T
 harness now runs the build as `NODE_ENV=production` without `TEST`, the check
 is pinned on in code, and `e2e/sign-in-origin.e2e.ts` holds the
 behaviour-level test, which fails with the `Origin` forward reverted.
+
+## 18. 0.3.0 — equipment catalog
+
+**NOT deployed.** Built on branch `feat/0.3.0-catalog` from `main` at 0.2.4
+(`5b9884d`). Migration **0012**. Spec:
+`SPEC-0.3.0-catalog-0.3.1-llm.md` Part A. Reference: `docs/catalog.md`.
+(Numbered 18 because a 0.2.5 section may land as §17 first; this section
+stands alone either way.) **Nothing in this section runs without the owner's
+explicit "go" in the current session.**
+
+### What changes
+
+- `equipment_models` gains `body_region`, `starting_resistance_basis`,
+  `confidence` (not null, default `'user'`), `source_url`, `catalog_snapshot`;
+  `gym_equipment` gains nullable `stack_lb`, `increment_lb`. Additive only.
+- 543 **global** catalog rows (`owner_user_id IS NULL`), loaded by
+  `scripts/catalog-prod.sh`, not by the migration.
+- New pages `/equipment`, `/equipment/[id]`, `/equipment/[id]/edit`; the
+  model picker on `/gyms` is narrowed per gym.
+- No new env var, so no compose passthrough change.
+
+### Migration 0012, verified on a restore of production
+
+Applied with the repo's migrator (`pnpm db:migrate`, as `migrate-prod.sh`
+runs it) to a fresh restore of `/srv/backups/doclifts/doclifts-2026-10-01.sql.gz`
+in a throwaway database on a disposable container (`doclifts_restore_0012`,
+dropped afterwards). Then the importer, twice. Counts only:
+
+| table                           | before | after 0012 | after import |
+| ------------------------------- | -----: | ---------: | -----------: |
+| `auth.account`                  |      2 |          2 |            2 |
+| `auth.session`                  |      2 |          2 |            2 |
+| `auth.user`                     |      2 |          2 |            2 |
+| `auth.verification`             |      0 |          0 |            0 |
+| `drizzle.__drizzle_migrations`  |     12 |         13 |           13 |
+| `public.day_exercises`          |     61 |         61 |           61 |
+| `public.days`                   |     12 |         12 |           12 |
+| `public.equipment_models`       |      0 |          0 |          543 |
+| `public.exercise_equipment_map` |      0 |          0 |            0 |
+| `public.exercises`              |     94 |         94 |           94 |
+| `public.gym_equipment`          |      0 |          0 |            0 |
+| `public.gyms`                   |      2 |          2 |            2 |
+| `public.imported_workouts`      |    107 |        107 |          107 |
+| `public.pain_events`            |      0 |          0 |            0 |
+| `public.prescribed_sets`        |    140 |        140 |          140 |
+| `public.program_draft_requests` |      1 |          1 |            1 |
+| `public.programs`               |      4 |          4 |            4 |
+| `public.session_exercises`      |     22 |         22 |           22 |
+| `public.sessions`               |     31 |         31 |           31 |
+| `public.sets`                   |    454 |        454 |          454 |
+| `public.workout_log_imports`    |      1 |          1 |            1 |
+
+New columns, as Postgres reports them:
+
+| column                                       | type    | nullable | default  |
+| -------------------------------------------- | ------- | -------- | -------- |
+| `equipment_models.body_region`               | text    | yes      | —        |
+| `equipment_models.starting_resistance_basis` | text    | yes      | —        |
+| `equipment_models.confidence`                | text    | **no**   | `'user'` |
+| `equipment_models.source_url`                | text    | yes      | —        |
+| `equipment_models.catalog_snapshot`          | date    | yes      | —        |
+| `gym_equipment.stack_lb`                     | integer | yes      | —        |
+| `gym_equipment.increment_lb`                 | integer | yes      | —        |
+
+New objects, by name: index `equipment_models_catalog_code_unique` (unique,
+`(manufacturer, code)` where code is non-empty and `owner_user_id IS NULL`);
+checks `equipment_models_confidence_check`,
+`equipment_models_body_region_check`,
+`equipment_models_resistance_basis_check`, `gym_equipment_stack_lb_check`,
+`gym_equipment_increment_lb_check`. A second `db:migrate` is a no-op. The
+import: 543 inserted (gym80 128, Matrix 83, Precor 66, Hammer Strength 64,
+Technogym 62, Life Fitness 61, Nautilus 43, Cybex 36); the second run 0
+inserted, 0 updated, 543 unchanged. All 543 are global: 360
+`manufacturer_page`, 106 `reseller_or_manual`, 69 `inferred`, 8 `line_only`.
+
+Production held **no** `equipment_models` or `gym_equipment` rows at that
+dump, so no existing row is reinterpreted by the new `confidence` default.
+
+### Before deploying
+
+```bash
+# 1. CI green on main at the release sha (gh run list --branch main).
+
+# 2. Preserve the running image.
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.3.0
+```
+
+### Migrate, deploy, import
+
+```bash
+# 3. Migration 0012 (verified dump first; refuses to migrate without one).
+sudo -n scripts/migrate-prod.sh
+
+# 4. Deploy. 0.2.4 code ignores the new columns, so 3 before 4 is safe.
+sudo -n scripts/compose-prod.sh up -d --build --wait web
+
+# 5. The catalog: verified dump, dry run printed, then type IMPORT.
+#    Expect the dry run to show 543 inserted, 0 updated, 0 skipped, and the
+#    26 stack_lb rows listed as not imported.
+sudo -n scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-09-30.csv
+```
+
+### Checks
+
+```bash
+# 6. 543 global rows.
+sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
+  "select count(*) from equipment_models where owner_user_id is null"
+#   543
+
+# 7. Idempotent: run step 5 again; the dry run must show 0 inserted, 0 updated.
+#    Answer anything but IMPORT to stop there.
+```
+
+8. `/equipment` renders with filters: 543 models; manufacturer → Apply shows
+   the product-line select; searching `IL-ROW` leaves one row.
+9. **The picker at Chris's primary gym.** Production has no machines with a
+   model yet, so `/gyms` first says "No machines with a known model in this gym
+   yet". Add one real machine from its catalog page (`/equipment` → the model →
+   "Add to a gym"); `/gyms` with that gym selected then lists only that
+   manufacturer's models, and "Show all manufacturers" lists 543.
+
+`pre-0.3.0` is deleted only after 6–9 pass.
+
+### Rollback
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.3.0 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+0012 is additive and 0.2.4 runs against it unchanged, so the schema stays.
+The catalog rows can stay too, with one cost: 0.2.4 lists every model in the
+`/gyms` select and serializes all of them into every live-session page, so
+with 543 rows those pages get heavier until 0.3.0 is back. The narrow undo is
+in `docs/catalog.md`, and the full one is the `precatalog-*.dump` that
+`catalog-prod.sh` took.

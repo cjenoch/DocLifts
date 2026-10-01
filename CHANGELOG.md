@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0 — equipment catalog (not yet released)
+
+- **A catalog of 543 machines from 8 manufacturers.** gym80, Matrix, Precor,
+  Hammer Strength, Technogym, Life Fitness, Nautilus and Cybex, read from their
+  own catalogs (or dealer listings and manuals) on 2026-09-30. Browse it under
+  **Equipment** in the nav: filter by manufacturer, product line, loading type
+  and body region, or search a name or model code such as `IL-ROW`.
+- **Every model says how sure it is.** Rows read from a manufacturer's page or
+  a manual link to their source; rows that were inferred are marked
+  **unverified**, so check the placard on the machine before trusting them.
+- **Add a model to your gym from its page,** with the stack size and increment
+  of the machine in front of you. Stack size is recorded per machine, because
+  the same model is sold with different stacks.
+- **Wrong starting weight? Make it yours.** The catalog is shared and is not
+  edited in place. "Create my own copy" saves your numbers for you alone; your
+  own models are marked **yours** and stay private to you.
+- **The model picker on Gyms and machines stays short.** It shows models from
+  the manufacturers already in that gym, with "Show all manufacturers" and a
+  search box for the rest.
+- Live workout pages no longer carry the whole model list, which they never
+  used.
+
 ## Unreleased — 0.2.2
 
 Three changes, all from one incident: being locked out of your own account with

@@ -466,8 +466,8 @@ branch. Watch it with `gh run watch`; do not infer it.
 wrong commit gets a fix-forward commit that says what it fixes.
 
 **Nothing touches production without the owner's explicit "go" in the current
-session.** That covers `scripts/compose-prod.sh`, `scripts/migrate-prod.sh` and
-`scripts/user-prod.sh`. A "go" from an earlier session, a handoff, or a plan is
+session.** That covers `scripts/compose-prod.sh`, `scripts/migrate-prod.sh`,
+`scripts/user-prod.sh` and `scripts/catalog-prod.sh`. A "go" from an earlier session, a handoff, or a plan is
 not one. Before any production build, preserve the running image:
 
 ```sh
@@ -515,6 +515,9 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/server/starter-exercises.ts` — the 23 exercises copied into every new account by the auth create hook.
 - `src/lib/server/users.ts` — `createUser(auth, db, input)` / `setPassword(auth, db, input)`. The auth instance is an explicit argument because the CLI must build its own outside SvelteKit.
 - `scripts/user-prod.sh` — runs `pnpm user:*` against production on the Compose network, in the builder image (the runtime image has no `tsx`). Mirrors `migrate-prod.sh`'s env handling.
+- `src/lib/server/catalog.ts` — equipment model reads (`modelVisibleTo`, browse, picker) and the owned-row writes (edit, copy). The only place model visibility is decided.
+- `src/lib/server/catalog-import.ts` + `scripts/catalog-import.ts` (`pnpm catalog:import <csv> [--dry-run]`) — the only writer of global catalog rows. `data/catalog/` holds the dated snapshots; `docs/catalog.md` describes them.
+- `scripts/catalog-prod.sh` — runs the importer against production (verified dump, dry run, typed confirmation). Mirrors `migrate-prod.sh`.
 - `compose.demo.yml` — isolated, localhost-only temporary demo; does not mount production data or read `.env`.
 - `src/lib/server/db/index.ts` — Drizzle client singleton
 - `src/lib/server/progression.ts` — engine + history helpers

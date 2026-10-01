@@ -2024,6 +2024,23 @@ google/gemini-3.5-flash-lite   1.9 s / 1.3 s / $0.0011  one 9 s outlier
 Production after 0.4.6 (21:05 UTC): 15 photos (8 confirmed, 5 analyzed and
 waiting on the owner's review, 2 discarded); flash-lite analyses 2.4-2.7 s.
 
+## 23. 0.4.7 — Home shows only the signed-in user's programs — DEPLOYED 2026-10-01
+
+```
+0.4.7    fea8700, tagged 0.4.7; CI green on the branch and on main
+fix      src/routes/+page.server.ts filtered programs only by is_active, so
+         a second account saw the owner's program names on Home. Now
+         programs.user_id = requireUser(locals).id
+test     route test, cross-tenant shape (Alice first, then Bob sees none);
+         watched failing against 0.4.6
+audit    every route server file and lib/server function reading owned
+         data: no other unscoped list or by-id read/write. Hardening: the
+         three session queries on programs/[id] also filter sessions.user_id
+deploy   code only; pre-0.4.7 preserved, web rebuilt 23:11 UTC, healthy
+check    the scratch account's Home showed 0 of the owner's 2 active
+         programs; pre-0.4.7 deleted afterwards
+```
+
 ## 24. 0.5.0 Part A — resize photos on the phone — NOT deployed
 
 Code only. No migration, no new environment variable, no change to
@@ -2039,3 +2056,39 @@ Before tagging, per the spec's "accept when", on a real iPhone and a real
 Android phone: a ~4 MB photo arrives under 1.5 MB (`receivedBytes` in the log
 line) and upright; at least five of the owner's placards read the same with
 `enabled` true and false.
+
+### Placard read, resize on vs off (pre-check, 2026-10-01)
+
+Five generated placards at camera size (4000x3000, about 4.6 MB each, small
+print included; gym80 4364, Hammer Strength IL-ROW, Nautilus NP-L3004, Life
+Fitness SS-LP, Matrix G3-S70). Path ON: the real `src/lib/photo-client.ts`,
+bundled with esbuild and run in Chrome (`resizeForUpload`, 530-541 KB in about
+0.22 s each), then the real `processPhoto`. Path OFF: `processPhoto` on the
+original. Both stored 1600x1200 (ON about 3% more bytes). Read from the
+production container with `google/gemini-2.5-flash-lite`, the app's system
+prompt and wire schema:
+
+```
+model code, maker, starting weight, stack   identical on 5/5
+name                                        3/5 identical on the first pass
+repeat (hammer, nautilus; 3 reads per path) the name varies on the SAME image:
+  hammer   off  ISO-LATERAL ROW | ROW | Row       on  Row | ISO-LATERAL ROW | Row
+  nautilus off  Leverage Row | LEVERAGE ROW | ROW  on  Leverage Row | ROW | ROW
+codes across all 17 reads                   never varied
+```
+
+The name differences are the model's run-to-run variance, not the resize; the
+fields matching depends on (the code first, then the maker) do not move. Still
+owed before tagging, because only the owner's phone has camera originals: the
+same comparison on five of his real placards, and the size and orientation
+check on a real iPhone and Android phone.
+
+### A dropped connection keeps the photo
+
+With `use:enhance`, an upload that never reaches the server (gym Wi-Fi, a
+proxy 5xx) used to render the error page and lose the chosen photo. The page
+now keeps the form and the selected file, shows `labels.failed`, and the retry
+is one tap. e2e: the POST is aborted (`internetdisconnected`), the alert shows,
+the URL and the selected file are unchanged, nothing is stored, and the retry
+reaches review. Watched failing with the first Part A handler (the page was
+replaced and the alert never appeared).

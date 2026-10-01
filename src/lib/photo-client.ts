@@ -24,11 +24,15 @@ export const photoClientSettings = {
 	/**
 	 * The upload button's label while a photo is on its way. `preparing`:
 	 * while it is resized here. `uploading`: from the POST until the review
-	 * page, which covers the upload and the model's read.
+	 * page, which covers the upload and the model's read. `failed`: when it
+	 * never got there.
 	 */
 	labels: {
 		preparing: 'Preparing photo',
-		uploading: 'Identifying machine…'
+		uploading: 'Identifying machine…',
+		/** Shown when the upload never reached the server (dropped Wi-Fi, a 5xx):
+		 * the form and the chosen photo stay, so trying again is one tap. */
+		failed: "The photo didn't go through. Check your connection and tap Upload again."
 	}
 };
 

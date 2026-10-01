@@ -335,6 +335,17 @@ about 0.65 MB with `clientResized` logged, upright, and reaches review; with
 JavaScript off the full file arrives; nonsense client fields are logged as
 `null` and change nothing).
 
+**Labels.** `labels.preparing` ("Preparing photo"), `labels.uploading`
+("Identifying machine…", covering the upload and the model's read) and
+`labels.failed` (shown when the upload never reached the server; the form and
+the chosen photo stay). Tests read them from the settings object.
+
+**Does the resize change what's read?** Pre-checked on five camera-size
+placards through the real code paths and production's model: codes, maker,
+starting weight and stack identical; only the name wording varied, and it
+varies just as much on the same image read twice. Details in
+`docs/release-0.2.0.md` §24.
+
 ## Known gaps (first real use, 2026-10-01)
 
 - **The gym80 logo is misread** ("Dyumbo", "Gymbo") or the product line is

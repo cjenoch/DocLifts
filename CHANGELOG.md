@@ -14,8 +14,11 @@
 - **The button says what is happening:** "Preparing photo" while it is
   resized, then "Identifying machine…" while it uploads and the placard is
   read.
+- **A dropped connection doesn't lose your photo.** If the upload never
+  gets through (gym Wi-Fi), the page says so and keeps the photo you picked;
+  tap Upload again.
 
-## 0.4.7 — Home shows only your programs — not yet released
+## 0.4.7 — Home shows only your programs — 2026-10-01
 
 - **Home lists only your own programs.** It listed every account's active
   programs, so a second user would have seen your program names (opening one

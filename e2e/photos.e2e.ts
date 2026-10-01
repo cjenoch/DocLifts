@@ -276,6 +276,37 @@ run('equipment from a photo (production build)', () => {
 		await page.close();
 	});
 
+	it('a dropped connection keeps the page and the chosen photo, says so, and the retry goes through', async () => {
+		// Gym Wi-Fi: the POST never reaches the server. Before, the enhanced
+		// submit swapped in the error page and the chosen photo was lost.
+		const page = await signedInPage();
+		await page.goto(`${origin}/gyms/${gymA}/equipment/photo`, { waitUntil: 'networkidle' });
+		const before = (await photosOf(userA)).length;
+		const input = page.getByLabel('Photo');
+		await input.setInputFiles({ name: 'IMG_0421.JPG', mimeType: 'image/jpeg', buffer: phone });
+
+		await page.route('**/equipment/photo?/upload', (route) => route.abort('internetdisconnected'));
+		await page.getByRole('button', { name: 'Upload photo' }).click();
+		await expect
+			.poll(() => page.getByRole('alert').textContent())
+			.toBe(photoClientSettings.labels.failed);
+		expect(new URL(page.url()).pathname).toBe(`/gyms/${gymA}/equipment/photo`);
+		expect(await input.evaluate((el: HTMLInputElement) => el.files?.[0]?.name)).toBe(
+			'IMG_0421.JPG'
+		);
+		expect(await page.getByRole('button', { name: 'Upload photo' }).isEnabled()).toBe(true);
+		expect(await photosOf(userA)).toHaveLength(before); // nothing stored
+
+		// Back on the network: the same selection, one tap, reaches review.
+		await page.unroute('**/equipment/photo?/upload');
+		await page.getByRole('button', { name: 'Upload photo' }).click();
+		await page.waitForURL('**/photos/*/review**');
+		// Review has alerts of its own (the harness has no model); ours is gone.
+		expect(await page.getByText(photoClientSettings.labels.failed).count()).toBe(0);
+		expect(await photosOf(userA)).toHaveLength(before + 1);
+		await page.close();
+	});
+
 	it('resized on the phone: a 4000x3000 photo arrives smaller and upright, measured in the log, and reaches review', async () => {
 		// 0.5.0 Part A, from the rendered page in Chromium: the enhanced submit
 		// swaps the photo for the browser's resize before the POST.

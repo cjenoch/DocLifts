@@ -6,6 +6,8 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	/** null when idle; the button's label while a submit is under way. */
 	let stage: string | null = $state(null);
+	/** Set when the upload did not get through; the form and photo stay. */
+	let failed = $state(false);
 	const { labels } = photoClientSettings;
 
 	// With JavaScript, the photo is resized on the phone before the POST
@@ -14,6 +16,7 @@
 	// re-checks and re-processes every upload either way.
 	const resizeThenUpload: SubmitFunction = async ({ formData, cancel }) => {
 		if (stage) return cancel();
+		failed = false;
 		stage = labels.preparing;
 		const chosen = formData.get('photo');
 		if (chosen instanceof File && chosen.size > 0) {
@@ -23,9 +26,16 @@
 			formData.set('clientResized', sent === chosen ? '0' : '1');
 		}
 		stage = labels.uploading;
-		return async ({ update }) => {
-			// The default: a redirect goes to review, a refusal shows its message.
+		return async ({ result, update }) => {
 			try {
+				// Never reached the action (dropped gym Wi-Fi, a proxy 5xx, a crash):
+				// the default would swap in the error page and lose the chosen photo.
+				// Keep the page as it is and say so; the file input still holds it.
+				if (result.type === 'error') {
+					failed = true;
+					return;
+				}
+				// The default: a redirect goes to review, a refusal shows its message.
 				await update();
 			} finally {
 				stage = null;
@@ -42,6 +52,7 @@
 		code), or choose one you already took. You review what was read before anything is added.
 	</p>
 	{#if form?.message}<p role="status" class="text-amber-300">{form.message}</p>{/if}
+	{#if failed}<p role="alert" class="text-amber-300">{labels.failed}</p>{/if}
 	<form
 		method="POST"
 		action="?/upload"

@@ -203,6 +203,7 @@ export async function resetTestDb(client: postgres.Sql): Promise<void> {
 			program_draft_requests,
 			workout_log_imports,
 			imported_workouts,
+			equipment_photos,
 			llm_calls,
 			-- Better Auth's four tables, child-first. Without these a test that
 			-- creates a user leaves it behind and the next run's "already

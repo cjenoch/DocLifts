@@ -885,6 +885,105 @@ export const llmCalls = pgTable(
 	})
 );
 
+// ---------- equipment_photos (0.4.0) ----------
+
+/**
+ * A photo's life: `uploaded` (stored, not yet read by a model, or the last
+ * analysis failed) -> `analyzed` (a candidate is attached) -> `confirmed` (the
+ * user linked or created a model and a gym_equipment row exists) or
+ * `discarded` (the object is deleted from the store; the row stays for audit).
+ */
+export const PHOTO_STATUSES = ['uploaded', 'analyzed', 'confirmed', 'discarded'] as const;
+export type PhotoStatus = (typeof PHOTO_STATUSES)[number];
+
+/**
+ * One row per uploaded equipment photo. Directly owned (`user_id NOT NULL`),
+ * and the gym it was taken for is the same user's: every write resolves the
+ * gym with `gyms.user_id = userId` first. The image itself lives in the
+ * private photo store under `storage_key`; it is served only through the
+ * guarded `/photos/[id]/image` route.
+ */
+export const equipmentPhotos = pgTable(
+	'equipment_photos',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		/** Owner. `text` not `uuid` — see programs.userId. No onDelete: NO ACTION. */
+		userId: text('user_id').notNull(),
+		/** The gym the photo was taken for; the resulting machine goes here. */
+		gymId: uuid('gym_id').notNull(),
+		storageKey: text('storage_key').notNull(),
+		/** Always `image/jpeg` after processing. */
+		contentType: text('content_type').notNull(),
+		/** Of the STORED (processed) image, not the upload. */
+		bytes: integer('bytes').notNull(),
+		width: integer('width').notNull(),
+		height: integer('height').notNull(),
+		/** sha256 hex of the stored bytes. */
+		sha256: text('sha256').notNull(),
+		status: text('status').$type<PhotoStatus>().notNull(),
+		/** The analysis call that produced `candidate`. */
+		llmCallId: uuid('llm_call_id'),
+		/** The parsed EquipmentCandidate (photos/analyze.ts). */
+		candidate: jsonb('candidate'),
+		/** The existing model the user linked. */
+		matchedModelId: uuid('matched_model_id'),
+		/** The owned model the user created from the candidate. */
+		createdModelId: uuid('created_model_id'),
+		/** The machine the confirmation created. */
+		gymEquipmentId: uuid('gym_equipment_id'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => ({
+		userFk: foreignKey({
+			name: 'equipment_photos_user_id_fk',
+			columns: [t.userId],
+			foreignColumns: [authUsers.id]
+		}),
+		gymFk: foreignKey({
+			name: 'equipment_photos_gym_id_fk',
+			columns: [t.gymId],
+			foreignColumns: [gyms.id]
+		}),
+		llmCallFk: foreignKey({
+			name: 'equipment_photos_llm_call_id_fk',
+			columns: [t.llmCallId],
+			foreignColumns: [llmCalls.id]
+		}),
+		matchedModelFk: foreignKey({
+			name: 'equipment_photos_matched_model_id_fk',
+			columns: [t.matchedModelId],
+			foreignColumns: [equipmentModels.id]
+		}),
+		createdModelFk: foreignKey({
+			name: 'equipment_photos_created_model_id_fk',
+			columns: [t.createdModelId],
+			foreignColumns: [equipmentModels.id]
+		}),
+		gymEquipmentFk: foreignKey({
+			name: 'equipment_photos_gym_equipment_id_fk',
+			columns: [t.gymEquipmentId],
+			foreignColumns: [gymEquipment.id]
+		}),
+		storageKeyUnique: unique('equipment_photos_storage_key_unique').on(t.storageKey),
+		userCreatedIdx: index('equipment_photos_user_created_idx').on(t.userId, t.createdAt),
+		gymEquipmentIdx: index('equipment_photos_gym_equipment_idx').on(t.gymEquipmentId),
+		// Every FK column is indexed (CLAUDE.md "Schema discipline"); user_id is
+		// covered by the (user_id, created_at) index above.
+		gymIdx: index('equipment_photos_gym_idx').on(t.gymId),
+		llmCallIdx: index('equipment_photos_llm_call_idx').on(t.llmCallId),
+		matchedModelIdx: index('equipment_photos_matched_model_idx').on(t.matchedModelId),
+		createdModelIdx: index('equipment_photos_created_model_idx').on(t.createdModelId),
+		statusCheck: check(
+			'equipment_photos_status_check',
+			sql`${t.status} IN ('uploaded', 'analyzed', 'confirmed', 'discarded')`
+		),
+		sizeCheck: check(
+			'equipment_photos_size_check',
+			sql`${t.bytes} > 0 AND ${t.width} > 0 AND ${t.height} > 0`
+		)
+	})
+);
+
 // ---------- Type exports for application use ----------
 
 export type Program = typeof programs.$inferSelect;
@@ -900,3 +999,5 @@ export type PainEvent = typeof painEvents.$inferSelect;
 export type NewPainEvent = typeof painEvents.$inferInsert;
 export type LlmCall = typeof llmCalls.$inferSelect;
 export type NewLlmCall = typeof llmCalls.$inferInsert;
+export type EquipmentPhoto = typeof equipmentPhotos.$inferSelect;
+export type NewEquipmentPhoto = typeof equipmentPhotos.$inferInsert;

@@ -1718,12 +1718,14 @@ a derived label keep it; to 0.3.1 it is an ordinary label.
 ## 21. 0.4.0 — equipment from a photo — NOT DEPLOYED
 
 ```
-branch   feat/0.4.0-photo from feat/0.3.2 2041136, merged with main bc43f0b (0.3.2)
+branch   feat/0.4.0-photo from feat/0.3.2 2041136, merged with main bc43f0b
+         (0.3.2, deployed; production is at 0015, 16 migration rows)
 status   NOT deployed. Nothing below has run against production.
 migrate  0016: equipment_photos (new table). Verified on a restore of
-         doclifts-2026-10-01.sql.gz, below
-env      PHOTO_STORE=s3, the five S3_* names, BODY_SIZE_LIMIT=12M;
-         PHOTO_MAX_BYTES and PHOTO_DAILY_LIMIT default
+         doclifts-2026-10-01.sql.gz, below. In production only 0016 is
+         pending: expect 17 migration rows afterwards
+env      the staged S3 file appended (/home/chris/doclifts-s3.env), plus
+         PHOTO_STORE=s3 and BODY_SIZE_LIMIT=12M if it does not carry them
 ```
 
 Built on branch `feat/0.4.0-photo`. Migration **0016**. Spec:
@@ -1735,8 +1737,8 @@ Deviations from the spec, all decided before the build: the migration is
 0016, not 0014 (0.3.2 took 0014 and 0015); no `secrets-apply.sh` and no allowlist (the
 new keys are enforced by `check-env-passthrough.sh` like every other); a model
 created from a photo may carry the reader's notes in 0.3.2's
-`equipment_models.notes`; matching gained a prefix step (catalog base code vs
-placard SKU); a blank machine label takes 0.3.2's default label. Found while
+`equipment_models.notes`; matching gained a leading-digit step (Nautilus `9NP-L3004` vs
+`NP-L3004`) and a prefix step (catalog base code vs placard SKU); a blank machine label takes 0.3.2's default label. Found while
 building: adapter-node answers an over-limit body with a **500**, not a 413
 (see `docs/photos.md`).
 
@@ -1761,20 +1763,22 @@ building: adapter-node answers an over-limit body with a **500**, not a 413
   `BODY_SIZE_LIMIT`. Every one has a `docker-compose.yml` passthrough line in
   this release; `BODY_SIZE_LIMIT` defaults to `12M` there.
 
-### Migration 0015, verified on a restore of production
+### Migration 0016, verified on a restore of production
 
 The newest dump was `/srv/backups/doclifts/doclifts-2026-10-01.sql.gz` (03:00,
-at 0011). Restored into a throwaway database (`doclifts_scratch_040`) on the
-disposable test container, the full chain 0012 → 0015 applied with
-`drizzle-kit migrate`; the database was dropped afterwards. Counts only:
+at 0011; production has since applied 0012–0015). Restored into a throwaway
+database (`doclifts_scratch_0016`) on the disposable test container, the full
+chain 0012 → 0016 — main's 0015 `equipment_model_stack_retired` included —
+applied with `drizzle-kit migrate`; the database was dropped afterwards.
+Counts only:
 
-| table                           | before | after 0012–0015 |
+| table                           | before | after 0012–0016 |
 | ------------------------------- | -----: | --------------: |
 | `auth.account`                  |      2 |               2 |
 | `auth.session`                  |      2 |               2 |
 | `auth.user`                     |      2 |               2 |
 | `auth.verification`             |      0 |               0 |
-| `drizzle.__drizzle_migrations`  |     12 |              16 |
+| `drizzle.__drizzle_migrations`  |     12 |              17 |
 | `public.day_exercises`          |     61 |              61 |
 | `public.days`                   |     12 |              12 |
 | `public.equipment_models`       |      0 |               0 |
@@ -1794,13 +1798,14 @@ disposable test container, the full chain 0012 → 0015 applied with
 | `public.sets`                   |    454 |             454 |
 | `public.workout_log_imports`    |      1 |               1 |
 
-New objects, by name, as Postgres reports them: table `equipment_photos` (16
-columns; `user_id` text NOT NULL, `candidate` jsonb, `created_at` timestamptz);
-`equipment_photos_pkey`; FKs, all NO ACTION:
-`equipment_photos_user_id_fk` (→ `auth."user"(id)`),
-`equipment_photos_gym_id_fk` (→ `gyms`),
-`equipment_photos_llm_call_id_fk` (→ `llm_calls`),
-`equipment_photos_matched_model_id_fk` and
+0015's objects are present as main defines them (`equipment_models`
+`standard_stack_lb`, `standard_stack_note`, `retired_at`, CHECK
+`equipment_models_standard_stack_lb_check`). New in 0016, by name, as Postgres
+reports them: table `equipment_photos` (16 columns; `user_id` text NOT NULL,
+`candidate` jsonb, `created_at` timestamptz); `equipment_photos_pkey`; FKs,
+all NO ACTION: `equipment_photos_user_id_fk` (→ `auth."user"(id)`),
+`equipment_photos_gym_id_fk` (→ `gyms`), `equipment_photos_llm_call_id_fk`
+(→ `llm_calls`), `equipment_photos_matched_model_id_fk` and
 `equipment_photos_created_model_id_fk` (→ `equipment_models`),
 `equipment_photos_gym_equipment_id_fk` (→ `gym_equipment`); unique
 `equipment_photos_storage_key_unique`; CHECKs `equipment_photos_status_check`
@@ -1809,48 +1814,58 @@ columns; `user_id` text NOT NULL, `candidate` jsonb, `created_at` timestamptz);
 (`user_id, created_at`), `equipment_photos_gym_equipment_idx`, and one on each
 other FK column (`_gym_idx`, `_llm_call_idx`, `_matched_model_idx`,
 `_created_model_idx`). Longest name 36 bytes. `drizzle-kit check` is green.
+0016's SQL is identical to the photo migration this branch first numbered 0015
+(never applied anywhere), regenerated after main's 0015.
 
 ### Before deploying
 
 ```bash
-# 1. §20 (0.3.2) deployed and its checks passed. CI green on main at the
-#    release sha, INCLUDING the docker job (gh run list --branch main).
+# 1. CI green on main at the release sha, BOTH jobs (test and docker):
+#    gh run list --branch main
 
 # 2. Preserve the running image.
 sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.4.0
 ```
 
-3. **Create the bucket private** (Linode Cloud Manager → Object Storage), and
-   an access key limited to that bucket.
-4. **Add these lines to `/srv/doclifts/.env`** with an editor, not with `echo`
-   (shell history) and not by pasting into a chat. Names and meanings only
-   here; the values never leave the env file. Keep each comment on its own
-   line:
+3. **The S3 values are already staged** in `/home/chris/doclifts-s3.env` (mode
+   600), verified by a round trip against Linode `us-ord-10`, bucket
+   `doclifts-s3-storage`, private. Nobody reads it into a chat or a log. Check
+   its key NAMES only:
+
+   ```bash
+   sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' /home/chris/doclifts-s3.env
+   #   S3_ENDPOINT S3_REGION S3_BUCKET S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY
+   #   (and possibly PHOTO_STORE / BODY_SIZE_LIMIT)
+   ```
+
+4. **Append it to production's env file at deploy time**, keeping a copy of
+   the file first:
+
+   ```bash
+   sudo -n cp -p /srv/doclifts/.env /srv/doclifts/.env.pre-0.4.0
+   # The leading echo guards against an env file with no final newline.
+   sudo -n sh -c '{ echo; cat /home/chris/doclifts-s3.env; } >> /srv/doclifts/.env'
+   ```
+
+   Then, with an editor, add whichever of these two the staged file did not
+   carry (names and meanings; the S3 values stay as staged):
 
    ```dotenv
-   # store photos in S3-compatible storage
+   # store photos in S3-compatible storage (the code's default too)
    PHOTO_STORE=s3
-   # the region's endpoint URL (https://...)
-   S3_ENDPOINT=
-   # the region name that endpoint expects
-   S3_REGION=
-   # the private bucket's name
-   S3_BUCKET=
-   # the bucket-limited access key's id, and its secret
-   S3_ACCESS_KEY_ID=
-   S3_SECRET_ACCESS_KEY=
    # adapter-node's body ceiling; its 512K default refuses every phone photo
    BODY_SIZE_LIMIT=12M
    ```
 
    `PHOTO_MAX_BYTES` (10485760) and `PHOTO_DAILY_LIMIT` (20) default; add them
    only to change them. `LLM_VISION_MODEL` must name a model that accepts
-   images if `LLM_MODEL` does not.
+   images if `LLM_MODEL` does not. Each key once: `sudo -n grep -c` a name if in
+   doubt, never print the file.
 
 5. **The passthrough check**, before anything is started:
 
    ```bash
-   scripts/check-env-passthrough.sh /srv/doclifts/.env
+   sudo -n scripts/check-env-passthrough.sh /srv/doclifts/.env
    #   env passthrough check: all N key(s) in /srv/doclifts/.env are read by docker-compose.yml
    ```
 
@@ -1858,6 +1873,7 @@ sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.4.0
 
 ```bash
 # 6. Migration 0016 (verified dump first; refuses to migrate without one).
+#    Only 0016 is pending; afterwards drizzle.__drizzle_migrations has 17 rows.
 sudo -n scripts/migrate-prod.sh
 
 # 7. BODY_SIZE_LIMIT is in the rendered compose config. One line only: the
@@ -1940,6 +1956,7 @@ DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.4.0 \
 ```
 
 0016 is additive and 0.3.2 runs against it unchanged, so the table and the
-bucket's objects stay. The env file may keep the new keys while the checkout
+bucket's objects stay. `/srv/doclifts/.env.pre-0.4.0` is the env file as it
+was before step 4. The env file may keep the new keys while the checkout
 stays at 0.4.0 (its compose reads them); if the checkout moves back to 0.3.2,
 `check-env-passthrough.sh` will name them, so comment them out first.

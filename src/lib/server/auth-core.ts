@@ -245,7 +245,30 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 		advanced: {
 			defaultCookieAttributes: {
 				sameSite: 'lax'
-			}
+			},
+
+			/**
+			 * PINNED, so CSRF protection never depends on the environment.
+			 *
+			 * Left unset, better-auth 1.7.6 derives it from NODE_ENV/TEST
+			 * (dist/context/create-context.mjs:211):
+			 *
+			 *   skipOriginCheck: options.advanced?.disableOriginCheck !== void 0
+			 *     ? options.advanced.disableOriginCheck
+			 *     : isTest() ? true : false,
+			 *
+			 * and isTest() is `NODE_ENV === "test" || TEST`. So any process that
+			 * inherited a test runner's environment served auth with the origin
+			 * check OFF. That is how every e2e ran until 0.2.4, and why none of
+			 * them could reproduce the 0.2.3 lockout. Production was protected
+			 * only because the container happens to set NODE_ENV=production.
+			 *
+			 * `false` here, not `true`: the check stays ON everywhere, including
+			 * in-process tests. auth-origin-check.db.test.ts fails without it.
+			 * (`disableCSRFCheck` already defaults to false outright — it is
+			 * `!!options.advanced?.disableCSRFCheck` — and is left alone.)
+			 */
+			disableOriginCheck: false
 		}
 	});
 }

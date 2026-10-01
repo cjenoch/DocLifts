@@ -19,13 +19,18 @@
  * `startTestServer` now runs the build in production mode; the comment there
  * has the measurement.
  *
- * So this file holds two tests that fail for two different reasons:
+ * Since 0.2.4 the check is also PINNED on in auth-core.ts
+ * (`advanced.disableOriginCheck: false`), so it no longer depends on the
+ * environment at all. Two layers, each tested where it discriminates:
  *
- *   - the CANARY fails if the harness drifts back into test mode, which would
- *     silently turn every origin assertion in the suite into a no-op;
- *   - the BEHAVIOR test fails if the proxy stops forwarding Origin. Verified:
- *     with 'origin' and 'referer' removed from FORWARDED in auth-proxy.ts it
- *     fails, and with the harness in test mode it passes either way.
+ *   - the pin: src/lib/server/auth-origin-check.db.test.ts, which runs
+ *     in-process in test mode and fails without it;
+ *   - the harness: this file's CANARY. With the pin in place it passes either
+ *     way; it fails only if BOTH the pin is removed and the harness drifts back
+ *     into test mode — the exact pre-0.2.4 state, measured.
+ *
+ * The BEHAVIOR test fails if the proxy stops forwarding Origin. Verified: with
+ * 'origin' and 'referer' removed from FORWARDED in auth-proxy.ts it fails.
  *
  * And it holds an unrelated cookie on purpose — see CLAUDE.md, "a fixture that
  * is always fresh is not a neutral fixture".

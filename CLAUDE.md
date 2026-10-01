@@ -341,7 +341,11 @@ check off in test mode (`skipOriginCheck` defaults to `isTest()`). So every e2e
 ran against a build with a security check the container always runs. The
 harness now sets `NODE_ENV=production` and drops `TEST`, keeping `VITEST` for
 the database-name guard. `e2e/sign-in-origin.e2e.ts` holds the canary: a
-cookie-bearing sign-in without `Origin` must be refused 403. Any library that
+cookie-bearing sign-in without `Origin` must be refused 403. And the check no
+longer depends on the environment at all: `auth-core.ts` pins
+`advanced.disableOriginCheck: false`, proven by an in-process test that runs in
+test mode and fails without it. Production's CSRF protection must never rest
+on `NODE_ENV` being set correctly. Any library that
 branches on the environment is a place where the harness and production can
 silently differ; when a test cannot reproduce a production failure, diff the
 environment before concluding the bug is elsewhere.

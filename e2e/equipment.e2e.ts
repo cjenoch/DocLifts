@@ -305,6 +305,47 @@ run('equipment pages (production build)', () => {
 		await page.close();
 	});
 
+	// 0.3.2: the model's standard stack is shown and pre-filled into "add to a gym".
+	it("the model page shows the standard stack and pre-fills it, and the user's value wins", async () => {
+		const db = harness.db;
+		const [gym] = await db.insert(s.gyms).values({ name: 'Stack Gym', userId }).returning();
+		const [model] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(
+				and(
+					eq(s.equipmentModels.manufacturer, 'Hammer Strength'),
+					eq(s.equipmentModels.code, 'MTSBC')
+				)
+			);
+		expect(model.standardStackLb).toBe(150);
+		const page = await signedInPage();
+		await page.goto(`${origin}/equipment/${model.id}`, { waitUntil: 'networkidle' });
+		expect(await page.getByTestId('model-stack').textContent()).toContain('150 lb');
+		const stack = page.getByLabel('Stack (lb, optional)');
+		expect(await stack.inputValue()).toBe('150');
+		await page.getByLabel('Gym').selectOption(gym.id);
+		await page.getByLabel('Local label (optional)').fill('Curl as shipped');
+		await page.getByRole('button', { name: 'Add to gym' }).click();
+		await expect.poll(() => page.getByRole('status').textContent()).toBe('Added to your gym');
+		// The page reloads after the POST: pick the gym again.
+		await page.getByLabel('Gym').selectOption(gym.id);
+		expect(await page.getByLabel('Stack (lb, optional)').inputValue()).toBe('150');
+		await page.getByLabel('Local label (optional)').fill('Curl, heavy stack');
+		await page.getByLabel('Stack (lb, optional)').fill('200');
+		await page.getByRole('button', { name: 'Add to gym' }).click();
+		await expect
+			.poll(() => page.getByText('Stack Gym · Curl, heavy stack · 200 lb stack').count())
+			.toBe(1);
+		const made = await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.gymId, gym.id));
+		expect(Object.fromEntries(made.map((m) => [m.localLabel, m.stackLb]))).toEqual({
+			'Curl as shipped': 150,
+			'Curl, heavy stack': 200
+		});
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
+
 	it('copy a catalog row into my own, then edit my copy, from the pages', async () => {
 		const db = harness.db;
 		const [global] = await db

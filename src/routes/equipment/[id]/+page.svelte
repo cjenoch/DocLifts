@@ -48,6 +48,14 @@
 		</dd>
 		<dt class="text-zinc-400">Catalog date</dt>
 		<dd>{m.catalogSnapshot ?? '—'}</dd>
+		<dt class="text-zinc-400">Standard stack</dt>
+		<dd data-testid="model-stack">
+			{m.standardStackLb != null ? `${m.standardStackLb} lb` : '—'}{#if m.standardStackNote}<span
+					class="text-zinc-400"
+				>
+					({m.standardStackNote})</span
+				>{/if}
+		</dd>
 		<dt class="text-zinc-400">Notes</dt>
 		<dd data-testid="model-notes">{m.notes || '—'}</dd>
 	</dl>
@@ -111,6 +119,7 @@
 						max="2000"
 						step="1"
 						inputmode="numeric"
+						value={m.standardStackLb ?? ''}
 						class="mt-1 block w-full rounded bg-zinc-800 p-2"
 					/></label
 				>

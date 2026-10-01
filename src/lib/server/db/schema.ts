@@ -331,6 +331,20 @@ export const equipmentModels = pgTable(
 		 */
 		notes: text('notes'),
 		/**
+		 * The manufacturer's standard weight stack (CSV `stack_lb` / `stack_note`).
+		 * Only a default: the gym's own instance keeps `gym_equipment.stack_lb`,
+		 * pre-filled from this when the user leaves it blank. Since 0.3.2 (0015).
+		 */
+		standardStackLb: integer('standard_stack_lb'),
+		standardStackNote: text('standard_stack_note'),
+		/**
+		 * When a catalog snapshot stopped listing this global row (0.3.2, 0015).
+		 * Retired rows are hidden from lists, search, pickers and matching
+		 * (`modelVisibleTo`), but never deleted: machines may point at them.
+		 * Always NULL on owned rows.
+		 */
+		retiredAt: timestamp('retired_at', { withTimezone: true }),
+		/**
 		 * Optional owner. NULLABLE and therefore not backfilled: NULL means
 		 * "global equipment catalogue entry" — a machine model is reference
 		 * data, not user data, so the existing rows stay shared. A non-NULL
@@ -352,6 +366,10 @@ export const equipmentModels = pgTable(
 		catalogCodeUnique: uniqueIndex('equipment_models_catalog_code_unique')
 			.on(t.manufacturer, t.code)
 			.where(sql`${t.code} IS NOT NULL AND ${t.code} <> '' AND ${t.ownerUserId} IS NULL`),
+		standardStackCheck: check(
+			'equipment_models_standard_stack_lb_check',
+			sql`${t.standardStackLb} IS NULL OR ${t.standardStackLb} > 0`
+		),
 		confidenceCheck: check(
 			'equipment_models_confidence_check',
 			sql`${t.confidence} IN ('manufacturer_page', 'reseller_or_manual', 'inferred', 'line_only', 'user')`

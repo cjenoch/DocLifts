@@ -260,7 +260,7 @@ export async function updateOwnedModel(
  * user's load fields and confidence 'user', so a wrong catalog number can be
  * corrected for one person without changing the catalog for everyone. The
  * copy keeps the model's identity (manufacturer, line, code, name, loading
- * type, body region) and the catalog's notes, and drops the catalog
+ * type, body region), the catalog's notes and standard stack, and drops the catalog
  * provenance (source, snapshot).
  * Returns null when the model is not visible to this user.
  */
@@ -283,6 +283,8 @@ export async function copyModelForUser(
 			loadingType: source.loadingType,
 			bodyRegion: source.bodyRegion,
 			notes: source.notes,
+			standardStackLb: source.standardStackLb,
+			standardStackNote: source.standardStackNote,
 			...value,
 			confidence: 'user',
 			sourceUrl: null,

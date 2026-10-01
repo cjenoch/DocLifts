@@ -124,6 +124,9 @@ export async function createMachine(db: Database, userId: string, input: unknown
 		// A blank label is named after the model: the chosen one, or the one
 		// typed in. With neither there is nothing to derive it from.
 		let localLabel = value.localLabel;
+		// Blank stack with a catalog model: the manufacturer's standard stack.
+		// An explicit value always wins; a machine with no model gets nothing.
+		let stackLb = value.stackLb;
 		if (!localLabel && !modelId && !value.modelName)
 			throw new MachineInputError(LABEL_REQUIRED_MESSAGE);
 		if (modelId) {
@@ -137,6 +140,7 @@ export async function createMachine(db: Database, userId: string, input: unknown
 			if (!model || model.loadingType !== value.equipmentType)
 				throw new MachineInputError('Model loading type does not match machine');
 			localLabel ??= defaultMachineLabel(model);
+			stackLb ??= model.standardStackLb ?? undefined;
 		} else if (value.manufacturer && value.modelName) {
 			const [model] = await tx
 				.insert(equipmentModels)
@@ -158,7 +162,7 @@ export async function createMachine(db: Database, userId: string, input: unknown
 				localLabel,
 				equipmentType: value.equipmentType,
 				equipmentModelId: modelId,
-				stackLb: value.stackLb,
+				stackLb,
 				incrementLb: value.incrementLb
 			})
 			.returning();

@@ -168,9 +168,50 @@ describe('catalog import of the 2026-09-30 seed', () => {
 		expect(await globals()).toBe(0);
 		const report = formatImportReport(dry);
 		expect(report).toContain('DRY RUN');
-		// stack_lb is not imported, but nothing is silently dropped.
-		expect(dry.stackRows).toHaveLength(26);
-		expect(report).toContain('stack_lb: 26 row(s)');
+		// stack_lb is the model's standard stack since 0.3.2, and counted.
+		expect(dry.ignored.stack).toBe(26);
+		expect(report).toContain('(kept) stack_lb: 26 row(s) carry a standard stack');
+		expect(report).not.toContain("Stack size is the gym's instance data");
+	});
+
+	it('maps stack_lb and stack_note onto the model as its standard stack (0.3.2)', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		const [mtsbc] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.code, 'MTSBC'));
+		expect(mtsbc.standardStackLb).toBe(150);
+		expect(mtsbc.standardStackNote).not.toBeNull();
+		const [{ n }] = await db
+			.select({ n: count() })
+			.from(s.equipmentModels)
+			.where(isNotNull(s.equipmentModels.standardStackLb));
+		expect(n).toBe(26);
+		// A catalog column: a drifted standard stack is restored on the next run.
+		await db
+			.update(s.equipmentModels)
+			.set({ standardStackLb: 999, standardStackNote: null })
+			.where(eq(s.equipmentModels.id, mtsbc.id));
+		const again = await importCatalog(db, csv, { dryRun: false });
+		expect(again.plan.find((p) => p.kind === 'update' && p.id === mtsbc.id)).toMatchObject({
+			changed: ['standardStackLb', 'standardStackNote']
+		});
+		const [restored] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.id, mtsbc.id));
+		expect(restored).toEqual(mtsbc);
+	});
+
+	it('the 2026-10-01 snapshot: 355 standard stacks, half pounds rounded down and reported', () => {
+		const next = readFileSync('data/catalog/equipment_models_seed_2026-10-01.csv', 'utf8');
+		const mapped = mapCatalogCsv(next);
+		expect(mapped.errors).toEqual([]);
+		expect(mapped.rows.filter((r) => r.fields.standardStackLb != null)).toHaveLength(355);
+		expect(mapped.ignored).toMatchObject({ stack: 355, stackRounded: 36 });
+		const oplp = mapped.rows.find((r) => r.fields.code === 'OP-LP')!;
+		expect(oplp.fields.standardStackLb).toBe(262);
+		expect(oplp.fields.standardStackNote).toContain('262.5 lbs');
 	});
 
 	it('restores a drifted catalog row, and only the catalog columns', async () => {

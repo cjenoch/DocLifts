@@ -769,6 +769,51 @@ describe('optional machine label', () => {
 		expect(await f.labels()).toEqual([]);
 	});
 
+	it("blank stack with a model stores the model's standard stack; explicit wins; no model, none", async () => {
+		const f = await setup();
+		const [stacked] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Hammer Strength',
+				code: 'MTSBC',
+				name: 'MTS Iso-Lateral Biceps Curl',
+				loadingType: 'machine-stack',
+				standardStackLb: 150
+			})
+			.returning();
+		const blank = await createMachine(db, f.userId, {
+			gymId: f.gym.id,
+			localLabel: 'Curl',
+			equipmentType: 'machine-stack',
+			equipmentModelId: stacked.id,
+			stackLb: ''
+		});
+		const explicit = await createMachine(db, f.userId, {
+			gymId: f.gym.id,
+			localLabel: 'Curl, heavy stack',
+			equipmentType: 'machine-stack',
+			equipmentModelId: stacked.id,
+			stackLb: '200'
+		});
+		const noModel = await createMachine(db, f.userId, {
+			gymId: f.gym.id,
+			localLabel: 'Mystery stack',
+			equipmentType: 'machine-stack'
+		});
+		const typed = await createMachine(db, f.userId, {
+			gymId: f.gym.id,
+			equipmentType: 'machine-stack',
+			manufacturer: 'Hammer Strength',
+			modelName: 'MTS Iso-Lateral Biceps Curl'
+		});
+		const stackOf = async (id: string) =>
+			(await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, id)))[0].stackLb;
+		expect(await stackOf(blank.id)).toBe(150);
+		expect(await stackOf(explicit.id)).toBe(200);
+		expect(await stackOf(noModel.id)).toBeNull();
+		expect(await stackOf(typed.id)).toBeNull();
+	});
+
 	it('an explicit label wins over the model', async () => {
 		const f = await setup();
 		await createMachine(db, f.userId, {

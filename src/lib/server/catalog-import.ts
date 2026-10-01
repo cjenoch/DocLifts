@@ -79,6 +79,15 @@ export type CatalogFields = {
 	catalogSnapshot: string;
 	/** The catalog's remark on the row (0.3.2, migration 0014); empty becomes NULL. */
 	notes: string | null;
+	/**
+	 * CSV `stack_lb`, in whole pounds rounded DOWN (0.3.2, 0015): a few
+	 * manufacturers state half pounds (Life Fitness 262.5), the column and
+	 * gym_equipment.stack_lb are integers, and a default must never overstate
+	 * the stack. The exact figure stays in the note.
+	 */
+	standardStackLb: number | null;
+	/** CSV `stack_note`, who stated the stack; empty becomes NULL. */
+	standardStackNote: string | null;
 };
 const COMPARED: (keyof CatalogFields)[] = [
 	'name',
@@ -91,15 +100,14 @@ const COMPARED: (keyof CatalogFields)[] = [
 	'confidence',
 	'sourceUrl',
 	'catalogSnapshot',
-	'notes'
+	'notes',
+	'standardStackLb',
+	'standardStackNote'
 ];
 
 export type MappedRow = {
 	line: number;
 	fields: CatalogFields;
-	/** Instance data, deliberately NOT imported onto the model; reported instead. */
-	stackLb: number | null;
-	stackNote: string | null;
 	/** CSV `replaces_code`: the earlier code of this model, to recode in place. */
 	replacesCode: string | null;
 };
@@ -148,15 +156,32 @@ export function parseCsv(text: string): string[][] {
 const blank = (v: string | undefined) => (v ?? '').trim() === '';
 const opt = (v: string | undefined) => (blank(v) ? null : v!.trim());
 
+/** Per-column counts the report states, so nothing is changed or dropped silently. */
+export type Counts = {
+	notes: number;
+	startingResistanceKg: number;
+	/** Rows with a stack_lb (stored as the model's standard stack). */
+	stack: number;
+	/** Of those, rows whose stack_lb is not whole pounds (stored rounded down). */
+	stackRounded: number;
+	sourceNotUrl: number;
+};
+
 export function mapCatalogCsv(text: string): {
 	rows: MappedRow[];
 	errors: RowError[];
-	ignored: { notes: number; startingResistanceKg: number; stackNote: number; sourceNotUrl: number };
+	ignored: Counts;
 } {
 	const table = parseCsv(text);
 	const errors: RowError[] = [];
 	const rows: MappedRow[] = [];
-	const ignored = { notes: 0, startingResistanceKg: 0, stackNote: 0, sourceNotUrl: 0 };
+	const ignored: Counts = {
+		notes: 0,
+		startingResistanceKg: 0,
+		stack: 0,
+		stackRounded: 0,
+		sourceNotUrl: 0
+	};
 	if (!table.length) return { rows, errors: [{ line: 1, message: 'empty file' }], ignored };
 	const header = table[0].map((h) => h.trim());
 	const missing = REQUIRED_COLUMNS.filter((c) => !header.includes(c));
@@ -201,12 +226,17 @@ export function mapCatalogCsv(text: string): {
 				problems.push(`starting_resistance_basis '${basis ?? ''}' must be total or per_arm`);
 		} else if (basis)
 			problems.push('starting_resistance_basis given without starting_resistance_lb');
-		let stackLb: number | null = null;
+		let standardStackLb: number | null = null;
 		const stack = opt(r.stack_lb);
 		if (stack) {
-			stackLb = Number(stack);
-			if (!Number.isFinite(stackLb) || stackLb <= 0)
-				problems.push(`stack_lb '${stack}' is not a positive number`);
+			const exact = Number(stack);
+			standardStackLb = Math.floor(exact);
+			if (!Number.isFinite(exact) || standardStackLb < 1)
+				problems.push(`stack_lb '${stack}' is not a number of pounds of at least 1`);
+			else {
+				ignored.stack++;
+				if (standardStackLb !== exact) ignored.stackRounded++;
+			}
 		}
 		const snapshot = (r.catalog_snapshot ?? '').trim();
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(snapshot) || Number.isNaN(Date.parse(snapshot)))
@@ -252,7 +282,6 @@ export function mapCatalogCsv(text: string): {
 		}
 		if (!blank(r.notes)) ignored.notes++;
 		if (!blank(r.starting_resistance_kg)) ignored.startingResistanceKg++;
-		if (!blank(r.stack_note)) ignored.stackNote++;
 		rows.push({
 			line,
 			fields: {
@@ -268,10 +297,10 @@ export function mapCatalogCsv(text: string): {
 				confidence,
 				sourceUrl,
 				catalogSnapshot: snapshot,
-				notes: opt(r.notes)
+				notes: opt(r.notes),
+				standardStackLb,
+				standardStackNote: opt(r.stack_note)
 			},
-			stackLb,
-			stackNote: opt(r.stack_note),
 			replacesCode
 		});
 	});
@@ -410,8 +439,7 @@ export type ImportResult = {
 	byManufacturer: Map<string, ManufacturerTally>;
 	/** Global rows of the CSV's manufacturers that this CSV does not mention. Left untouched. */
 	untouchedGlobal: number;
-	ignored: { notes: number; startingResistanceKg: number; stackNote: number; sourceNotUrl: number };
-	stackRows: MappedRow[];
+	ignored: Counts;
 	/** True when the run must exit non-zero. */
 	failed: boolean;
 };
@@ -422,7 +450,6 @@ export async function importCatalog(
 	opts: { dryRun: boolean }
 ): Promise<ImportResult> {
 	const { rows, errors, ignored } = mapCatalogCsv(csvText);
-	const stackRows = rows.filter((r) => r.stackLb != null);
 	const empty: ImportResult = {
 		dryRun: opts.dryRun,
 		errors,
@@ -430,7 +457,6 @@ export async function importCatalog(
 		byManufacturer: new Map(),
 		untouchedGlobal: 0,
 		ignored,
-		stackRows,
 		failed: true
 	};
 	// Any unmappable row stops the run before the database is touched.
@@ -477,7 +503,6 @@ export async function importCatalog(
 			byManufacturer,
 			untouchedGlobal,
 			ignored,
-			stackRows,
 			failed: skipped
 		};
 		if (opts.dryRun || skipped) return result;
@@ -506,6 +531,8 @@ export async function importCatalog(
 					sourceUrl: f.sourceUrl,
 					catalogSnapshot: f.catalogSnapshot,
 					notes: f.notes,
+					standardStackLb: f.standardStackLb,
+					standardStackNote: f.standardStackNote,
 					// A promotion adds the code and a recode replaces it; an update
 					// matched on it, or has none.
 					...(p.kind === 'update' ? {} : { code: f.code })
@@ -588,18 +615,19 @@ export function formatImportReport(r: ImportResult): string {
 	out.push('');
 	out.push('Not imported onto the model (by design):');
 	out.push(
-		`  stack_lb: ${r.stackRows.length} row(s). Stack size is the gym's instance data (gym_equipment.stack_lb), not the model's:`
-	);
-	for (const s of r.stackRows)
-		out.push(
-			`    ${s.fields.manufacturer} ${s.fields.code ?? s.fields.name}: ${s.stackLb} lb${s.stackNote ? ` (${s.stackNote})` : ''}`
-		);
-	out.push(
 		`  starting_resistance_kg: ${r.ignored.startingResistanceKg} row(s); the lb value is stored, kg is derived.`
 	);
 	if (r.ignored.notes)
 		out.push(
 			`  (kept) notes: ${r.ignored.notes} row(s) carry a note; stored on the model (equipment_models.notes) and shown on its page.`
+		);
+	if (r.ignored.stack)
+		out.push(
+			`  (kept) stack_lb: ${r.ignored.stack} row(s) carry a standard stack; stored on the model (equipment_models.standard_stack_lb) and pre-filled when a machine is added.`
+		);
+	if (r.ignored.stackRounded)
+		out.push(
+			`  (rounded down) stack_lb: ${r.ignored.stackRounded} of them are not whole pounds; stored rounded down, the exact figure stays in stack_note.`
 		);
 	if (r.ignored.sourceNotUrl)
 		out.push(

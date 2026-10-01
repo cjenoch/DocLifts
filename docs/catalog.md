@@ -69,20 +69,31 @@ rather than a URL; they are stored as written and shown without a link.
 | `confidence`, `source`                 | `confidence`, `source_url`     |                                                          |
 | `catalog_snapshot`                     | `catalog_snapshot`             |                                                          |
 | `notes`                                | `notes`                        | since 0.3.2 (migration 0014); empty becomes NULL         |
+| `stack_lb`                             | `standard_stack_lb`            | 0.3.2 (0015); whole lb, **rounded down**; see below      |
+| `stack_note`                           | `standard_stack_note`          | 0.3.2 (0015); who stated the stack; empty becomes NULL   |
 | `replaces_code` (optional, last)       | — (not stored)                 | steers the match; see "A corrected code" below           |
 
 **Not imported, on purpose**, and listed in every import report so nothing is
 dropped silently:
 
-- `stack_lb` / `stack_note` (26 rows). Stack size belongs to a gym's instance,
-  `gym_equipment.stack_lb`, because manufacturers sell heavier optional stacks
-  under the same code. Enter it when adding the machine to a gym.
 - `starting_resistance_kg`. Derived from the lb value.
 
 `notes` (298 rows) was in this list until 0.3.2; it is now imported into
 `equipment_models.notes`, and the report counts the rows that carry one as
 `(kept) notes`. The importer requires the column, so a CSV without it is
 refused rather than clearing every note.
+
+`stack_lb` / `stack_note` were in this list until 0.3.2 too. They are now the
+model's **standard stack** (`standard_stack_lb`, `standard_stack_note`, catalog
+columns like any other). It is only a default: manufacturers sell heavier
+optional stacks under the same code, so the gym's own instance still has
+`gym_equipment.stack_lb`. Adding a machine with a model and the stack left
+blank stores the model's standard stack there; a value the user types always
+wins, and a machine with no model gets none. Both columns are integers, and a
+few manufacturers state half pounds (Life Fitness Axiom 262.5 lb, 36 rows of
+the 2026-10-01 snapshot), so the importer stores whole pounds **rounded down**
+— a default never overstates the stack — and the exact figure stays in the
+note. The report counts both: `(kept) stack_lb` and `(rounded down) stack_lb`.
 
 ## The importer
 
@@ -182,14 +193,15 @@ where owner_user_id is null and catalog_snapshot = '2026-09-30'
 
 - `/equipment`: GET-form filters (manufacturer, then product line as a second
   step; loading type; body region; `q` against name and code), 50 per page.
-- `/equipment/[id]`: every field including the catalog's notes, your gyms
-  that have one, and "add to a gym" (gym, optional local label, optional stack
-  and increment in lb). A blank label stores `<manufacturer> <name>` plus
+- `/equipment/[id]`: every field including the catalog's notes and the
+  standard stack, your gyms that have one, and "add to a gym" (gym, optional
+  local label, optional stack — pre-filled with the standard stack — and
+  increment in lb). A blank label stores `<manufacturer> <name>` plus
   ` (<code>)` when there is one, e.g. "Hammer Strength Iso-Lateral Row
   (IL-ROW)"; the field's placeholder shows it.
 - `/equipment/[id]/edit`: your own model's starting resistance, basis and
   laterality; or, on a catalog row, "create my own copy" (it carries the
-  notes).
+  notes and the standard stack).
 - `/gyms`: the known-model picker shows the models of manufacturers already in
   the selected gym, with "Show all manufacturers" and a search box. The label
   is optional there too when a model is chosen or typed in; with no model it

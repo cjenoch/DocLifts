@@ -22,6 +22,36 @@ beforeEach(async () => {
 	[{ id: userId }] = await resetTestDbWithUsers(db, handle.client, 1, 'catalog-schema');
 });
 
+describe('0015 standard stack and retirement', () => {
+	it('adds standard_stack_lb, standard_stack_note and retired_at, all nullable', async () => {
+		const cols = await handle.client<
+			{ column_name: string; data_type: string; is_nullable: string }[]
+		>`
+			SELECT column_name, data_type, is_nullable FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'equipment_models'
+			  AND column_name IN ('standard_stack_lb', 'standard_stack_note', 'retired_at')
+			ORDER BY column_name`;
+		expect(cols).toEqual([
+			{ column_name: 'retired_at', data_type: 'timestamp with time zone', is_nullable: 'YES' },
+			{ column_name: 'standard_stack_lb', data_type: 'integer', is_nullable: 'YES' },
+			{ column_name: 'standard_stack_note', data_type: 'text', is_nullable: 'YES' }
+		]);
+	});
+
+	it('refuses a standard stack that is not positive, under its declared name', async () => {
+		await expect(
+			db.insert(s.equipmentModels).values({
+				manufacturer: 'M',
+				name: 'N',
+				loadingType: 'machine-stack',
+				standardStackLb: 0
+			})
+		).rejects.toMatchObject({
+			cause: { constraint_name: 'equipment_models_standard_stack_lb_check' }
+		});
+	});
+});
+
 describe('0014 equipment model notes', () => {
 	it('adds a nullable text notes column with no default', async () => {
 		const cols = await handle.client<

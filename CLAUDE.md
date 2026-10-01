@@ -462,8 +462,13 @@ explicitly, so a key added to `/srv/doclifts/.env` without a matching
 `environment:` entry is silently absent in the container — and every check
 still passes, because the env file looks right. That is how the 0.2.2 deploy
 kept the default ceiling of 10 with `LOGIN_MAX_FAILURES=0` in the env file. A
-new tunable is not done until it has its line, and the pre-deploy check must
-compare the env file's keys against `compose config`.
+new tunable is not done until it has its line. `scripts/compose-prod.sh` enforces
+it: before any `up`/`create`/`run` it runs `scripts/check-env-passthrough.sh`,
+which refuses the deploy and names every env-file key that `docker-compose.yml`
+never references as `${KEY…}`. (By name, not against rendered `compose config`:
+the rendered output carries values, and `POSTGRES_PASSWORD` is consumed only by
+interpolation.) The `LOGIN_*` and `PASSWORD_MIN_LENGTH` compose defaults are also
+unit-tested against the code defaults.
 
 ## Out of scope
 

@@ -200,6 +200,8 @@ no migration.
 
 Every variable here must also have a passthrough line in `docker-compose.yml`;
 compose does not forward the env file into the container on its own.
+`scripts/compose-prod.sh` checks this before every `up` and refuses, naming the
+key, if the env file sets anything compose never reads.
 
 ```sh
 sudo scripts/compose-prod.sh up -d --wait web

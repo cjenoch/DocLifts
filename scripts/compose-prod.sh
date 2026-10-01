@@ -40,6 +40,19 @@ fi
 export DOCLIFTS_BUILD_SHA
 echo "==> building as ${DOCLIFTS_BUILD_SHA}"
 
+# Before anything that creates or recreates containers, refuse an env file with
+# a key compose never reads: it would be silently absent from the container.
+# Only `up`/`create`/`run` — `ps`, `logs` and `config` must stay usable for
+# diagnosing exactly that kind of mistake.
+for arg in "$@"; do
+	case "$arg" in
+		up | create | run)
+			bash "$(dirname "${BASH_SOURCE[0]}")/check-env-passthrough.sh" "$ENV_FILE"
+			break
+			;;
+	esac
+done
+
 # The project name is pinned so this always addresses the production stack and
 # cannot collide with a `docker compose` run from the checkout.
 exec docker compose -p doclifts --env-file "$ENV_FILE" "$@"

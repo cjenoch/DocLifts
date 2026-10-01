@@ -238,3 +238,22 @@ Anthropic, and the source of the 60 s timeouts), the plain schema 3.7-7 s,
 JSON mode without a schema 3.2-3.4 s. `candidate-wire.test.ts` fails if the
 two schemas disagree on fields or enum values, or if a constraint creeps back
 into the wire schema.
+
+## The model in production
+
+`LLM_VISION_MODEL=google/gemini-2.5-flash-lite` since 2026-10-01 (0.4.6
+deploy): about 2.2-2.7 s per placard and about $0.0002 per call, and it read
+the gym80 maker correctly where Claude Haiku 4.5 took the product line for it.
+The comparison is in `docs/release-0.2.0.md` §22. Changing model is one env
+line and a restart; `complete()` and the wire schema are model-neutral.
+
+## Known gaps (first real use, 2026-10-01)
+
+- **The gym80 logo is misread** ("Dyumbo", "Gymbo") or the product line is
+  given as the maker ("Pure Kraft", "FIRE KRAFT"). Codes still matched. A
+  manufacturer-alias step before matching is the planned cheap fix.
+- **gym80 Pure Kraft is incomplete in the catalog** (4157 Booty Booster read
+  correctly, no catalog row).
+- **No placard, no reading.** A photo of the whole machine returns nothing
+  useful; machine-only recognition is not built (see the handoff for the
+  two-stage idea).

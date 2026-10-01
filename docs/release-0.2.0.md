@@ -1715,7 +1715,24 @@ the 7 retired placeholders reappear in its lists and picker until 0.3.2 is
 back. Promoted and recoded rows keep their new codes, and machines added with
 a derived label keep it; to 0.3.1 it is an ordinary label.
 
-## 21. 0.4.0 — equipment from a photo — NOT DEPLOYED
+## 21. 0.4.0 — equipment from a photo — DEPLOYED 2026-10-01
+
+```
+0.4.0     d4aba0a, tagged 0.4.0 (CI on main: test + docker green)
+env       staged S3 file appended by the owner; passthrough check 14 keys
+migrate   0016 applied; 17 rows in drizzle.__drizzle_migrations; verified
+          dump predeploy-20261001T161426Z.dump
+web       rebuilt 16:16 UTC; sharp 0.35.5 loads in the runtime image
+s3        Linode us-ord-10, bucket doclifts-s3-storage, private
+checks    scratch account (9-14): upload -> review -> link -> machine
+          "Hammer Strength Iso-Lateral Row (IL-ROW)"; discard deletes the
+          object; bucket holds one object under the scratch user's prefix;
+          every page 200; 31 sessions / 454 sets unchanged
+found     the first real analysis was refused for a missing key -> 0.4.1
+          (see §22). pre-0.4.0 deleted after the re-check.
+```
+
+The plan below is what was run (steps 1-14), kept as written.
 
 ```
 branch   feat/0.4.0-photo from feat/0.3.2 2041136, merged with main bc43f0b
@@ -1960,3 +1977,49 @@ bucket's objects stay. `/srv/doclifts/.env.pre-0.4.0` is the env file as it
 was before step 4. The env file may keep the new keys while the checkout
 stays at 0.4.0 (its compose reads them); if the checkout moves back to 0.3.2,
 `check-env-passthrough.sh` will name them, so comment them out first.
+
+## 22. 0.4.1-0.4.6 — photo fixes from first real use — DEPLOYED 2026-10-01
+
+No migrations, no new env keys (two values changed, below). Each release:
+local gate in CI order, CI on the branch (test + docker), fast-forward,
+CI on main, owner rebuilds web, then checked here. Every fix came from the
+owner using the feature on his phone at a gym the same afternoon.
+
+```
+0.4.1  dd56bc3  missing keys in a model reply read as unknown (a correct
+                placard was refused for omitting product_line)
+0.4.2  ede989f  no capture="environment" on the photo input: Android opened
+                the camera with no way to pick an existing photo
+0.4.3  7f49a9f  enum synonyms ("iso-lateral" -> independent, "weight_stack"
+                -> selectorized); any other string -> unknown
+0.4.4  9684cf2  complete() wireSchema: the model gets a plain JSON schema,
+                zod still validates. Derived schema 15-16 s per call, plain
+                3.7-7 s (Haiku 4.5); the slow path caused the 60 s timeouts
+0.4.5  9993218  nav wraps at phone width; "Added to <gym> as" keeps its space
+0.4.6  fb0fabf  password inputs: autocapitalize=none, autocorrect=off,
+                spellcheck=false (iOS changed a new password while Show was on;
+                the owner reset it with user-prod.sh set-password)
+```
+
+Env changes, made by the owner in `/srv/doclifts/.env`:
+
+```
+LLM_TIMEOUT_MS      30000 -> 60000
+LLM_VISION_MODEL    (unset, fell back to LLM_MODEL) -> anthropic/claude-haiku-4.5
+                    -> google/gemini-2.5-flash-lite
+LLM_MODEL           stealth/space-bunny-alpha, unchanged; temporary, text only
+```
+
+Vision model choice, measured from the production container with the app's
+system prompt and wire schema, median of 3 (owner's gym80 4364 placard /
+a synthetic placard / cost per call):
+
+```
+anthropic/claude-haiku-4.5     4.6 s / 3.7 s / $0.0036  maker read as "Pure Kraft Strong"
+google/gemini-2.5-flash        2.9 s / 1.2 s / $0.0012  one reply not valid JSON; one 10 s
+google/gemini-2.5-flash-lite   2.2 s / 1.7 s / $0.0002  gym80 4364 Bench Press Dual; steady
+google/gemini-3.5-flash-lite   1.9 s / 1.3 s / $0.0011  one 9 s outlier
+```
+
+Production after 0.4.6 (21:05 UTC): 15 photos (8 confirmed, 5 analyzed and
+waiting on the owner's review, 2 discarded); flash-lite analyses 2.4-2.7 s.

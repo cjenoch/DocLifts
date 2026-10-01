@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.6 — the phone can't change your password behind your back — not yet released
+## 0.4.6 — the phone can't change your password behind your back — 2026-10-01
 
 - **Password fields no longer autocapitalize or autocorrect.** With Show on, a
   password field is plain text, and the iPhone capitalized or corrected what
@@ -9,14 +9,14 @@
   Every password field now has the phone's typing assists turned off, shown
   or hidden.
 
-## 0.4.5 — fits a phone — not yet released
+## 0.4.5 — fits a phone — 2026-10-01
 
 - **The menu fits a phone screen.** "Gyms" was cut off at the left and "Sign
   out" at the right; the menu now wraps onto a second row instead.
 - **"Added to Gold's Gym Friendswood as …"** has its space back (it read
   "Friendswoodas").
 
-## 0.4.4 — photo analysis about four times faster — not yet released
+## 0.4.4 — photo analysis about four times faster — 2026-10-01
 
 - **Reading a placard takes seconds, not most of a minute.** The model was
   being handed a description of the answer full of length limits and ranges,
@@ -25,7 +25,7 @@
   description (3-7 seconds measured); the app still checks every answer just
   as strictly before using it.
 
-## 0.4.3 — photo analysis accepts the model's own wording — not yet released
+## 0.4.3 — photo analysis accepts the model's own wording — 2026-10-01
 
 - **A placard read correctly is no longer refused for an odd word.** Your
   first two real photos were read right ("Hammer Strength Iso-Lateral Row,
@@ -35,14 +35,14 @@
   plate loaded or cable; anything else reads as unknown rather than throwing
   the photo's reading away.
 
-## 0.4.2 — choose a photo you already took — not yet released
+## 0.4.2 — choose a photo you already took — 2026-10-01
 
 - **Adding a machine from a photo offers your photo library and files, not
   only the camera.** On Android the page opened the camera directly, so a
   placard photo already on the phone could not be picked. Now the phone asks:
   take a photo, choose from the library, or browse files.
 
-## 0.4.1 — photo analysis tolerates an incomplete reply — not yet released
+## 0.4.1 — photo analysis tolerates an incomplete reply — 2026-10-01
 
 - **A photo whose placard was read correctly is no longer thrown away for a
   missing field.** The first real analysis in production read "Hammer
@@ -51,7 +51,7 @@
   out now counts as unknown, exactly as if it had said so; a wrong value is
   still refused.
 
-## 0.4.0 — equipment from a photo — not yet released
+## 0.4.0 — equipment from a photo — 2026-10-01
 
 - **Add a machine by photographing its placard.** Under each gym on **Gyms
   and machines**, "Add a machine from a photo" opens the camera. The photo is

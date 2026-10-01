@@ -23,6 +23,63 @@ const text = (max: number) => z.string().max(max);
 /** null when unknown, and null when the model leaves the key out entirely. */
 const maybe = <T extends z.ZodType>(t: T) => t.nullable().default(null);
 
+/** Lower-case, and spaces/hyphens/slashes to underscores: "Weight-stack" -> "weight_stack". */
+const key = (v: string) =>
+	v
+		.trim()
+		.toLowerCase()
+		.replace(/[\s\-/]+/g, '_');
+
+/**
+ * Models word these their own way: production's first real placards
+ * (2026-10-01) came back with loading_type "weight_stack" and laterality
+ * "iso-lateral", and both readings were otherwise right. Any synonym maps to
+ * the allowed value; any other string is 'unknown' (what the model saw is
+ * still in placard_text and notes). A non-string is still refused.
+ */
+const LOADING_SYNONYMS: Record<string, string> = {
+	selectorized: 'selectorized',
+	selectorised: 'selectorized',
+	selector: 'selectorized',
+	weight_stack: 'selectorized',
+	weightstack: 'selectorized',
+	stack: 'selectorized',
+	stack_loaded: 'selectorized',
+	pin_loaded: 'selectorized',
+	plate_loaded: 'plate_loaded',
+	plate: 'plate_loaded',
+	plates: 'plate_loaded',
+	plateloaded: 'plate_loaded',
+	cable_stack: 'cable_stack',
+	cable: 'cable_stack',
+	cables: 'cable_stack',
+	pulley: 'cable_stack',
+	cable_column: 'cable_stack',
+	unknown: 'unknown'
+};
+const LATERALITY_SYNONYMS: Record<string, string> = {
+	independent: 'independent',
+	independent_arms: 'independent',
+	iso_lateral: 'independent',
+	isolateral: 'independent',
+	unilateral: 'independent',
+	dual: 'independent',
+	bilateral: 'bilateral',
+	single: 'bilateral',
+	unknown: 'unknown'
+};
+
+/** An enum that maps synonyms first, defaults to 'unknown', and only refuses a non-string. */
+function oneOf<const T extends readonly [string, ...string[]]>(
+	values: T,
+	synonyms: Record<string, string>
+) {
+	return z.preprocess(
+		(v) => (typeof v === 'string' ? (synonyms[key(v)] ?? 'unknown') : v),
+		z.enum(values).default('unknown' as T[number])
+	);
+}
+
 /**
  * What the model is asked to return. Field names are the spec's, verbatim.
  *
@@ -42,10 +99,8 @@ export const EquipmentCandidate = z.object({
 	model_code: maybe(text(200)),
 	/** e.g. "Iso-Lateral Row". */
 	name: maybe(text(200)),
-	loading_type: z
-		.enum(['selectorized', 'plate_loaded', 'cable_stack', 'unknown'])
-		.default('unknown'),
-	laterality: z.enum(['independent', 'bilateral', 'unknown']).default('unknown'),
+	loading_type: oneOf(['selectorized', 'plate_loaded', 'cable_stack', 'unknown'], LOADING_SYNONYMS),
+	laterality: oneOf(['independent', 'bilateral', 'unknown'], LATERALITY_SYNONYMS),
 	/** Only if printed; never estimated. */
 	starting_resistance_lb: maybe(z.number().min(0).max(2000)),
 	/** Only if a stack is visible and its top plate is legible. */

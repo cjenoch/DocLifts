@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.3 — photo analysis accepts the model's own wording — not yet released
+
+- **A placard read correctly is no longer refused for an odd word.** Your
+  first two real photos were read right ("Hammer Strength Iso-Lateral Row,
+  start 12 lb"; "Hammer Strength Leg Curl") and both refused, because the
+  model said "iso-lateral" and "weight stack" instead of the words the app
+  expects. Those and similar words now map to independent arms, selectorized,
+  plate loaded or cable; anything else reads as unknown rather than throwing
+  the photo's reading away.
+
 ## 0.4.2 — choose a photo you already took — not yet released
 
 - **Adding a machine from a photo offers your photo library and files, not

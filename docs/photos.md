@@ -216,3 +216,13 @@ they have nothing for; production's first analysis (2026-10-01) read the
 placard correctly and was refused as `schema_error` for omitting
 `product_line`. Wrong types and out-of-range values are still a
 `schema_error`.
+
+## The model's own wording (0.4.3)
+
+`loading_type` and `laterality` map synonyms before validation (`oneOf` in
+`analyze.ts`): e.g. `weight_stack`, `stack`, `pin_loaded` -> `selectorized`;
+`plate` -> `plate_loaded`; `cable`, `pulley` -> `cable_stack`; `iso-lateral`,
+`unilateral`, `dual` -> `independent`. Case, spaces, hyphens and slashes are
+ignored. Any other string becomes `unknown`; a non-string is still a
+`schema_error`. Found on the owner's first two real placards, both read
+correctly and refused for `iso-lateral` and `weight_stack`.

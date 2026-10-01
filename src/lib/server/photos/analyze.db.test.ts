@@ -83,9 +83,9 @@ describe('analyzePhoto', () => {
 		const out = await analyzePhoto(db, alice, photo.id, {
 			store,
 			limits,
-			// Wrong type and an out-of-set loading type: malformed, not merely
-			// incomplete (missing keys are tolerated; see the next test).
-			complete: testComplete(answeringModel('{"manufacturer": 42, "loading_type": "hydraulic"}'))
+			// Wrong types (a number, an array): malformed, not merely incomplete
+			// or oddly worded (both tolerated; see the next tests).
+			complete: testComplete(answeringModel('{"manufacturer": 42, "loading_type": ["plate"]}'))
 		});
 		expect(out?.ok).toBe(false);
 		expect(out && !out.ok && out.error).toBeInstanceOf(LlmSchemaError);
@@ -136,6 +136,31 @@ describe('analyzePhoto', () => {
 			field_confidence: { manufacturer: 0, model_code: 0, name: 0, loading_type: 0 },
 			notes: ''
 		});
+	});
+
+	it("a reply in the model's own words maps to the allowed values, not a refusal", async () => {
+		// Production, 2026-10-01: both readings right, both refused.
+		const replies = [
+			[{ loading_type: 'plate_loaded', laterality: 'iso-lateral' }, 'plate_loaded', 'independent'],
+			[{ loading_type: 'weight_stack', laterality: 'unknown' }, 'selectorized', 'unknown'],
+			[{ loading_type: 'Weight Stack', laterality: 'Bilateral' }, 'selectorized', 'bilateral'],
+			[{ loading_type: 'hydraulic', laterality: 'sideways' }, 'unknown', 'unknown']
+		] as const;
+		for (const [words, loading, laterality] of replies) {
+			const photo = await upload();
+			const out = await analyzePhoto(db, alice, photo.id, {
+				store,
+				limits,
+				complete: testComplete(
+					answeringModel(JSON.stringify({ manufacturer: 'HAMMER STRENGTH', ...words }))
+				)
+			});
+			expect(out, JSON.stringify(words)).toMatchObject({ ok: true });
+			expect((await row(photo.id)).candidate).toMatchObject({
+				loading_type: loading,
+				laterality
+			});
+		}
 	});
 
 	it('with no LLM configured: not_configured is recorded and the row stays uploaded', async () => {

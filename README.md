@@ -292,6 +292,8 @@ pnpm dev
 
 Integration tests create/use the separate test database and reset its tables. Never point `TEST_DATABASE_URL` at production. `pnpm build` builds the application; the Dockerfile builds the deployable container image.
 
+**No test, probe, or control is ever exercised against the owner's account, email, or address.** Not in a test fixture, not in a check against production, not to "just confirm" a throttle or a sign-in. Use the scratch account, `scratch-test@doclifts.invalid`, and invented addresses under `.invalid` in tests. On 2026-09-30 a throttle check sent ten wrong passwords at the owner's email and locked him out of a working password for fifteen minutes, while a scratch account existed the whole time. Passwords for the scratch account reach the CLI through `--password-stdin`, never as an argument.
+
 ## Project guidance
 
 `CLAUDE.md` records application invariants and coding conventions. Its older references to cloud deployment being out of scope, backup paths, and systemd hosting predate the owner-approved VPS migration; use the checked-in Compose/Docker configuration and this README for current operations.

@@ -49,15 +49,15 @@ describe('createUser', () => {
 		// and sign-in looks up the same form. createUser must agree or an
 		// operator-created account cannot log in.
 		const created = await createUser(auth, db, {
-			email: 'Chris@Enoch.AI',
+			email: 'Scratch-Test@DocLifts.INVALID',
 			password: 'correct-horse-battery-staple',
 			name: 'MixedCase'
 		});
-		expect(created.email).toBe('chris@enoch.ai');
-		expect(await findUserByEmail(db, 'chris@enoch.ai')).toBe(created.id);
+		expect(created.email).toBe('scratch-test@doclifts.invalid');
+		expect(await findUserByEmail(db, 'scratch-test@doclifts.invalid')).toBe(created.id);
 
 		const r = await auth.api.signInEmail({
-			body: { email: 'chris@enoch.ai', password: 'correct-horse-battery-staple' },
+			body: { email: 'scratch-test@doclifts.invalid', password: 'correct-horse-battery-staple' },
 			headers: new Headers()
 		});
 		expect(r.user.id).toBe(created.id);

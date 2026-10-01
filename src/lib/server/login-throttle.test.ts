@@ -20,7 +20,7 @@ import {
 
 const IP: ThrottleKey = { type: 'ip', value: '203.0.113.7' };
 const OTHER_IP: ThrottleKey = { type: 'ip', value: '198.51.100.9' };
-const EMAIL: ThrottleKey = { type: 'email', value: 'chris@enoch.ai' };
+const EMAIL: ThrottleKey = { type: 'email', value: 'scratch-test@doclifts.invalid' };
 const OTHER_EMAIL: ThrottleKey = { type: 'email', value: 'someone@else.test' };
 
 /** A clock the test drives by hand. */
@@ -233,13 +233,15 @@ describe('LoginThrottle', () => {
 		});
 
 		it('is not the address', () => {
-			expect(LoginThrottle.emailTag('chris@enoch.ai')).not.toContain('chris');
+			expect(LoginThrottle.emailTag('scratch-test@doclifts.invalid')).not.toContain('scratch');
 		});
 	});
 
 	describe('normalizeEmail', () => {
 		it('trims and lowercases', () => {
-			expect(normalizeEmail('  Chris@Enoch.AI ')).toBe('chris@enoch.ai');
+			expect(normalizeEmail('  Scratch-Test@DocLifts.INVALID ')).toBe(
+				'scratch-test@doclifts.invalid'
+			);
 		});
 	});
 });

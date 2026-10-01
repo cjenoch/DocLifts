@@ -159,7 +159,8 @@ export type ThrottleKey = { type: ThrottleKeyType; value: string };
 /**
  * Normalize an email for keying, matching `createUser` so the throttle and the
  * account store agree on what "the same address" means. Trim + lowercase:
- * `Chris@enoch.ai` and `chris@enoch.ai ` are one account and must be one key.
+ * `Scratch-Test@doclifts.invalid` and `scratch-test@doclifts.invalid ` are one
+ * account and must be one key.
  */
 export function normalizeEmail(email: string): string {
 	return email.trim().toLowerCase();

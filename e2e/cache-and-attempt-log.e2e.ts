@@ -242,8 +242,8 @@ describe('the proxied sign-in request is what the browser sent (mechanism)', () 
 		try {
 			await signInViaHandler(
 				new Headers({
-					origin: 'https://enochnvps.tail29bbdb.ts.net',
-					referer: 'https://enochnvps.tail29bbdb.ts.net/login',
+					origin: 'https://doclifts.invalid',
+					referer: 'https://doclifts.invalid/login',
 					cookie: 'theme=dark'
 				}),
 				{ email: 'mechanism@test.local', password: 'irrelevant-value' }
@@ -255,14 +255,14 @@ describe('the proxied sign-in request is what the browser sent (mechanism)', () 
 		expect(
 			seen?.get('origin'),
 			'without Origin, Better Auth rejects a cookie-bearing sign-in as cross-site'
-		).toBe('https://enochnvps.tail29bbdb.ts.net');
-		expect(seen?.get('referer')).toBe('https://enochnvps.tail29bbdb.ts.net/login');
+		).toBe('https://doclifts.invalid');
+		expect(seen?.get('referer')).toBe('https://doclifts.invalid/login');
 	});
 
 	it('forwards the cookie, and sign-out keeps its path to the session row', async () => {
 		const { forwardedHeaders } = await import('$lib/server/auth-proxy');
 		const built = forwardedHeaders(
-			new Headers({ origin: 'https://enochnvps.tail29bbdb.ts.net', cookie: 'theme=dark' }),
+			new Headers({ origin: 'https://doclifts.invalid', cookie: 'theme=dark' }),
 			{ contentType: 'application/json' }
 		);
 

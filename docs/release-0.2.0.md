@@ -39,6 +39,15 @@ and 0011 in a single transaction.
 **The `Secure` cookie and the Tailscale Serve check need a real browser on the
 tailnet.** Not a phone on cellular, not a machine off the tailnet.
 
+> **Standing rule for every step in this runbook, and every release after it:
+> no test, probe, or control is ever exercised against the owner's account,
+> email, or address.** Every sign-in check, wrong-password check, throttle
+> check and session purge uses the scratch account,
+> `scratch-test@doclifts.invalid`, created with `--password-stdin` from the
+> owner's shell. On 2026-09-30 a throttle check aimed at the owner's email
+> locked him out of a working password for fifteen minutes while the scratch
+> account sat unused. If a step seems to need the owner's account, stop and ask.
+
 ---
 
 ## 1. Pre-flight

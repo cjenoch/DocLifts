@@ -96,6 +96,24 @@ services:
       # would work but would also inject the other variables without
       # composition, so this stays an explicit, greppable line.
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set in the production env file; use scripts/compose-prod.sh}
+      # Login throttle tuning. Compose enumerates the container environment
+      # explicitly and does NOT read /srv/doclifts/.env into it, so a key added
+      # there without a line here is silently absent from the container.
+      #
+      # Found by deploying: LOGIN_MAX_FAILURES=0 was written to the env file,
+      # the deploy succeeded, every check passed, and `printenv` inside the
+      # running container showed no LOGIN_* at all. The setting was not
+      # weakened, it was absent — which means the default ceiling of 10 stayed
+      # in force and the whole point of the change was not in effect.
+      #
+      # Every tunable needs a line here. The defaults are documented in
+      # .env.example; uncomment to override.
+      LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-10}
+      LOGIN_FAILURE_WINDOW_SEC: ${LOGIN_FAILURE_WINDOW_SEC:-900}
+      LOGIN_DELAY_AFTER_FAILURES: ${LOGIN_DELAY_AFTER_FAILURES:-5}
+      LOGIN_DELAY_BASE_MS: ${LOGIN_DELAY_BASE_MS:-1000}
+      LOGIN_DELAY_MAX_MS: ${LOGIN_DELAY_MAX_MS:-8000}
+      SESSION_EXPIRES_DAYS: ${SESSION_EXPIRES_DAYS:-30}
     # Publish on the VPS tailnet IP (not 127.0.0.1, not 0.0.0.0) so the app is
     # reachable from other tailnet devices (phone/laptop) but not the public
     # internet. DB stays off the host port.

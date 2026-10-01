@@ -754,3 +754,67 @@ throttle test, probe and control runs against this account. Never the owner's.
 
 Delete `doclifts-web:pre-0.2.2` once all three checks pass. A restart clears
 the in-memory throttle counters, so deploying is also a reset.
+
+---
+
+## 14. 0.2.2 — DEPLOYED 2026-10-01
+
+```
+0.2.2   01dfeb9
+CI      green on main and on the 0.2.2-rc branch
+web     1562e49ffce2 -> c4325bf2c124
+db      7f866d5b8f80 (never recreated)
+```
+
+### Six checks, all passed
+
+```
+1  GET  /login            200  cache-control: no-store, must-revalidate
+                              vary: Cookie
+2  GET  /history (no cookie) 303  cache-control: no-store, must-revalidate
+                              location: /login
+3  GET  /_app/version.json     {"version":"01dfeb9"}      (not "dev")
+4  GET  /_app/immutable/entry/start.CRByK2Mj.js
+                              cache-control: public,max-age=31536000,immutable
+5  POST /login wrong pw on the SCRATCH account
+                              exactly one line:
+                              {"event":"login_attempt","ok":false,"status":401,
+                               "reason":"bad_credentials","pwLen":28,
+                               "pwEdgeWs":false, hashed email/IP/UA only}
+6  POST /login x13 wrong pw    every one 200 — never refused:
+                              .11s .11s .11s .11s 1.11s 2.11s 4.17s 8.14s
+                              8.12s 8.11s 8.12s 8.12s 8.12s
+                              then the CORRECT password: 200, ok:true,
+                              and the next wrong one back to .11s
+```
+
+Check 6 is the one that matters: the old ceiling was 10, so attempt 11 through
+13 would each have been a hard refusal under 0.2.1. They were not, and the
+correct password still worked afterwards. `LOGIN_MAX_FAILURES=0` behaves as
+`0 disables the ceiling` — which required the fix in `01dfeb9`, because the
+comparison read `count >= maxFailures` and would have refused every sign-in,
+forever, with no typo required.
+
+### Two defects found during the deploy, not before it
+
+**The setting never reached the container.** `LOGIN_MAX_FAILURES=0` was written
+to `/srv/doclifts/.env`, the deploy succeeded, and checks 1–4 all passed — while
+the throttle still had its default ceiling of 10 in force, because compose
+enumerates the container environment explicitly and does not read that file into
+it. `printenv` inside the running container showed no `LOGIN_*` at all. Every
+tunable now has an explicit passthrough line in `docker-compose.yml`.
+
+**`setHeaders` is not idempotent** (see `CLAUDE.md`) — caught by the harness,
+which now prints the child's last 40 lines instead of reporting a bare timeout.
+
+### Post-release state
+
+```
+accounts   chris@enoch.ai, scratch-test@doclifts.invalid
+sessions   0 and 0 (the scratch session from check 5/6 purged)
+data       31 sessions / 454 sets / 2 gyms / 4 programs / 94 exercises
+throttle   ceiling disabled, delay curve live (1s 2s 4s 8s)
+password   P@ssw0rdDL26!
+```
+
+`pre-0.2.2` deleted. The `.env.pre-0.2.2` backup removed after verification.

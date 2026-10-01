@@ -147,6 +147,9 @@ export async function createMachine(db: Database, userId: string, input: unknown
 		return machine;
 	});
 }
+// Models are NOT part of this: with the 0.3.0 catalog that is 543+ rows, and
+// every live-session page serialized all of them to the client while using
+// none. The model list is modelChoices() in catalog.ts, narrowed per gym.
 export async function machineChoices(db: Database, userId: string) {
 	// gym_equipment has no owner column of its own — it belongs to whoever owns
 	// the gym, so it is reached by an INNER JOIN on an already-scoped gyms row
@@ -169,11 +172,6 @@ export async function machineChoices(db: Database, userId: string) {
 				)
 			)
 			.orderBy(asc(gymEquipment.localLabel)),
-		models: await db
-			.select()
-			.from(equipmentModels)
-			.where(modelVisibleTo(userId))
-			.orderBy(asc(equipmentModels.name)),
 		exercises: await db
 			.select()
 			.from(exercises)

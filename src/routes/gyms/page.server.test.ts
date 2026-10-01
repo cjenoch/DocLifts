@@ -20,7 +20,7 @@ vi.mock('$lib/server/db', async () => {
 	};
 });
 
-import { actions } from './+page.server';
+import { actions, load } from './+page.server';
 import * as s from '$lib/server/db/schema';
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
@@ -124,4 +124,51 @@ it('createGym writes the caller as the owner', async () => {
 	await actions.createGym(postAs(alice)({ name: 'Owned' }));
 	const [gym] = await testDb.db!.select().from(s.gyms).where(eq(s.gyms.name, 'Owned'));
 	expect(gym.userId).toBe(alice);
+});
+
+// 0.3.0 A5: the model list is narrowed by GET parameters, server-side.
+it('load narrows the model list to the selected gym, with all=1 and q to widen', async () => {
+	const db = testDb.db!;
+	const models = await db
+		.insert(s.equipmentModels)
+		.values([
+			{
+				manufacturer: 'Hammer Strength',
+				code: 'IL-ROW',
+				name: 'Iso-Lateral Row',
+				loadingType: 'machine-plate'
+			},
+			{
+				manufacturer: 'Hammer Strength',
+				code: 'IL-HBP',
+				name: 'Bench Press',
+				loadingType: 'machine-plate'
+			},
+			{ manufacturer: 'Matrix', code: 'G3-S10', name: 'Chest Press', loadingType: 'machine-stack' }
+		])
+		.returning();
+	const [gym] = await db.insert(s.gyms).values({ name: 'A gym', userId }).returning();
+	await db.insert(s.gymEquipment).values({
+		gymId: gym.id,
+		localLabel: 'Row',
+		equipmentType: 'machine-plate',
+		equipmentModelId: models[0].id
+	});
+	const view = async (query: string) =>
+		(await load({
+			url: new URL(`http://test.local/gyms?${query}`),
+			locals: { user: { id: userId } } as App.Locals
+		} as Parameters<typeof load>[0])) as {
+			models: { code: string | null }[];
+			selectedGymId: string;
+			scope: string;
+		};
+	// No `gym` parameter: the first gym is chosen, and narrowed to its makers.
+	const first = await view('');
+	expect(first.selectedGymId).toBe(gym.id);
+	expect(first.models.map((m) => m.code).sort()).toEqual(['IL-HBP', 'IL-ROW']);
+	expect((await view(`gym=${gym.id}&all=1`)).models).toHaveLength(3);
+	expect((await view(`gym=${gym.id}&q=G3-S10`)).models.map((m) => m.code)).toEqual(['G3-S10']);
+	// A malformed gym id falls back to the first gym rather than erroring.
+	expect((await view('gym=nope')).selectedGymId).toBe(gym.id);
 });

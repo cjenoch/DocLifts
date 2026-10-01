@@ -140,4 +140,51 @@ run('equipment pages (production build)', () => {
 		void userId;
 		await page.close();
 	});
+
+	it('the /gyms model picker narrows to the gym, expands to all, and searches', async () => {
+		const db = harness.db;
+		const [gym] = await db.insert(s.gyms).values({ name: 'Picker Gym', userId }).returning();
+		const hammer = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.manufacturer, 'Hammer Strength'));
+		const bench = hammer.find((m) => m.code === 'IL-HBP')!;
+		const row = hammer.find((m) => m.code === 'IL-ROW')!;
+		await db.insert(s.gymEquipment).values({
+			gymId: gym.id,
+			localLabel: 'Bench',
+			equipmentType: bench.loadingType,
+			equipmentModelId: bench.id
+		});
+
+		const page = await signedInPage();
+		await page.goto(`${origin}/gyms?gym=${gym.id}`, { waitUntil: 'networkidle' });
+		const modelOptions = () => page.getByLabel('Known model (optional)').locator('option').count();
+		// "Unknown / enter below" plus every Hammer Strength model, nothing else.
+		expect(await modelOptions()).toBe(hammer.length + 1);
+
+		await page.getByRole('link', { name: 'Show all manufacturers' }).click();
+		await page.waitForURL('**all=1**');
+		expect(await modelOptions()).toBe(543 + 1);
+
+		await page.getByLabel('Search models by name or code').fill('IL-ROW');
+		await page.getByRole('button', { name: 'Show models' }).click();
+		await page.waitForURL('**q=IL-ROW**');
+		expect(await modelOptions()).toBe(2);
+
+		// And the narrowed list feeds the real action.
+		await page.getByLabel('Local machine label').fill('Picked row');
+		await page.getByLabel('Equipment type').selectOption('machine-plate');
+		await page.getByLabel('Known model (optional)').selectOption(row.id);
+		await page.getByRole('button', { name: 'Add machine' }).click();
+		await expect.poll(() => page.getByRole('status').textContent()).toBe('Machine created');
+		const made = await db
+			.select()
+			.from(s.gymEquipment)
+			.where(and(eq(s.gymEquipment.gymId, gym.id), eq(s.gymEquipment.localLabel, 'Picked row')));
+		expect(made).toHaveLength(1);
+		expect(made[0].equipmentModelId).toBe(row.id);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
 });

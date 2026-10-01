@@ -10,6 +10,7 @@ import {
 	machineChoices
 } from './machines';
 import { startSessionForDay, endSession, updateSetInSession } from './sessions';
+import { modelChoices } from './catalog';
 import { getLastCompletedSet, computeConsecutiveBackwards } from './progression';
 let db: TestDb;
 let handle: Awaited<ReturnType<typeof setupTestDb>>;
@@ -700,14 +701,18 @@ describe('cross-tenant isolation', () => {
 		expect(alice.machines.map((m) => m.localLabel).sort()).toEqual(['Press A', 'Press B']);
 		expect(alice.exercises.map((e) => e.name)).toEqual(['Press']);
 		// The global model (owner_user_id NULL) is shared.
-		expect(alice.models.map((m) => m.name)).toEqual(['Combo']);
+		expect((await modelChoices(db, f.userId, { all: true })).models.map((m) => m.name)).toEqual([
+			'Combo'
+		]);
 
 		const bobsView = await machineChoices(db, bob);
 		expect(bobsView.gyms).toHaveLength(0);
 		expect(bobsView.machines).toHaveLength(0);
 		expect(bobsView.exercises).toHaveLength(0);
 		// …but a global model is still visible to them.
-		expect(bobsView.models.map((m) => m.name)).toEqual(['Combo']);
+		expect((await modelChoices(db, bob, { all: true })).models.map((m) => m.name)).toEqual([
+			'Combo'
+		]);
 	});
 
 	it("another user's gym is invisible to machineChoices", async () => {

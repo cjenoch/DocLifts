@@ -7,7 +7,7 @@
  * Every read here goes through `modelVisibleTo`; every write targets an owned
  * row by putting `owner_user_id = userId` in its WHERE.
  */
-import { and, asc, count, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { equipmentModels, gymEquipment, gyms } from './db/schema';
 import type { Database } from './progression';
@@ -153,4 +153,65 @@ export async function instancesOfModel(db: Database, userId: string, modelId: st
 /** This user's gyms, for the add-to-gym select. */
 export async function gymsOf(db: Database, userId: string) {
 	return db.select().from(gyms).where(eq(gyms.userId, userId)).orderBy(asc(gyms.name));
+}
+
+const pickerSchema = z.object({
+	gym: z.string().uuid().optional().catch(undefined),
+	q: text,
+	all: z
+		.string()
+		.optional()
+		.transform((v) => v === '1')
+		.catch(false)
+});
+export type PickerParams = z.infer<typeof pickerSchema>;
+export function parsePickerParams(params: URLSearchParams): PickerParams {
+	return pickerSchema.parse(Object.fromEntries(params));
+}
+
+/**
+ * The model list for the "add a physical machine" form, narrowed so 543
+ * catalog rows stay usable without a typeahead:
+ *
+ *   - default: models whose manufacturer already appears among THIS gym's
+ *     machines (the gym must be the user's own; another user's gym id yields
+ *     no manufacturers, exactly like a missing one);
+ *   - `all`: every visible model ("all manufacturers" expander);
+ *   - `q`: models whose name or code matches, across all manufacturers.
+ */
+export async function modelChoices(
+	db: Database,
+	userId: string,
+	params: { gym?: string; q?: string; all?: boolean }
+) {
+	const gymManufacturers = params.gym
+		? (
+				await db
+					.selectDistinct({ v: equipmentModels.manufacturer })
+					.from(gymEquipment)
+					.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
+					.innerJoin(equipmentModels, eq(equipmentModels.id, gymEquipment.equipmentModelId))
+					.where(and(eq(gyms.id, params.gym), eq(gyms.userId, userId), modelVisibleTo(userId)))
+					.orderBy(asc(equipmentModels.manufacturer))
+			).map((r) => r.v)
+		: [];
+	const scope: 'search' | 'all' | 'gym' = params.q ? 'search' : params.all ? 'all' : 'gym';
+	const narrowing =
+		scope === 'search'
+			? matchesQuery(params.q!)
+			: scope === 'all'
+				? undefined
+				: gymManufacturers.length
+					? inArray(equipmentModels.manufacturer, gymManufacturers)
+					: sql`false`;
+	const models = await db
+		.select()
+		.from(equipmentModels)
+		.where(and(modelVisibleTo(userId), narrowing))
+		.orderBy(
+			asc(equipmentModels.manufacturer),
+			asc(equipmentModels.name),
+			sql`${equipmentModels.code} ASC NULLS LAST`
+		);
+	return { models, scope, gymManufacturers };
 }

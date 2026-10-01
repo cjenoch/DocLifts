@@ -3,10 +3,21 @@ import { ZodError } from 'zod';
 import { db } from '$lib/server/db';
 import { createGym, createMachine, machineChoices, MachineInputError } from '$lib/server/machines';
 import { requireUser } from '$lib/server/request-user';
+import { modelChoices, parsePickerParams } from '$lib/server/catalog';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals }) =>
-	machineChoices(db, requireUser(locals).id);
+// The model list is narrowed server-side by GET parameters (`gym`, `q`,
+// `all=1`): the gym's own manufacturers by default, everything on request.
+export const load: PageServerLoad = async ({ locals, url }) => {
+	const userId = requireUser(locals).id;
+	const choices = await machineChoices(db, userId);
+	const params = parsePickerParams(url.searchParams);
+	// Default to the first gym, so a first visit already shows that gym's
+	// manufacturers. An id that is not one of this user's gyms falls back too.
+	const gym = choices.gyms.find((g) => g.id === params.gym) ?? choices.gyms[0];
+	const picker = await modelChoices(db, userId, { ...params, gym: gym?.id });
+	return { ...choices, ...picker, selectedGymId: gym?.id ?? '', q: params.q ?? '' };
+};
 
 function inputFailure(error: unknown) {
 	if (error instanceof ZodError)

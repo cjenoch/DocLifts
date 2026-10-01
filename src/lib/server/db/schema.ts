@@ -29,6 +29,7 @@ import {
 	boolean,
 	check,
 	date,
+	foreignKey,
 	index,
 	integer,
 	jsonb,
@@ -814,6 +815,70 @@ export const painEvents = pgTable(
 	})
 );
 
+// ---------- llm_calls (0.3.1) ----------
+
+/**
+ * Every outcome a `complete()` call can record. One row per call, written on
+ * every path including the ones that throw — see src/lib/server/llm/.
+ */
+export const LLM_CALL_STATUSES = [
+	'ok',
+	'schema_error',
+	'provider_error',
+	'timeout',
+	'refused'
+] as const;
+export type LlmCallStatus = (typeof LLM_CALL_STATUSES)[number];
+
+/**
+ * One row per model call, written only by `complete()` in
+ * src/lib/server/llm/index.ts. Directly owned: `user_id` is the caller, and
+ * every call is on behalf of a user (no system calls in v1).
+ *
+ * Prompts are NOT stored by default: `prompt_hash` is always present (first 16
+ * hex of sha256 over instructions + messages) and `prompt_text` is filled only
+ * when LLM_STORE_PROMPTS=1. The API key is never stored anywhere.
+ */
+export const llmCalls = pgTable(
+	'llm_calls',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		/** Owner. `text` not `uuid` — see programs.userId. No onDelete: NO ACTION. */
+		userId: text('user_id').notNull(),
+		/** What the call was for, e.g. `ping`, `equipment_from_photo`. */
+		purpose: text('purpose').notNull(),
+		/** `openrouter` today; `anthropic` / `bedrock` later. */
+		provider: text('provider').notNull(),
+		/** The model id sent (empty when the call never got as far as a model). */
+		model: text('model').notNull(),
+		/** The provider's response id, when it returned one. */
+		requestId: text('request_id'),
+		status: text('status').$type<LlmCallStatus>().notNull(),
+		errorCode: text('error_code'),
+		promptTokens: integer('prompt_tokens'),
+		completionTokens: integer('completion_tokens'),
+		latencyMs: integer('latency_ms').notNull(),
+		promptHash: text('prompt_hash').notNull(),
+		promptText: text('prompt_text'),
+		/** The parsed object on `ok`; the raw model text on `schema_error`. */
+		output: jsonb('output'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => ({
+		userFk: foreignKey({
+			name: 'llm_calls_user_id_fk',
+			columns: [t.userId],
+			foreignColumns: [authUsers.id]
+		}),
+		userCreatedIdx: index('llm_calls_user_created_idx').on(t.userId, t.createdAt),
+		purposeCreatedIdx: index('llm_calls_purpose_created_idx').on(t.purpose, t.createdAt),
+		statusCheck: check(
+			'llm_calls_status_check',
+			sql`${t.status} IN ('ok', 'schema_error', 'provider_error', 'timeout', 'refused')`
+		)
+	})
+);
+
 // ---------- Type exports for application use ----------
 
 export type Program = typeof programs.$inferSelect;
@@ -827,3 +892,5 @@ export type Set = typeof sets.$inferSelect;
 export type NewSet = typeof sets.$inferInsert;
 export type PainEvent = typeof painEvents.$inferSelect;
 export type NewPainEvent = typeof painEvents.$inferInsert;
+export type LlmCall = typeof llmCalls.$inferSelect;
+export type NewLlmCall = typeof llmCalls.$inferInsert;

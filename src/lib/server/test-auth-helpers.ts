@@ -161,12 +161,16 @@ function registerTestServer(child: ChildProcess): void {
  * SIGKILL the server, and resolve only once it has actually exited.
  *
  * Not SIGTERM. adapter-node answers SIGTERM by closing its HTTP server and
- * then waiting for the event loop to drain, and it never drains: the
- * postgres-js pool in db/index.ts keeps its connections open indefinitely.
- * Measured 2026-10-01 in the CI-mirror container: the four e2e files that
- * called `server.kill()` left five `node build/index.js` processes behind per
- * run, each holding no listener and no HTTP connection, only sockets to
- * Postgres. A further SIGTERM changed nothing; SIGKILL did.
+ * then waiting for the event loop to drain, and until 0.2.4 it never drained:
+ * the postgres-js pool in db/index.ts held its connections open. Measured
+ * 2026-10-01 in the CI-mirror container: the four e2e files that called
+ * `server.kill()` left five `node build/index.js` processes behind per run,
+ * each holding no listener and no HTTP connection, only sockets to Postgres.
+ *
+ * db/index.ts now closes the pool on `sveltekit:shutdown`, so SIGTERM exits
+ * (e2e/graceful-shutdown.e2e.ts). Cleanup stays SIGKILL anyway: a test's
+ * teardown must not depend on the behaviour another test exists to check, or
+ * a regression there would leak servers here instead of failing once there.
  *
  * Awaiting 'exit' matters too. `kill()` only sends the signal, so a caller
  * that moves on right after it can race the dying process.
@@ -179,11 +183,40 @@ function stopChild(child: ChildProcess): Promise<void> {
 	});
 }
 
+/** How a served build ended after SIGTERM, or that it had not by the deadline. */
+export type TerminateOutcome =
+	| { code: number | null; signal: NodeJS.Signals | null }
+	| 'still running';
+
+/**
+ * SIGTERM the server and report how it exited, or 'still running' at the
+ * deadline. Never throws and never escalates: the caller asserts on the
+ * outcome, and `stop` (SIGKILL) remains the cleanup in `afterAll`.
+ */
+function terminateChild(child: ChildProcess, deadlineMs: number): Promise<TerminateOutcome> {
+	if (child.exitCode !== null || child.signalCode !== null) {
+		return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+	}
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => resolve('still running'), deadlineMs);
+		child.once('exit', (code, signal) => {
+			clearTimeout(timer);
+			resolve({ code, signal });
+		});
+		child.kill('SIGTERM');
+	});
+}
+
 export type TestServer = {
 	origin: string;
 	log: () => string;
 	/** The only way to stop the server. Safe to call twice; call it in `afterAll`. */
 	stop: () => Promise<void>;
+	/**
+	 * Graceful shutdown, observed. For e2e/graceful-shutdown.e2e.ts, which
+	 * tests that SIGTERM exits — not a way to stop a server. Still call `stop`.
+	 */
+	terminate: (deadlineMs: number) => Promise<TerminateOutcome>;
 };
 
 /**
@@ -191,6 +224,7 @@ export type TestServer = {
  * Returns the origin, the child's captured log accessor, and `stop`.
  *
  * The child itself is not returned, so there is no second way to stop it.
+ * (`terminate` sends SIGTERM to OBSERVE shutdown; it is not cleanup.)
  */
 export async function startTestServer(
 	/**
@@ -271,7 +305,12 @@ export async function startTestServer(
 		await stop();
 		throw err;
 	}
-	return { origin, log: () => log, stop };
+	return {
+		origin,
+		log: () => log,
+		stop,
+		terminate: (deadlineMs) => terminateChild(server, deadlineMs)
+	};
 }
 
 export type TestDb = Awaited<ReturnType<typeof setupTestDb>>['db'];

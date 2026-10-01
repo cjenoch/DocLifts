@@ -64,6 +64,26 @@ if (process.env.VITEST) assertTestDatabaseUrl(env.DATABASE_URL);
 
 const client = postgres(env.DATABASE_URL, { max: 10 });
 
+// Close the pool when adapter-node shuts down, or the process never exits.
+//
+// On SIGTERM/SIGINT, adapter-node's graceful_shutdown closes the HTTP server,
+// emits `sveltekit:shutdown` once the last request has finished, and then
+// relies on the event loop draining. The pool's sockets to Postgres keep it
+// alive indefinitely: measured 2026-10-01, served builds with no listener and
+// no HTTP connections, only ESTABLISHED sockets to :5432, still up 40+ minutes
+// later. In production that turns every `docker stop` into a wait for the stop
+// timeout followed by SIGKILL.
+//
+// Every request is already done when the event fires, so `end` has nothing in
+// flight to wait for; the timeout bounds a Postgres that does not answer the
+// terminate. e2e/graceful-shutdown.e2e.ts sends SIGTERM to a served build
+// that has queried the database and asserts it exits.
+process.once('sveltekit:shutdown', () => {
+	client.end({ timeout: 5 }).catch((cause: unknown) => {
+		console.error('[shutdown] closing the database pool failed:', cause);
+	});
+});
+
 export const db = drizzle(client, { schema });
 
 export * from './schema';

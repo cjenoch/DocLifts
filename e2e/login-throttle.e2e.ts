@@ -352,7 +352,7 @@ describe('progressive delay', () => {
 	// A SEPARATE server: the delay only engages at a low
 	// LOGIN_DELAY_AFTER_FAILURES, and the suite above deliberately disables it
 	// (9999) so its assertions are not slowed. This spawns one with the delay
-	// on and a base small enough to measure in tens of milliseconds.
+	// on and a base large enough to stand clear of request-time noise.
 	let stopDelayServer = async () => {};
 	let delayOrigin: string;
 
@@ -361,7 +361,7 @@ describe('progressive delay', () => {
 			LOGIN_FAILURE_WINDOW_SEC: WINDOW_SEC,
 			LOGIN_MAX_FAILURES: '100',
 			LOGIN_DELAY_AFTER_FAILURES: '3',
-			LOGIN_DELAY_BASE_MS: '250',
+			LOGIN_DELAY_BASE_MS: '500',
 			LOGIN_DELAY_MAX_MS: '2000'
 		}));
 	}, 60_000);
@@ -370,11 +370,17 @@ describe('progressive delay', () => {
 		await stopDelayServer();
 	});
 
-	it('makes the 4th wrong password measurably slower than the 1st', async () => {
-		// Delay starts after 3 failures, so attempts 4, 5, 6 sleep 250, 500,
-		// 1000ms. The assertion is comparative — an absolute threshold would be
-		// a flake on a loaded CI runner, and "slower than the first" is the
-		// property that actually matters to a guesser.
+	it('makes the 4th wrong password measurably slower than the undelayed ones', async () => {
+		// Delay starts after 3 failures, so attempt 4 sleeps 500ms. The assertion
+		// is comparative — an absolute threshold would be a flake on a loaded CI
+		// runner, and "slower than an undelayed attempt" is the property that
+		// actually matters to a guesser.
+		//
+		// The baseline is the FASTEST of the three undelayed attempts, not the
+		// first alone. Comparing against one sample made the margin hostage to
+		// that sample: on 2026-10-01 a slow first attempt (167ms) left a 250ms
+		// delay showing as +190ms against a 200ms bar. Half the delay as the bar,
+		// against the quickest baseline, leaves 250ms of slack for noise.
 		const ip = '198.18.0.1';
 		const send = () => {
 			const started = Date.now();
@@ -389,15 +395,14 @@ describe('progressive delay', () => {
 			}).then((r) => r.text().then(() => Date.now() - started));
 		};
 
-		const first = await send(); // failure 1 — no delay
-		await send(); // 2
-		await send(); // 3
-		const fourth = await send(); // 4 — 250ms
+		const undelayed = [await send(), await send(), await send()]; // failures 1-3
+		const baseline = Math.min(...undelayed);
+		const fourth = await send(); // 4 — held 500ms
 
 		expect(
-			fourth - first,
-			`the 4th attempt (${fourth}ms) must be measurably slower than the 1st (${first}ms)`
-		).toBeGreaterThan(200);
+			fourth - baseline,
+			`the 4th attempt (${fourth}ms) must be measurably slower than the fastest undelayed one (${undelayed.join(', ')}ms)`
+		).toBeGreaterThan(250);
 
 		// And it must still be a normal failure, not a refusal: the delay is a
 		// slowdown, the ceiling is a lockout, and they are different controls.

@@ -142,6 +142,13 @@ change logs are committed in `data/catalog/research-2026-10-01/`.
    - `vite.demo.config.ts` points the server test project at
      `doclifts_demo_test` too. It's harmless, but unexpected.
    - The owner's five photos at `analyzed` are waiting on his review.
+   - **CI for docs, a `ci.yml` change for a later full-gate release.**
+     Markdown-only changes now need only `pnpm lint` locally (CLAUDE.md,
+     owner exception 2026-10-01), but CI still runs the whole suite on
+     them. Two changes to make:
+     - a docs-only CI path;
+     - removing the duplicate run on `main` after a fast-forward of a
+       branch CI already passed.
 
 ## 6. Housekeeping for the owner (no code)
 

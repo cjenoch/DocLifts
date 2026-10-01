@@ -513,6 +513,12 @@ and `client` projects, `pnpm build`, and `pnpm test:e2e` under `CI=1` so a
 missing prerequisite fails instead of skipping — **and** CI is green on the
 branch. Watch it with `gh run watch`; do not infer it.
 
+**Owner-approved exception (2026-10-01): Markdown-only changes.** When every
+changed file is Markdown (`*.md`), the local gate is `pnpm lint` only, plus CI
+green on the branch. Any other file in the diff, even one, means the full
+gate above. Changes to `CLAUDE.md` or `.claude/` still need the owner to read
+the diff before they reach `main`.
+
 **No force-push to `main`, and no squash.** History on `main` is a record. A
 wrong commit gets a fix-forward commit that says what it fixes.
 
@@ -527,12 +533,6 @@ docker tag doclifts-web:vps doclifts-web:pre-<version>
 
 Delete it only after the release checks pass. Run the `*-prod.sh` wrappers on
 the VPS over SSH, never from another machine against its Docker socket.
-
-In practice (2026-10-01): Claude Code's auto-mode safety check refuses
-`compose-prod.sh up`, `catalog-prod.sh` imports and edits to its own
-permission settings, even after the owner's "go". The assistant prepares the
-exact commands, the owner runs them, and the assistant runs the read-only
-checks and tags. Do not look for a way around the refusal.
 
 **Secrets never appear in chat, commits, logs, or docs.** Not passwords, not
 `BETTER_AUTH_SECRET`, not database URLs with credentials, and that includes

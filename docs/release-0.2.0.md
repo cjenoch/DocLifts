@@ -1454,11 +1454,34 @@ and the 0.3.0 image simply ignores them. Only if the checkout itself is moved
 back to 0.3.0 does `check-env-passthrough.sh` refuse the `up` and name them;
 comment them out of the env file then.
 
-## 20. 0.3.2 — machine label and edit, catalog promotion/recode/retirement, notes, standard stack — NOT DEPLOYED
+## 20. 0.3.2 — machine label and edit, catalog promotion/recode/retirement, notes, standard stack — DEPLOYED 2026-10-01
 
 ```
-branch   feat/0.3.2 from main 43490c3 (production runs 0.3.1 = fd916d3 + docs)
-status   NOT deployed. Nothing below has run against production.
+0.3.2     bc43f0b, tagged 0.3.2
+web       image 4d7476fd2dae
+migrate   0014 + 0015 applied; 16 rows in drizzle.__drizzle_migrations;
+          verified dump predeploy-20261001T150455Z.dump
+catalog   2026-10-01 snapshot, run by the owner; dump
+          precatalog-20261001T150529Z.dump. Dry run as expected: 354
+          inserted, 195 promoted, 9 recoded, 7 retired, 0 skipped
+result    897 global rows = 890 active + 7 retired; 355 with a standard
+          stack, 590 with notes, 21 active without a code
+re-run    second dry run 0 inserted / 0 updated / 0 promoted / 0 recoded /
+          890 unchanged / 0 skipped / 0 retired; declined
+machine   the owner's machine still linked, now to Nautilus 9NP-L3004
+          Leverage Row
+history   31 sessions, 454 sets, unchanged
+browser   scratch account: every page 200; /equipment "890 models";
+          IL-DRW and 9NP-L3004 found; IL-DY and the retired VR1
+          placeholder not found; 0 page errors; only the tolerated
+          #svelte-announcer CSP report
+image     pre-0.3.2 deleted after the checks
+```
+
+The plan as written before the deploy follows, unchanged.
+
+```
+branch   feat/0.3.2 from main 43490c3 (production ran 0.3.1 = fd916d3 + docs)
 migrate  0014: equipment_models.notes; 0015: standard_stack_lb (CHECK > 0),
          standard_stack_note, retired_at. Additive. Verified on a restore of
          doclifts-2026-10-01.sql.gz, below

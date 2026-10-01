@@ -12,8 +12,11 @@
  * Every request carries an unrelated cookie (CLAUDE.md): the origin check runs
  * only when a cookie is present, and production always has one.
  */
+import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { chromium } from 'playwright';
 import {
+	BUILD_ENTRY,
 	freshTestDb,
 	seedTestUser,
 	startTestServer,
@@ -136,5 +139,120 @@ describe('/login states the throttle wait', () => {
 			seen.push(notice(r.html));
 		}
 		expect(seen).toEqual(seenForAccount);
+	}, 60_000);
+});
+
+/** As csp.e2e.ts: a browser is required in CI, skipped with a warning locally. */
+function chromiumPath(): string | undefined {
+	if (process.env.PW_EXECUTABLE_PATH) return process.env.PW_EXECUTABLE_PATH;
+	try {
+		const p = chromium.executablePath();
+		return existsSync(p) ? p : undefined;
+	} catch {
+		return undefined;
+	}
+}
+const executablePath = chromiumPath();
+const haveBrowser = Boolean(executablePath) && existsSync(BUILD_ENTRY);
+if (!haveBrowser && process.env.CI) {
+	throw new Error('e2e prerequisites missing in CI: a Chromium for Playwright, or the build');
+}
+if (!haveBrowser) console.warn('[e2e] login wait countdown skipped — no Chromium or no build');
+
+declare global {
+	interface Window {
+		__cspViolations: string[];
+	}
+}
+
+(haveBrowser ? describe : describe.skip)('/login counts down a held attempt (JS)', () => {
+	it('shows the wait ticking while the submit hangs, under the CSP, with a cookie in the jar', async () => {
+		const browser = await chromium.launch({ executablePath });
+		try {
+			const context = await browser.newContext();
+			await context.addCookies([{ name: 'theme', value: 'dark', domain: '127.0.0.1', path: '/' }]);
+			const page = await context.newPage();
+			await page.addInitScript(() => {
+				window.__cspViolations = [];
+				document.addEventListener('securitypolicyviolation', (e) => {
+					window.__cspViolations.push(`${e.violatedDirective}: ${e.blockedURI || 'inline'}`);
+				});
+			});
+
+			// The browser's own requests carry no x-forwarded-for, so the email
+			// key alone counts: a fresh address, used nowhere else in this file.
+			const email = 'countdown@test.local';
+			const notice = page.locator('#login-wait-notice');
+			const hydrated = () => page.getByRole('button', { name: 'Show password' }).waitFor();
+			const typeWrong = async () => {
+				await page.locator('input[type=email]').fill(email);
+				await page.locator('#password').fill('wrong');
+			};
+			const attempt = async () => {
+				await typeWrong();
+				await Promise.all([
+					page.waitForResponse((r) => r.request().method() === 'POST'),
+					page.locator('form button[type=submit]').click()
+				]);
+				await page.waitForLoadState('load');
+				await hydrated();
+			};
+
+			await page.goto(new URL('/login', origin).href);
+			await hydrated();
+			await attempt(); // 1: no wait
+			await attempt(); // 2: next held 1 s
+			await attempt(); // 3: held 1 s, next held 2 s
+			expect(await notice.textContent()).toContain('The next will be held for 2 seconds.');
+
+			// 4: held 2 s. While it hangs, the page says so and counts.
+			//
+			// Read from INSIDE the page. Playwright's click and evaluate both wait
+			// out a pending navigation, which here is the whole hold, so asking
+			// "what does it say now?" from outside only ever sees the next page.
+			// A MutationObserver writes each version of the notice, with its time
+			// since the click, to sessionStorage, which survives the same-origin
+			// navigation the submit ends in.
+			await typeWrong();
+			const response = page.waitForResponse((r) => r.request().method() === 'POST');
+			await page.evaluate(() => {
+				const started = Date.now();
+				const el = document.getElementById('login-wait-notice')!;
+				sessionStorage.setItem('seen', '[]');
+				new MutationObserver(() => {
+					const seen = JSON.parse(sessionStorage.getItem('seen') ?? '[]');
+					seen.push({ at: Date.now() - started, text: el.textContent ?? '' });
+					sessionStorage.setItem('seen', JSON.stringify(seen));
+				}).observe(el, { subtree: true, childList: true, characterData: true });
+				document.querySelector<HTMLButtonElement>('form button[type=submit]')!.click();
+			});
+			await response;
+			await page.waitForLoadState('load');
+			expect(await notice.textContent()).toContain('This one was held for 2 seconds.');
+
+			const seen = (await page.evaluate(() =>
+				JSON.parse(sessionStorage.getItem('seen') ?? '[]')
+			)) as { at: number; text: string }[];
+			const said = (phrase: string) => seen.find((s) => s.text.includes(phrase));
+			// At once, the announced wait; a second later, one less. A static
+			// sentence would pass the first and fail the second.
+			const two = said('your password will be checked in 2 seconds.');
+			const one = said('your password will be checked in 1 second.');
+			expect(two, `no countdown while held; saw ${JSON.stringify(seen)}`).toBeDefined();
+			expect(two!.at).toBeLessThan(500);
+			expect(one, `the countdown did not tick; saw ${JSON.stringify(seen)}`).toBeDefined();
+			expect(one!.at).toBeGreaterThan(two!.at);
+			// The same audit as csp.e2e.ts: no app element carries a style
+			// attribute, and the only tolerated violation is SvelteKit's own
+			// #svelte-announcer (style-src-attr).
+			const styled = await page.evaluate(() =>
+				[...document.querySelectorAll('[style]')].map((e) => e.id || e.tagName.toLowerCase())
+			);
+			expect(styled.filter((id) => id !== 'svelte-announcer')).toEqual([]);
+			const violations = await page.evaluate(() => window.__cspViolations);
+			expect(violations.filter((v) => !v.startsWith('style-src-attr'))).toEqual([]);
+		} finally {
+			await browser.close();
+		}
 	}, 60_000);
 });

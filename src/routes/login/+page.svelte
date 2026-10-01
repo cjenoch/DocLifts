@@ -31,7 +31,40 @@
 			.filter(Boolean)
 			.join(' ');
 	});
+
+	/**
+	 * The countdown while a held attempt is in flight. A plain form POST keeps
+	 * this document — and this script — alive until the response arrives, so
+	 * counting down from the announced wait needs no `use:enhance` and changes
+	 * nothing about how the form submits. Without JavaScript the notice above
+	 * already said how long; this only makes the hang visibly a wait.
+	 *
+	 * Bundled code (no inline handler), so it runs under the nonce'd CSP.
+	 */
+	let checkingIn = $state<number | null>(null);
+	let tick: ReturnType<typeof setInterval> | undefined;
+
+	function startCountdown() {
+		const next = form?.nextDelaySeconds ?? null;
+		if (next === null) return;
+		clearInterval(tick);
+		checkingIn = next;
+		tick = setInterval(() => {
+			checkingIn = Math.max(0, (checkingIn ?? 0) - 1);
+			if (checkingIn === 0) clearInterval(tick);
+		}, 1000);
+	}
+
+	// A page restored from the back/forward cache must not resume a stale count.
+	function resetCountdown() {
+		clearInterval(tick);
+		checkingIn = null;
+	}
+
+	$effect(() => () => clearInterval(tick));
 </script>
+
+<svelte:window onpageshow={resetCountdown} />
 
 <svelte:head><title>Sign in — DocLifts</title></svelte:head>
 
@@ -66,10 +99,17 @@
 			id="login-wait-notice"
 		>
 			{waitNotice}
+			{#if checkingIn !== null}
+				<span class="mt-1 block font-medium">
+					{checkingIn > 0
+						? `Held: your password will be checked in ${seconds(checkingIn)}.`
+						: 'Checking your password…'}
+				</span>
+			{/if}
 		</p>
 	{/if}
 
-	<form method="POST" class="space-y-4">
+	<form method="POST" class="space-y-4" onsubmit={startCountdown}>
 		{#if form?.email}
 			<input type="hidden" name="email" value={form.email} />
 		{/if}

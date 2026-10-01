@@ -285,6 +285,18 @@ export async function startTestServer(
 			PUBLIC_ORIGIN: origin,
 			DATABASE_URL: testDatabaseUrl(),
 			BETTER_AUTH_SECRET: TEST_AUTH_SECRET,
+			// 0.4.0 photos. adapter-node's default body limit is 512 KB, under
+			// which every phone photo 413s; production sets the same 12M in
+			// docker-compose.yml. The memory store keeps the harness off S3:
+			// no test reaches a network, and CI has no S3 variable.
+			BODY_SIZE_LIMIT: '12M',
+			PHOTO_STORE: 'memory',
+			// And no model: a key exported in the invoking shell must not turn an
+			// e2e run into paid provider calls. Empty is "unset" in llm/config.ts,
+			// so analysis is refused as not configured and recorded as such.
+			OPENROUTER_API_KEY: '',
+			LLM_MODEL: '',
+			LLM_VISION_MODEL: '',
 			// Last, so a test can override anything above.
 			...extraEnv
 		},

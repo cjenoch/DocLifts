@@ -147,3 +147,25 @@ jobs:
       # Signal only for now; can be promoted to blocking once baseline is clean.
       - name: Production dependency audit (signal)
         run: pnpm audit --prod || true
+
+  # The production image, built the way the VPS builds it (node:24-alpine).
+  # Added in 0.4.0 for sharp, a native dependency: the test job above runs on
+  # glibc, so it cannot show that the alpine runtime stage gets sharp's musl
+  # binary. The Dockerfile's runtime stage loads sharp at build time, so a
+  # missing binary fails this step rather than the first upload in production.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build the runtime image
+        run: >-
+          docker build --target runtime
+          --build-arg DOCLIFTS_BUILD_SHA=${{ github.sha }}
+          -t doclifts-web:ci .
+
+      - name: sharp processes an image inside the runtime image
+        run: >-
+          docker run --rm -w /app doclifts-web:ci node -e
+          "require('sharp')({create:{width:8,height:6,channels:3,background:'#123'}}).jpeg().toBuffer().then(b=>console.log('sharp ok',b.length))"

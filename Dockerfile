@@ -54,6 +54,12 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN corepack enable && corepack prepare pnpm@11.3.0 --activate \
     && pnpm install --prod --frozen-lockfile
 
+# sharp (0.4.0 photos) is native. pnpm installs the prebuilt binary for the
+# platform it runs on, so this alpine stage gets @img/sharp-linuxmusl-<arch>,
+# not the glibc one a dev machine has. Prove it loads HERE, at build time: a
+# missing or wrong-libc binary otherwise surfaces only on the first upload.
+RUN node -e "const s = require('sharp'); console.log('sharp', s.versions.sharp, 'libvips', s.versions.vips)"
+
 # Adapter-node output (build/) next to node_modules so imports resolve.
 COPY --from=builder /app/build ./build
 WORKDIR /app/build

@@ -130,6 +130,9 @@
 	{#each data.gyms as gym}
 		<section>
 			<h2 class="font-semibold">{gym.name}</h2>
+			<a href={`/gyms/${gym.id}/equipment/photo`} class="text-sm text-indigo-300"
+				>Add a machine from a photo</a
+			>
 			<ul>
 				{#each data.machines.filter((m) => m.gymId === gym.id) as machine}<li class="mt-2">
 						{machine.localLabel} · {machine.equipmentType} ·

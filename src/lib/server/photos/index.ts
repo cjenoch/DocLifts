@@ -160,3 +160,20 @@ export async function readOwnPhoto(
 	if (!photo || photo.status === 'discarded') return null;
 	return store.get(photo.storageKey);
 }
+
+/**
+ * For this user's machines that came from a photo: machine id -> photo id,
+ * for the thumbnail (served by the guarded image route).
+ */
+export async function photoIdsByMachine(
+	db: Database,
+	userId: string
+): Promise<Record<string, string>> {
+	const rows = await db
+		.select({ machineId: equipmentPhotos.gymEquipmentId, photoId: equipmentPhotos.id })
+		.from(equipmentPhotos)
+		.where(and(eq(equipmentPhotos.userId, userId), eq(equipmentPhotos.status, 'confirmed')));
+	return Object.fromEntries(
+		rows.filter((r) => r.machineId).map((r) => [r.machineId as string, r.photoId])
+	);
+}

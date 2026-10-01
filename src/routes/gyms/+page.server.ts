@@ -4,6 +4,7 @@ import { db } from '$lib/server/db';
 import { createGym, createMachine, machineChoices, MachineInputError } from '$lib/server/machines';
 import { requireUser } from '$lib/server/request-user';
 import { modelChoices, parsePickerParams } from '$lib/server/catalog';
+import { photoIdsByMachine } from '$lib/server/photos';
 import type { Actions, PageServerLoad } from './$types';
 
 // The model list is narrowed server-side by GET parameters (`gym`, `q`,
@@ -16,7 +17,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// manufacturers. An id that is not one of this user's gyms falls back too.
 	const gym = choices.gyms.find((g) => g.id === params.gym) ?? choices.gyms[0];
 	const picker = await modelChoices(db, userId, { ...params, gym: gym?.id });
-	return { ...choices, ...picker, selectedGymId: gym?.id ?? '', q: params.q ?? '' };
+	const photos = await photoIdsByMachine(db, userId);
+	return { ...choices, ...picker, photos, selectedGymId: gym?.id ?? '', q: params.q ?? '' };
 };
 
 function inputFailure(error: unknown) {

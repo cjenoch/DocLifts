@@ -1,5 +1,7 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '$lib/server/db';
+import { equipmentPhotos } from '$lib/server/db/schema';
 import { requireUser } from '$lib/server/request-user';
 import { ownGym, PhotoLimitError, uploadPhoto } from '$lib/server/photos';
 import { analyzePhoto } from '$lib/server/photos/analyze';
@@ -14,7 +16,24 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const userId = requireUser(locals).id;
 	const gym = await ownGym(db, userId, params.id);
 	if (!gym) error(404, 'Gym not found');
-	return { gym };
+	// Photos still waiting for a decision, so an interrupted review can be resumed.
+	const waiting = await db
+		.select({
+			id: equipmentPhotos.id,
+			status: equipmentPhotos.status,
+			createdAt: equipmentPhotos.createdAt
+		})
+		.from(equipmentPhotos)
+		.where(
+			and(
+				eq(equipmentPhotos.userId, userId),
+				eq(equipmentPhotos.gymId, gym.id),
+				inArray(equipmentPhotos.status, ['uploaded', 'analyzed'])
+			)
+		)
+		.orderBy(desc(equipmentPhotos.createdAt))
+		.limit(20);
+	return { gym, waiting };
 };
 
 export const actions: Actions = {
@@ -26,8 +45,8 @@ export const actions: Actions = {
 			return fail(400, { message: 'Choose a photo to upload.' });
 		}
 		const note = String(form.get('note') ?? '').slice(0, 200);
-		const store = photoStore();
-		let photoId: string;
+		const store = photoStore;
+		let target: string;
 		try {
 			const limits = resolvePhotoLimits();
 			const photo = await uploadPhoto(
@@ -39,28 +58,27 @@ export const actions: Actions = {
 					type: file.type,
 					name: file.name
 				},
-				{ store, limits }
+				{ store: store(), limits }
 			);
 			if (!photo) error(404, 'Gym not found');
-			photoId = photo.id;
 			// Analysis runs inline: one request from photo to review. A failed
 			// analysis leaves the photo `uploaded` (llm_calls records why) and
-			// is not a failed upload; the review page offers "try again".
-			let analysis: 'ok' | 'failed' | 'limit' = 'failed';
+			// is not a failed upload; the review page says so and offers a retry.
+			target = `/photos/${photo.id}/review`;
 			try {
-				const outcome = await analyzePhoto(db, userId, photo.id, { store, limits, note });
-				analysis = outcome?.ok ? 'ok' : 'failed';
+				const outcome = await analyzePhoto(db, userId, photo.id, {
+					store: store(),
+					limits,
+					note
+				});
+				if (!outcome?.ok) target += '?analysis=failed';
 			} catch (e) {
 				if (!(e instanceof PhotoLimitError)) throw e;
-				analysis = 'limit';
+				target += '?analysis=limit';
 			}
-			return {
-				message: analysis === 'ok' ? 'Photo uploaded and read' : 'Photo uploaded',
-				photoId,
-				analysis
-			};
 		} catch (e) {
 			return photoFailure(e);
 		}
+		redirect(303, target);
 	}
 };

@@ -42,6 +42,19 @@
 			>{busy ? 'Uploading…' : 'Upload photo'}</button
 		>
 	</form>
+	{#if data.waiting.length}
+		<section class="space-y-1">
+			<h2 class="font-semibold">Waiting for review</h2>
+			<ul class="text-sm">
+				{#each data.waiting as p (p.id)}<li>
+						<a href={`/photos/${p.id}/review`} class="text-indigo-300"
+							>Photo from {p.createdAt.toISOString().slice(0, 16).replace('T', ' ')} UTC</a
+						>
+						· {p.status === 'analyzed' ? 'read' : 'not read yet'}
+					</li>{/each}
+			</ul>
+		</section>
+	{/if}
 	<p class="text-sm text-zinc-400">
 		The photo is resized and its location and camera details are removed before it is stored. Only
 		you can see it.

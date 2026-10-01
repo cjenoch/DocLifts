@@ -64,7 +64,15 @@
 		<h2 class="font-semibold">In your gyms</h2>
 		{#if data.instances.length}
 			<ul class="text-sm">
-				{#each data.instances as i (i.gymEquipmentId)}<li>
+				{#each data.instances as i (i.gymEquipmentId)}<li class="flex items-center gap-2">
+						{#if i.photoId}<img
+								src={`/photos/${i.photoId}/image`}
+								alt=""
+								width="48"
+								height="48"
+								loading="lazy"
+								class="h-12 w-12 rounded object-cover"
+							/>{/if}
 						{[
 							i.gymName,
 							i.localLabel,

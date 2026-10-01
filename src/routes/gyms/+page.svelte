@@ -134,7 +134,17 @@
 				>Add a machine from a photo</a
 			>
 			<ul>
-				{#each data.machines.filter((m) => m.gymId === gym.id) as machine}<li class="mt-2">
+				{#each data.machines.filter((m) => m.gymId === gym.id) as machine}<li
+						class="mt-2 flex items-center gap-2"
+					>
+						{#if data.photos[machine.id]}<img
+								src={`/photos/${data.photos[machine.id]}/image`}
+								alt=""
+								width="48"
+								height="48"
+								loading="lazy"
+								class="h-12 w-12 rounded object-cover"
+							/>{/if}
 						{machine.localLabel} · {machine.equipmentType} ·
 						{#if machine.equipmentModelId}<a
 								href={`/equipment/${machine.equipmentModelId}`}

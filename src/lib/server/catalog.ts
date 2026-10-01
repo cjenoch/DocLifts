@@ -9,7 +9,13 @@
  */
 import { and, asc, count, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { RESISTANCE_BASES, equipmentModels, gymEquipment, gyms } from './db/schema';
+import {
+	RESISTANCE_BASES,
+	equipmentModels,
+	equipmentPhotos,
+	gymEquipment,
+	gyms
+} from './db/schema';
 import type { Database } from './progression';
 
 /**
@@ -142,7 +148,14 @@ export async function instancesOfModel(db: Database, userId: string, modelId: st
 			gymName: gyms.name,
 			localLabel: gymEquipment.localLabel,
 			stackLb: gymEquipment.stackLb,
-			incrementLb: gymEquipment.incrementLb
+			incrementLb: gymEquipment.incrementLb,
+			// The photo this machine was added from (0.4.0), for its thumbnail.
+			photoId: sql<string | null>`(
+				SELECT ${equipmentPhotos.id} FROM ${equipmentPhotos}
+				WHERE ${equipmentPhotos.gymEquipmentId} = ${gymEquipment.id}
+				  AND ${equipmentPhotos.userId} = ${userId}
+				  AND ${equipmentPhotos.status} = 'confirmed'
+				LIMIT 1)`
 		})
 		.from(gymEquipment)
 		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))

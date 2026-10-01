@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2 — choose a photo you already took — not yet released
+
+- **Adding a machine from a photo offers your photo library and files, not
+  only the camera.** On Android the page opened the camera directly, so a
+  placard photo already on the phone could not be picked. Now the phone asks:
+  take a photo, choose from the library, or browse files.
+
 ## 0.4.1 — photo analysis tolerates an incomplete reply — not yet released
 
 - **A photo whose placard was read correctly is no longer thrown away for a

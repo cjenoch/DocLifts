@@ -8,8 +8,8 @@
 	<a href="/gyms" class="text-indigo-300">← Gyms and machines</a>
 	<h1 class="text-2xl font-semibold">Add a machine from a photo</h1>
 	<p class="text-zinc-300">
-		{data.gym.name}: photograph the machine's placard (the label with the maker and model code). You
-		review what was read before anything is added.
+		{data.gym.name}: take a photo of the machine's placard (the label with the maker and model
+		code), or choose one you already took. You review what was read before anything is added.
 	</p>
 	{#if form?.message}<p role="status" class="text-amber-300">{form.message}</p>{/if}
 	<form
@@ -24,7 +24,6 @@
 				type="file"
 				name="photo"
 				accept="image/jpeg,image/png,image/webp"
-				capture="environment"
 				required
 				class="mt-1 block w-full rounded bg-zinc-800 p-2"
 			/></label

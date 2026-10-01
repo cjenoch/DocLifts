@@ -168,6 +168,20 @@ run('equipment from a photo (production build)', () => {
 		return new URL(page.url()).pathname.split('/')[2];
 	}
 
+	it('the photo field lets the phone offer the library and files, not only the camera', async () => {
+		// `capture` makes Android open the camera with no choice at all (found by
+		// the owner on 2026-10-01: a placard photo already in the roll could not
+		// be picked). Without it, iOS and Android both show their own sheet:
+		// take a photo, photo library, or files.
+		const page = await signedInPage();
+		await page.goto(`${origin}/gyms/${gymA}/equipment/photo`, { waitUntil: 'networkidle' });
+		const input = page.getByLabel('Photo');
+		expect(await input.getAttribute('type')).toBe('file');
+		expect(await input.getAttribute('capture')).toBeNull();
+		expect(await input.getAttribute('accept')).toBe('image/jpeg,image/png,image/webp');
+		await page.close();
+	});
+
 	it('upload from the page (a 2.5 MB phone photo) -> review shows the image; analysis not configured is recorded', async () => {
 		expect(phone.byteLength).toBeGreaterThan(512 * 1024);
 		const page = await signedInPage();

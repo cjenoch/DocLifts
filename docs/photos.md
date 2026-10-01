@@ -8,10 +8,11 @@ added.** The model's output is a suggestion, never a write.
 ## The flow
 
 1. **Gyms and machines** → under a gym, **Add a machine from a photo**
-   (`/gyms/<gym id>/equipment/photo`). One form: the photo (on a phone,
-   `capture="environment"` opens the rear camera; the camera roll is still
-   there) and an optional note for the reader ("the code is on the seat
-   post").
+   (`/gyms/<gym id>/equipment/photo`). One form: the photo and an optional
+   note for the reader ("the code is on the seat post"). The file input has
+   **no `capture` attribute**, so the phone shows its own sheet: take a
+   photo, photo library, or files. With `capture`, Android opens only the
+   camera (0.4.0; removed in 0.4.2).
 2. **Upload.** The server checks the size and the daily limit, then
    processes the photo (below), stores it privately, and records it as
    `uploaded`.

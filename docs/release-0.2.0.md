@@ -928,3 +928,103 @@ is a standing task, not a done item.
 - An enum variant with no producer is a question, not dead code. `origin`
   was deleted as "nothing produces this" — the reason nothing produced it was
   the bug it pointed at.
+
+## 16. 0.2.4 — account management and password policy
+
+No migration. Spec: `docs/handoffs/REPLY-login-spec.md` §2. **Nothing in this
+section runs without the owner's explicit "go" in the current session.**
+
+### What changes for the operator
+
+- **A malformed `LOGIN_*` or `PASSWORD_MIN_LENGTH` now stops the container at
+  boot**, naming the variable. 0.2.1–0.2.3 warned and fell back to the default.
+  Read the values before deploying (step 2 below).
+- `LOGIN_DELAY_MAX_MS` default 8000 → **30000**, in code and in the compose
+  default. If the env file does not set it, the delay curve now runs 1, 2, 4,
+  8, 16, then 30 s per further failure.
+- `PASSWORD_MIN_LENGTH` (default 12, whole number 8–128) is new. **The number is
+  Chris's**: the length he will actually type. It applies when a password is
+  set — `/account/password` and `user:*` — never at sign-in, so raising it does
+  not lock out the current password.
+- `scripts/compose-prod.sh` refuses `up` if the env file sets a key
+  `docker-compose.yml` never reads.
+- Better Auth's origin check is pinned on (`disableOriginCheck: false`), so it
+  no longer depends on `NODE_ENV`.
+
+### Before deploying
+
+```bash
+# 1. CI green on main at the release sha (gh run list --branch main).
+
+# 2. The tunables, by name and value only — never print the whole env file,
+#    it holds secrets. Each LOGIN_* must be a non-negative number;
+#    PASSWORD_MIN_LENGTH a whole number from 8 to 128.
+sudo -n grep -E '^(LOGIN_|PASSWORD_MIN_LENGTH|SESSION_EXPIRES_DAYS)' /srv/doclifts/.env
+
+# 3. Every key in the env file has a passthrough (compose-prod.sh also runs
+#    this before `up`; running it first means a refusal is not a surprise).
+sudo -n bash scripts/check-env-passthrough.sh /srv/doclifts/.env
+
+# 4. Preserve the running image.
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.2.4
+```
+
+Rollback:
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.2.4 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+### Deploy
+
+```bash
+sudo -n scripts/compose-prod.sh up -d --build --wait web
+```
+
+### Checks — scratch account only
+
+```bash
+# 1. The values in force, as the process read them.
+sudo -n scripts/compose-prod.sh logs web --since 5m | grep login_config
+#   {"event":"login_config","LOGIN_MAX_FAILURES":0,...,"LOGIN_DELAY_MAX_MS":30000,"ceiling":"disabled"}
+
+# 2. The build id.
+curl -s https://enochnvps.tail29bbdb.ts.net/_app/version.json
+#   {"version":"<release sha>"}
+```
+
+3. **Sign in as the scratch account from a browser that has visited before**
+   (the 0.2.3 condition). The log line must be `ok:true`.
+4. **Change the scratch account's password at `/account/password`**, typed in
+   the browser, while a second scratch session exists (a second browser or
+   private window). Expect a `password_change` line with `ok:true`, the
+   second session sent to `/login` on its next page, and exactly one scratch
+   session row:
+
+   ```bash
+   sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc "
+     select count(*) from auth.session s join auth.\"user\" u on u.id = s.user_id
+     where u.email = 'scratch-test@doclifts.invalid'"
+   #   1
+   ```
+
+5. On `/login`, **Show** reveals the password and **Hide** masks it again.
+
+`pre-0.2.4` is deleted only after all five pass.
+
+### Then the owner
+
+Set `PASSWORD_MIN_LENGTH` in `/srv/doclifts/.env` to the number he chooses,
+restart `web`, confirm the number in the hint on `/account/password` ("At least
+N characters" — read from the value Better Auth enforces), and change his own
+password at `/account/password`. No CLI in the loop.
+
+### The 0.2.3 open finding, closed
+
+The 403 now reproduces in the harness. The served build inherited Vitest's
+`TEST=true`, and Better Auth turns its origin check off in test mode. The
+earlier explanation — SvelteKit consuming the `cookie` header — was wrong. The
+harness now runs the build as `NODE_ENV=production` without `TEST`, the check
+is pinned on in code, and `e2e/sign-in-origin.e2e.ts` holds the
+behaviour-level test, which fails with the `Origin` forward reverted.

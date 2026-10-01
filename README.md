@@ -190,9 +190,16 @@ Before relying on a backup, restore it into an isolated test database and verify
 ## Tuning
 
 These are read from the environment at startup. None are required: every one
-has a default, and a malformed value logs a warning and falls back rather than
-refusing sign-ins. To change one, edit the production env file and restart the
-web container — no release, no migration.
+has a default. A malformed `LOGIN_*` value (non-numeric or negative) **stops
+the server at boot** with a message naming the variable — it is never quietly
+replaced by the default, because then the env file says one thing and the
+process does another. The values in force are logged once at startup as a
+`login_config` line, next to the `login_attempt` lines they govern. To change
+one, edit the production env file and restart the web container — no release,
+no migration.
+
+Every variable here must also have a passthrough line in `docker-compose.yml`;
+compose does not forward the env file into the container on its own.
 
 ```sh
 sudo scripts/compose-prod.sh up -d --wait web
@@ -204,7 +211,7 @@ sudo scripts/compose-prod.sh up -d --wait web
 | `LOGIN_FAILURE_WINDOW_SEC`   | `900`   | Sliding window; a refusal lasts until the oldest failure ages out |
 | `LOGIN_DELAY_AFTER_FAILURES` | `5`     | Failure count at which the progressive delay starts               |
 | `LOGIN_DELAY_BASE_MS`        | `1000`  | First delay step; doubles per further failure                     |
-| `LOGIN_DELAY_MAX_MS`         | `8000`  | Ceiling on that delay                                             |
+| `LOGIN_DELAY_MAX_MS`         | `30000` | Ceiling on that delay                                             |
 | `SESSION_EXPIRES_DAYS`       | `30`    | Session lifetime, sliding                                         |
 
 ### How the sign-in throttle works
@@ -216,10 +223,13 @@ Better Auth's own limiter charges successes, which is how 0.2.0 shipped a state
 where four correct-password sign-ins in quick succession left a user unable to
 get back in.
 
-Below the ceiling, wrong guesses get a progressive delay (1s, 2s, 4s, 8s,
-capped) that is indistinguishable from a slow network. At the ceiling, even a
+Below the ceiling, wrong guesses get a progressive delay (1s, 2s, 4s, 8s, 16s,
+then 30s each). The delay is logged but not yet announced on the page, so it
+reads as a slow response. At the ceiling, even a
 correct password is refused for the remainder of the window, and the page says
-how many seconds to wait.
+how many seconds to wait. `LOGIN_MAX_FAILURES=0` disables the ceiling: failures
+only ever slow, never lock — which is why the cap defaults to 30s rather than a
+few seconds.
 
 **Tuning from the log.** Each refusal and each delay emits one structured line:
 

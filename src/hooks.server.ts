@@ -35,7 +35,8 @@
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { building } from '$app/environment';
 import { sequence } from '@sveltejs/kit/hooks';
-import { redirect, type Handle } from '@sveltejs/kit';
+import { redirect, type Handle, type ServerInit } from '@sveltejs/kit';
+import { loginThrottle, throttleConfigLogLine } from '$lib/server/login-throttle';
 import { auth } from '$lib/server/auth';
 import { db } from '$lib/server/db';
 import { isAssetPath, isPublicPath, resolveAuthRedirect } from '$lib/server/request-user';
@@ -186,3 +187,18 @@ const betterAuth: Handle = ({ event, resolve }) =>
  * a claim about routing order.
  */
 export const handle: Handle = sequence(betterAuth, guard);
+
+/**
+ * Runs once when the server starts, before it listens.
+ *
+ * Importing `loginThrottle` above already constructed it from the environment,
+ * which THROWS on a malformed value — so a bad env file stops the process here,
+ * at boot, rather than surfacing on the first sign-in. (Route modules load
+ * lazily; this file does not.) Then the effective values are logged once, so
+ * the configuration in force sits in the log next to the `login_attempt` lines
+ * it governs: one `grep login_config` answers "what was it actually set to".
+ */
+export const init: ServerInit = () => {
+	if (building) return;
+	console.log(throttleConfigLogLine(loginThrottle.config));
+};

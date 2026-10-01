@@ -67,7 +67,11 @@ export interface ThrottleConfig {
 	delayAfterFailures: number;
 	/** First delay step, in ms. Doubles per additional failure. */
 	delayBaseMs: number;
-	/** Ceiling on the delay, in ms. */
+	/**
+	 * Ceiling on the delay, in ms. Default 30 s (spec §2 item 3): with the
+	 * ceiling disabled, slowing is the only control left, so it has to keep
+	 * slowing rather than plateau at a few seconds.
+	 */
 	delayMaxMs: number;
 }
 
@@ -76,42 +80,75 @@ export const DEFAULT_THROTTLE_CONFIG: ThrottleConfig = {
 	windowSeconds: 900,
 	delayAfterFailures: 5,
 	delayBaseMs: 1000,
-	delayMaxMs: 8000
+	delayMaxMs: 30_000
+};
+
+/** The env variable behind each field. One table, so the log and the parser agree. */
+export const THROTTLE_ENV: Record<keyof ThrottleConfig, string> = {
+	maxFailures: 'LOGIN_MAX_FAILURES',
+	windowSeconds: 'LOGIN_FAILURE_WINDOW_SEC',
+	delayAfterFailures: 'LOGIN_DELAY_AFTER_FAILURES',
+	delayBaseMs: 'LOGIN_DELAY_BASE_MS',
+	delayMaxMs: 'LOGIN_DELAY_MAX_MS'
 };
 
 /**
- * Read config from the environment, falling back to the documented default.
+ * Read config from the environment. Unset or empty means the default; anything
+ * else must be a non-negative number, or this THROWS.
  *
- * None of these are required: an unset variable must not stop the app booting,
- * and a malformed one must not either. A bad integer is a startup warning and
- * the default, because a typo in an env file should degrade to "the shipped
- * numbers" rather than "no protection" or "refuse every sign-in".
+ * WHY THROW, WHEN THIS USED TO WARN AND FALL BACK
+ * ----------------------------------------------
+ * 0.2.1 degraded a malformed value to the shipped default with a warning. That
+ * is a clamp by another name: the env file says one thing, the process does
+ * another, and the only trace is a line nobody reads. It is the same failure as
+ * the 0.2.2 deploy, where `LOGIN_MAX_FAILURES=0` sat in the env file while the
+ * container ran a ceiling of 10. A tunable that silently ignores its setting is
+ * worse than one that refuses to start (owner decision, 0.2.4).
+ *
+ * `hooks.server.ts` calls this from the `init` hook, so a bad value stops the
+ * server at boot — before it listens — rather than on the first sign-in. Every
+ * bad variable is reported at once, not one per restart.
  */
 export function throttleConfigFromEnv(
 	env: Record<string, string | undefined> = process.env
 ): ThrottleConfig {
-	const num = (name: string, fallback: number): number => {
+	const problems: string[] = [];
+	const config = { ...DEFAULT_THROTTLE_CONFIG };
+	for (const field of Object.keys(THROTTLE_ENV) as (keyof ThrottleConfig)[]) {
+		const name = THROTTLE_ENV[field];
 		const raw = env[name];
-		if (raw === undefined || raw.trim() === '') return fallback;
+		if (raw === undefined || raw.trim() === '') continue;
 		const parsed = Number(raw);
 		if (!Number.isFinite(parsed) || parsed < 0) {
-			console.warn(
-				`[login-throttle] ${name}="${raw}" is not a non-negative number; using ${fallback}`
-			);
-			return fallback;
+			problems.push(`${name}="${raw}" is not a non-negative number`);
+			continue;
 		}
-		return parsed;
-	};
-	return {
-		maxFailures: num('LOGIN_MAX_FAILURES', DEFAULT_THROTTLE_CONFIG.maxFailures),
-		windowSeconds: num('LOGIN_FAILURE_WINDOW_SEC', DEFAULT_THROTTLE_CONFIG.windowSeconds),
-		delayAfterFailures: num(
-			'LOGIN_DELAY_AFTER_FAILURES',
-			DEFAULT_THROTTLE_CONFIG.delayAfterFailures
-		),
-		delayBaseMs: num('LOGIN_DELAY_BASE_MS', DEFAULT_THROTTLE_CONFIG.delayBaseMs),
-		delayMaxMs: num('LOGIN_DELAY_MAX_MS', DEFAULT_THROTTLE_CONFIG.delayMaxMs)
-	};
+		config[field] = parsed;
+	}
+	if (problems.length) {
+		throw new Error(
+			`[login-throttle] invalid configuration: ${problems.join('; ')}. ` +
+				'Fix the value in the env file, or unset it to use the default.'
+		);
+	}
+	return config;
+}
+
+/**
+ * The effective configuration as one structured log line, written once at
+ * startup so the values in force sit in the log next to the `login_attempt`
+ * lines they govern. Keyed by env variable name, so it reads against the env
+ * file directly.
+ */
+export function throttleConfigLogLine(config: ThrottleConfig): string {
+	const values = Object.fromEntries(
+		(Object.keys(THROTTLE_ENV) as (keyof ThrottleConfig)[]).map((f) => [THROTTLE_ENV[f], config[f]])
+	);
+	return JSON.stringify({
+		event: 'login_config',
+		...values,
+		ceiling: config.maxFailures === 0 ? 'disabled' : 'enabled'
+	});
 }
 
 /** The two things a key can be. Never the raw email, never a raw IP in a log. */
@@ -228,7 +265,7 @@ export class LoginThrottle {
 	private readonly clock: Clock;
 
 	constructor(
-		private readonly config: ThrottleConfig = DEFAULT_THROTTLE_CONFIG,
+		readonly config: ThrottleConfig = DEFAULT_THROTTLE_CONFIG,
 		clock?: Clock
 	) {
 		// A negative ceiling is not "no ceiling": the check below only treats 0
@@ -247,9 +284,9 @@ export class LoginThrottle {
 	/**
 	 * The delay curve. `base * 2^(failures - delayAfter - 1)`, capped.
 	 *
-	 * At defaults: failures 5,6,7,8,9 -> 1000, 2000, 4000, 8000, 8000. So the
-	 * first four failures are instant to return, and the cost arrives only once
-	 * someone is clearly guessing. The cap matters: without it, failure 20
+	 * At defaults: failures 5..11 -> 1000, 2000, 4000, 8000, 16000, 30000,
+	 * 30000. So the first four failures are instant to return, and the cost
+	 * arrives only once someone is clearly guessing. The cap matters: without it, failure 20
 	 * would sleep for 1000 * 2^15 ms, which is a self-inflicted denial of
 	 * service on a shared host.
 	 */

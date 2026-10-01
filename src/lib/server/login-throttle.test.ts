@@ -7,11 +7,14 @@
  * that waits 15 minutes to prove a window slides is a test nobody runs.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
 	DEFAULT_THROTTLE_CONFIG,
 	LoginThrottle,
 	normalizeEmail,
+	THROTTLE_ENV,
 	throttleConfigFromEnv,
+	throttleConfigLogLine,
 	type ThrottleKey
 } from './login-throttle';
 
@@ -93,10 +96,10 @@ describe('LoginThrottle', () => {
 	});
 
 	describe('the delay curve', () => {
-		it('is 1s, 2s, 4s, 8s, 8s for failures five through nine', () => {
+		it('is 1s, 2s, 4s, 8s, 16s, then the 30s cap, for failures five through eleven', () => {
 			const t = new LoginThrottle(DEFAULT_THROTTLE_CONFIG, fakeClock().now);
-			const expected = [1000, 2000, 4000, 8000, 8000];
-			for (let failures = 5; failures <= 9; failures++) {
+			const expected = [1000, 2000, 4000, 8000, 16000, 30000, 30000];
+			for (let failures = 5; failures <= 11; failures++) {
 				expect(t.delayFor(failures), `at ${failures} failures`).toBe(expected[failures - 5]);
 			}
 		});
@@ -264,18 +267,67 @@ describe('throttleConfigFromEnv', () => {
 		});
 	});
 
-	it('falls back rather than throwing on a malformed value', () => {
-		// A typo in an env file must degrade to the shipped numbers. Refusing
-		// every sign-in, or silently dropping protection, are both worse.
-		expect(throttleConfigFromEnv({ LOGIN_MAX_FAILURES: 'lots' }).maxFailures).toBe(
-			DEFAULT_THROTTLE_CONFIG.maxFailures
-		);
-		expect(throttleConfigFromEnv({ LOGIN_DELAY_BASE_MS: '-5' }).delayBaseMs).toBe(
-			DEFAULT_THROTTLE_CONFIG.delayBaseMs
-		);
+	it('treats an empty value as unset', () => {
+		// Compose renders an unset optional variable as an empty string.
 		expect(throttleConfigFromEnv({ LOGIN_MAX_FAILURES: '' }).maxFailures).toBe(
 			DEFAULT_THROTTLE_CONFIG.maxFailures
 		);
+	});
+
+	it('rejects a malformed value instead of quietly running the default', () => {
+		// 0.2.1 fell back with a warning: the env file said one thing and the
+		// process did another. Now it refuses, and names every bad variable at
+		// once so one restart is enough to see them all.
+		expect(() =>
+			throttleConfigFromEnv({ LOGIN_DELAY_MAX_MS: 'lots', LOGIN_DELAY_BASE_MS: '-5' })
+		).toThrow(
+			/LOGIN_DELAY_MAX_MS="lots".*LOGIN_DELAY_BASE_MS="-5"|LOGIN_DELAY_BASE_MS="-5".*LOGIN_DELAY_MAX_MS="lots"/
+		);
+		expect(() => throttleConfigFromEnv({ LOGIN_MAX_FAILURES: 'NaN' })).toThrow(
+			/LOGIN_MAX_FAILURES/
+		);
+	});
+
+	it('defaults the delay cap to 30 seconds, with no clamp on a configured value', () => {
+		expect(throttleConfigFromEnv({}).delayMaxMs).toBe(30_000);
+		// A configured value is taken as written, high or low. A clamp would hide
+		// a misconfiguration, which is the opposite of what a tunable is for.
+		expect(throttleConfigFromEnv({ LOGIN_DELAY_MAX_MS: '120000' }).delayMaxMs).toBe(120_000);
+		expect(throttleConfigFromEnv({ LOGIN_DELAY_MAX_MS: '500' }).delayMaxMs).toBe(500);
+	});
+});
+
+describe('throttleConfigLogLine', () => {
+	it('states the effective values under their env names, and whether the ceiling is on', () => {
+		const line = JSON.parse(
+			throttleConfigLogLine(throttleConfigFromEnv({ LOGIN_MAX_FAILURES: '0' }))
+		) as Record<string, unknown>;
+		expect(line).toEqual({
+			event: 'login_config',
+			LOGIN_MAX_FAILURES: 0,
+			LOGIN_FAILURE_WINDOW_SEC: 900,
+			LOGIN_DELAY_AFTER_FAILURES: 5,
+			LOGIN_DELAY_BASE_MS: 1000,
+			LOGIN_DELAY_MAX_MS: 30_000,
+			ceiling: 'disabled'
+		});
+	});
+});
+
+describe('docker-compose.yml defaults', () => {
+	it('match the code defaults for every throttle variable', () => {
+		// Compose repeats each default (`${LOGIN_DELAY_MAX_MS:-8000}`), so a
+		// default changed only in code never reaches production: compose hands
+		// the container its own copy. That copy is what production runs.
+		const compose = readFileSync('docker-compose.yml', 'utf8');
+		for (const field of Object.keys(THROTTLE_ENV) as (keyof typeof THROTTLE_ENV)[]) {
+			const name = THROTTLE_ENV[field];
+			const match = compose.match(new RegExp(`${name}: \\$\\{${name}:-([^}]*)\\}`));
+			expect(match, `${name} has no passthrough line in docker-compose.yml`).not.toBeNull();
+			expect(Number(match![1]), `${name}: compose default vs code default`).toBe(
+				DEFAULT_THROTTLE_CONFIG[field]
+			);
+		}
 	});
 });
 

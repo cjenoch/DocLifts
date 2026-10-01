@@ -112,7 +112,7 @@ services:
       LOGIN_FAILURE_WINDOW_SEC: ${LOGIN_FAILURE_WINDOW_SEC:-900}
       LOGIN_DELAY_AFTER_FAILURES: ${LOGIN_DELAY_AFTER_FAILURES:-5}
       LOGIN_DELAY_BASE_MS: ${LOGIN_DELAY_BASE_MS:-1000}
-      LOGIN_DELAY_MAX_MS: ${LOGIN_DELAY_MAX_MS:-8000}
+      LOGIN_DELAY_MAX_MS: ${LOGIN_DELAY_MAX_MS:-30000}
       SESSION_EXPIRES_DAYS: ${SESSION_EXPIRES_DAYS:-30}
     # Publish on the VPS tailnet IP (not 127.0.0.1, not 0.0.0.0) so the app is
     # reachable from other tailnet devices (phone/laptop) but not the public

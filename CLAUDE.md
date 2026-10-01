@@ -183,6 +183,33 @@ Two things make this dangerous rather than merely broken:
 stops the guard demanding a session for Better Auth's own endpoints — it just
 must not come first.
 
+### LLM calls go through `complete()` only
+
+**No provider SDK is called anywhere except through `complete()`**
+(`src/lib/server/llm/index.ts`). One seam, like the auth proxy. Nothing outside
+`src/lib/server/llm/` imports `ai`, `ai/*`, `@ai-sdk/*` or `@openrouter/*`;
+`src/lib/server/llm-seam.test.ts` fails the server project if anything does.
+A feature that wants a model calls `complete(db, userId, { purpose, system,
+messages, schema, kind })` and gets a typed object back.
+
+What the seam guarantees, and what a second path would silently lose:
+
+- **A `llm_calls` row on every path** — ok, schema miss, provider error,
+  timeout, cap refusal, not configured — written before the typed error is
+  thrown, so the error's `callId` names a row that exists.
+- **The per-user hourly cap** (in-memory, the login throttle's shape) and the
+  timeout.
+- **No secrets, no prompts.** The API key is never logged, stored, or put in an
+  error. Prompt text is stored only with `LLM_STORE_PROMPTS=1`; otherwise only
+  `prompt_hash`.
+- **Lazy config.** `process.env` is read on the first call, never at import or
+  boot, so the app runs and CI passes with no LLM variable set. A missing key is
+  `LlmNotConfigured` for the caller, not a boot failure. There is no default
+  model id: `LLM_MODEL` is required when the layer is used.
+
+Adding a provider is a `case` in `llm/provider.ts` and a dependency. See
+`docs/llm.md`.
+
 ### Migrations: name everything, apply before you trust it
 
 Three rules, all from the 0009 round where three separate defects were
@@ -228,7 +255,9 @@ below). No other table has shared or global rows, and none may gain them.
 
 The eight directly-owned tables, the ones 0011 makes `user_id NOT NULL`:
 `programs`, `gyms`, `exercises`, `sessions`, `sets`, `pain_events`,
-`workout_log_imports`, `program_draft_requests`.
+`workout_log_imports`, `program_draft_requests`. Since 0.3.1 (migration 0013)
+`llm_calls` is a ninth, created `user_id NOT NULL` from the start; only
+`complete()` writes it.
 
 Everything else is owned through a parent chain. Resolve it; never widen it.
 
@@ -518,6 +547,7 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/server/catalog.ts` — equipment model reads (`modelVisibleTo`, browse, picker) and the owned-row writes (edit, copy). The only place model visibility is decided.
 - `src/lib/server/catalog-import.ts` + `scripts/catalog-import.ts` (`pnpm catalog:import <csv> [--dry-run]`) — the only writer of global catalog rows. `data/catalog/` holds the dated snapshots; `docs/catalog.md` describes them.
 - `scripts/catalog-prod.sh` — runs the importer against production (verified dump, dry run, typed confirmation). Mirrors `migrate-prod.sh`.
+- `src/lib/server/llm/` — the LLM seam: `complete()` and `usageForUser()` (`index.ts`, `usage.ts`), lazy env config (`config.ts`), the provider switch (`provider.ts`), the per-user cap (`cap.ts`). The only importer of `ai` / provider SDKs. `scripts/llm-ping.ts` (`pnpm llm:ping`) is its smoke test. See `docs/llm.md`.
 - `compose.demo.yml` — isolated, localhost-only temporary demo; does not mount production data or read `.env`.
 - `src/lib/server/db/index.ts` — Drizzle client singleton
 - `src/lib/server/progression.ts` — engine + history helpers

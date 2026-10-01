@@ -13,6 +13,7 @@
  * Imported only by tests. Not used by production code.
  */
 import sharp from 'sharp';
+import type { EquipmentCandidate } from './analyze';
 
 export const FIXTURE_GPS = {
 	GPSLatitudeRef: 'N',
@@ -69,3 +70,18 @@ export function smallPng(width = 300, height = 200): Promise<Buffer> {
 		.png()
 		.toBuffer();
 }
+
+/** A candidate as the model would return it for a Hammer Strength Iso-Lateral Row placard. */
+export const FIXTURE_CANDIDATE: EquipmentCandidate = {
+	placard_text: 'HAMMER STRENGTH  ISO-LATERAL ROW  IL-ROW',
+	manufacturer: 'Hammer Strength',
+	product_line: 'Plate Loaded',
+	model_code: 'IL-ROW',
+	name: 'Iso-Lateral Row',
+	loading_type: 'plate_loaded',
+	laterality: 'independent',
+	starting_resistance_lb: null,
+	stack_lb: null,
+	field_confidence: { manufacturer: 0.95, model_code: 0.9, name: 0.85, loading_type: 0.5 },
+	notes: 'Lower half of the placard is scratched.'
+};

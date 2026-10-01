@@ -1,7 +1,8 @@
 import { error, fail } from '@sveltejs/kit';
 import { db } from '$lib/server/db';
 import { requireUser } from '$lib/server/request-user';
-import { ownGym, uploadPhoto } from '$lib/server/photos';
+import { ownGym, PhotoLimitError, uploadPhoto } from '$lib/server/photos';
+import { analyzePhoto } from '$lib/server/photos/analyze';
 import { photoFailure } from '$lib/server/photos/http';
 import { resolvePhotoLimits } from '$lib/server/photos/config';
 import { photoStore } from '$lib/server/photos/store';
@@ -24,7 +25,11 @@ export const actions: Actions = {
 		if (!(file instanceof File) || file.size === 0) {
 			return fail(400, { message: 'Choose a photo to upload.' });
 		}
+		const note = String(form.get('note') ?? '').slice(0, 200);
+		const store = photoStore();
+		let photoId: string;
 		try {
+			const limits = resolvePhotoLimits();
 			const photo = await uploadPhoto(
 				db,
 				userId,
@@ -34,10 +39,26 @@ export const actions: Actions = {
 					type: file.type,
 					name: file.name
 				},
-				{ store: photoStore(), limits: resolvePhotoLimits() }
+				{ store, limits }
 			);
 			if (!photo) error(404, 'Gym not found');
-			return { message: 'Photo uploaded', photoId: photo.id };
+			photoId = photo.id;
+			// Analysis runs inline: one request from photo to review. A failed
+			// analysis leaves the photo `uploaded` (llm_calls records why) and
+			// is not a failed upload; the review page offers "try again".
+			let analysis: 'ok' | 'failed' | 'limit' = 'failed';
+			try {
+				const outcome = await analyzePhoto(db, userId, photo.id, { store, limits, note });
+				analysis = outcome?.ok ? 'ok' : 'failed';
+			} catch (e) {
+				if (!(e instanceof PhotoLimitError)) throw e;
+				analysis = 'limit';
+			}
+			return {
+				message: analysis === 'ok' ? 'Photo uploaded and read' : 'Photo uploaded',
+				photoId,
+				analysis
+			};
 		} catch (e) {
 			return photoFailure(e);
 		}

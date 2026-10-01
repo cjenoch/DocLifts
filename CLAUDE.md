@@ -207,6 +207,16 @@ What the seam guarantees, and what a second path would silently lose:
   `LlmNotConfigured` for the caller, not a boot failure. There is no default
   model id: `LLM_MODEL` is required when the layer is used.
 
+- **Send a plain schema; validate with zod.** `wireSchema` (optional) is the
+  JSON schema the provider receives, while `schema` still validates the reply.
+  Use it whenever the zod schema carries constraints (lengths, ranges,
+  defaults, preprocess): strict structured output compiles all of them, and
+  the derived photo schema took 15-16 s per call against 3.7-7 s plain (0.4.4).
+  `photos/candidate-wire.test.ts` is the pattern for keeping the two in step.
+- **Replies are lenient where meaning is preserved, strict where it is not.**
+  A missing key reads as unknown and a synonym maps to its enum value (0.4.1,
+  0.4.3); a wrong type is still a `schema_error`. Real models omit and reword.
+
 Adding a provider is a `case` in `llm/provider.ts` and a dependency. See
 `docs/llm.md`.
 
@@ -518,6 +528,12 @@ docker tag doclifts-web:vps doclifts-web:pre-<version>
 Delete it only after the release checks pass. Run the `*-prod.sh` wrappers on
 the VPS over SSH, never from another machine against its Docker socket.
 
+In practice (2026-10-01): Claude Code's auto-mode safety check refuses
+`compose-prod.sh up`, `catalog-prod.sh` imports and edits to its own
+permission settings, even after the owner's "go". The assistant prepares the
+exact commands, the owner runs them, and the assistant runs the read-only
+checks and tags. Do not look for a way around the refusal.
+
 **Secrets never appear in chat, commits, logs, or docs.** Not passwords, not
 `BETTER_AUTH_SECRET`, not database URLs with credentials, and that includes
 "just for the record" quotes in a release log. Passwords reach the CLI through
@@ -560,6 +576,7 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/server/catalog-import.ts` + `scripts/catalog-import.ts` (`pnpm catalog:import <csv> [--dry-run]`) — the only writer of global catalog rows. `data/catalog/` holds the dated snapshots; `docs/catalog.md` describes them.
 - `scripts/catalog-prod.sh` — runs the importer against production (verified dump, dry run, typed confirmation). Mirrors `migrate-prod.sh`.
 - `src/lib/server/llm/` — the LLM seam: `complete()` and `usageForUser()` (`index.ts`, `usage.ts`), lazy env config (`config.ts`), the provider switch (`provider.ts`), the per-user cap (`cap.ts`). The only importer of `ai` / provider SDKs. `scripts/llm-ping.ts` (`pnpm llm:ping`) is its smoke test. See `docs/llm.md`.
+- `src/lib/server/photos/` — equipment from a photo (0.4.0): `store.ts` (S3 or memory, `PHOTO_STORE`), `process.ts` (sharp: orient, 1600 px, metadata stripped), `analyze.ts` (`EquipmentCandidate`, `CANDIDATE_WIRE_SCHEMA`, the one `complete()` call), `match.ts` (exact, leading-digit, prefix, name; through `modelVisibleTo`), `confirm.ts` (link / create / discard). Images are served only by the guarded `/photos/[id]/image` route. See `docs/photos.md`.
 - `compose.demo.yml` — isolated, localhost-only temporary demo; does not mount production data or read `.env`.
 - `src/lib/server/db/index.ts` — Drizzle client singleton
 - `src/lib/server/progression.ts` — engine + history helpers

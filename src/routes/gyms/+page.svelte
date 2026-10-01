@@ -76,14 +76,18 @@
 			></label
 		>
 		<label class="block"
-			>Local machine label<input
+			>Local machine label (optional with a model)<input
 				name="localLabel"
-				required
 				maxlength="120"
 				placeholder="e.g. Press near window"
+				aria-describedby="label-hint"
 				class="block w-full rounded bg-zinc-800 p-2"
 			/></label
 		>
+		<p id="label-hint" class="text-sm text-zinc-400">
+			Leave it blank and the machine is named after its model, e.g. "Hammer Strength Iso-Lateral Row
+			(IL-ROW)". With no model, give it a label.
+		</p>
 		<label class="block"
 			>Equipment type<select
 				name="equipmentType"

@@ -65,3 +65,24 @@ export function resistanceLabel(model: {
 
 /** Only real web links become anchors; "reseller spec" stays text. */
 export const isHttpUrl = (v: string | null): v is string => !!v && /^https?:\/\//.test(v);
+
+/** The longest machine label a form accepts (`machines.ts` validates the same bound). */
+export const MACHINE_LABEL_MAX = 120;
+
+/**
+ * The machine label used when the user leaves it blank but names the model
+ * (0.3.2): `<manufacturer> <name>`, plus ` (<code>)` when the model has one,
+ * e.g. "Hammer Strength Iso-Lateral Row (IL-ROW)", "Nautilus Leverage Row".
+ * Name before code so the session machine picker reads as words first.
+ * Clipped to the label limit; never empty for a model (manufacturer and name
+ * are both NOT NULL).
+ */
+export function defaultMachineLabel(model: {
+	manufacturer: string;
+	name: string;
+	code?: string | null;
+}): string {
+	const code = model.code?.trim();
+	const label = `${model.manufacturer.trim()} ${model.name.trim()}${code ? ` (${code})` : ''}`;
+	return label.slice(0, MACHINE_LABEL_MAX).trim();
+}

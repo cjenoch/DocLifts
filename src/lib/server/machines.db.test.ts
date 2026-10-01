@@ -7,7 +7,8 @@ import {
 	createMachine,
 	addSessionExercise,
 	bindSessionMachine,
-	machineChoices
+	machineChoices,
+	LABEL_REQUIRED_MESSAGE
 } from './machines';
 import { startSessionForDay, endSession, updateSetInSession } from './sessions';
 import { modelChoices } from './catalog';
@@ -691,6 +692,116 @@ describe('physical machine identity', () => {
 // than in a check that could pass a moment before the row changed. Nothing here
 // looks at HTTP status codes; D6 is about the module's own result.
 // ─────────────────────────────────────────────────────────────────────────────
+// 0.3.2: the label is optional when the machine has a model to be named after.
+describe('optional machine label', () => {
+	async function setup() {
+		const userId = await createTestUser(db, 'label');
+		const gym = await createGym(db, userId, { name: 'Label Gym' });
+		const [coded] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Hammer Strength',
+				code: 'IL-ROW',
+				name: 'Iso-Lateral Row',
+				loadingType: 'machine-plate'
+			})
+			.returning();
+		const [codeless] = await db
+			.insert(s.equipmentModels)
+			.values({ manufacturer: 'Nautilus', name: 'Leverage Row', loadingType: 'machine-plate' })
+			.returning();
+		const labels = async () =>
+			(await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.gymId, gym.id))).map(
+				(m) => m.localLabel
+			);
+		return { userId, gym, coded, codeless, labels };
+	}
+
+	it('blank label with a chosen model stores "<manufacturer> <name> (<code>)"', async () => {
+		const f = await setup();
+		const a = await createMachine(db, f.userId, {
+			gymId: f.gym.id,
+			localLabel: '',
+			equipmentType: 'machine-plate',
+			equipmentModelId: f.coded.id
+		});
+		const b = await createMachine(db, f.userId, {
+			gymId: f.gym.id,
+			localLabel: '   ',
+			equipmentType: 'machine-plate',
+			equipmentModelId: f.codeless.id
+		});
+		const [ra] = await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, a.id));
+		const [rb] = await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, b.id));
+		expect(ra).toMatchObject({
+			localLabel: 'Hammer Strength Iso-Lateral Row (IL-ROW)',
+			equipmentModelId: f.coded.id
+		});
+		expect(rb.localLabel).toBe('Nautilus Leverage Row');
+	});
+
+	it('blank label with a typed-in model is named after that model', async () => {
+		const f = await setup();
+		const made = await createMachine(db, f.userId, {
+			gymId: f.gym.id,
+			equipmentType: 'machine-stack',
+			manufacturer: 'Cybex',
+			modelName: 'Arm Curl'
+		});
+		expect(made.localLabel).toBe('Cybex Arm Curl');
+		expect(made.equipmentModelId).not.toBeNull();
+	});
+
+	it('blank label and no model is refused with the message, and nothing is written', async () => {
+		const f = await setup();
+		await expect(
+			createMachine(db, f.userId, {
+				gymId: f.gym.id,
+				localLabel: '',
+				equipmentType: 'machine-plate'
+			})
+		).rejects.toThrow(LABEL_REQUIRED_MESSAGE);
+		await expect(
+			createMachine(db, f.userId, { gymId: f.gym.id, equipmentType: 'cable' })
+		).rejects.toThrow(LABEL_REQUIRED_MESSAGE);
+		expect(await f.labels()).toEqual([]);
+	});
+
+	it('an explicit label wins over the model', async () => {
+		const f = await setup();
+		await createMachine(db, f.userId, {
+			gymId: f.gym.id,
+			localLabel: 'Row by the window',
+			equipmentType: 'machine-plate',
+			equipmentModelId: f.coded.id
+		});
+		expect(await f.labels()).toEqual(['Row by the window']);
+	});
+
+	it("another user's model gives no label and no machine", async () => {
+		const f = await setup();
+		const bob = await createTestUser(db, 'label-bob');
+		const [bobs] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Secret',
+				name: 'Bob only',
+				loadingType: 'machine-plate',
+				ownerUserId: bob
+			})
+			.returning();
+		await expect(
+			createMachine(db, f.userId, {
+				gymId: f.gym.id,
+				localLabel: '',
+				equipmentType: 'machine-plate',
+				equipmentModelId: bobs.id
+			})
+		).rejects.toThrow('Model loading type does not match machine');
+		expect(await f.labels()).toEqual([]);
+	});
+});
+
 describe('cross-tenant isolation', () => {
 	it('machineChoices shows each user only their own gyms, machines, and exercises', async () => {
 		const f = await fixture();

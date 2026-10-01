@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { confidenceBadge, isHttpUrl, resistanceLabel } from './catalog-labels';
+import { confidenceBadge, defaultMachineLabel, isHttpUrl, resistanceLabel } from './catalog-labels';
 
 describe('confidenceBadge', () => {
 	const global = (confidence: string) => ({ confidence, ownerUserId: null });
@@ -27,4 +27,25 @@ it('isHttpUrl links only web URLs', () => {
 	expect(isHttpUrl('https://gym80.de/en/all-products/')).toBe(true);
 	expect(isHttpUrl('reseller spec')).toBe(false);
 	expect(isHttpUrl(null)).toBe(false);
+});
+
+describe('defaultMachineLabel', () => {
+	it('is manufacturer and name, plus the code when there is one', () => {
+		expect(
+			defaultMachineLabel({
+				manufacturer: 'Hammer Strength',
+				name: 'Iso-Lateral Row',
+				code: 'IL-ROW'
+			})
+		).toBe('Hammer Strength Iso-Lateral Row (IL-ROW)');
+		expect(
+			defaultMachineLabel({ manufacturer: 'Nautilus', name: 'Leverage Row', code: null })
+		).toBe('Nautilus Leverage Row');
+		expect(defaultMachineLabel({ manufacturer: 'Nautilus', name: 'Leverage Row', code: ' ' })).toBe(
+			'Nautilus Leverage Row'
+		);
+	});
+	it('never exceeds the 120-character label limit', () => {
+		expect(defaultMachineLabel({ manufacturer: 'M', name: 'x'.repeat(200) })).toHaveLength(120);
+	});
 });

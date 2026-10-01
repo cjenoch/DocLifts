@@ -25,9 +25,15 @@ import {
 import { snapForEquipment } from './plates';
 import { mainPrefills } from './main-prefill';
 import { modelVisibleTo } from './catalog';
+import { defaultMachineLabel } from '../catalog-labels';
 
 const name = z.string().trim().min(1).max(120);
 const optionalText = z.preprocess((v) => (v === '' || v == null ? undefined : v), name.optional());
+// A whitespace-only label is blank too: the browser sends what was typed.
+const optionalLabel = z.preprocess(
+	(v) => (v == null || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+	name.optional()
+);
 const optionalId = z.preprocess(
 	(v) => (v === '' || v == null ? undefined : v),
 	z.string().uuid().optional()
@@ -51,7 +57,8 @@ const optionalLb = z.preprocess(
 );
 const machineSchema = z.object({
 	gymId: z.string().uuid(),
-	localLabel: name,
+	// Optional since 0.3.2: blank takes a label derived from the model.
+	localLabel: optionalLabel,
 	equipmentType,
 	equipmentModelId: optionalId,
 	manufacturer: optionalText,
@@ -88,6 +95,9 @@ const addSchema = z
 	.refine((v) => v.repsMin <= v.repsMax, { message: 'Minimum reps must not exceed maximum' });
 
 export class MachineInputError extends Error {}
+/** Shown when the label is blank and there is no model to name the machine after. */
+export const LABEL_REQUIRED_MESSAGE =
+	'Give the machine a label, or choose its model so the label can be taken from it';
 export async function createGym(db: Database, userId: string, input: unknown) {
 	const value = z.object({ name }).parse(input);
 	const [gym] = await db
@@ -111,6 +121,11 @@ export async function createMachine(db: Database, userId: string, input: unknown
 		let modelId = value.equipmentModelId;
 		if (modelId && value.modelName)
 			throw new MachineInputError('Choose existing model or enter a new one, not both');
+		// A blank label is named after the model: the chosen one, or the one
+		// typed in. With neither there is nothing to derive it from.
+		let localLabel = value.localLabel;
+		if (!localLabel && !modelId && !value.modelName)
+			throw new MachineInputError(LABEL_REQUIRED_MESSAGE);
 		if (modelId) {
 			// A model is usable when it is global (owner_user_id IS NULL) or
 			// belongs to this user. Anything else is not found as far as this
@@ -121,6 +136,7 @@ export async function createMachine(db: Database, userId: string, input: unknown
 				.where(and(eq(equipmentModels.id, modelId), modelVisibleTo(userId)));
 			if (!model || model.loadingType !== value.equipmentType)
 				throw new MachineInputError('Model loading type does not match machine');
+			localLabel ??= defaultMachineLabel(model);
 		} else if (value.manufacturer && value.modelName) {
 			const [model] = await tx
 				.insert(equipmentModels)
@@ -132,12 +148,14 @@ export async function createMachine(db: Database, userId: string, input: unknown
 				})
 				.returning();
 			modelId = model.id;
+			localLabel ??= defaultMachineLabel(model);
 		}
+		if (!localLabel) throw new MachineInputError(LABEL_REQUIRED_MESSAGE);
 		const [machine] = await tx
 			.insert(gymEquipment)
 			.values({
 				gymId: gym.id,
-				localLabel: value.localLabel,
+				localLabel,
 				equipmentType: value.equipmentType,
 				equipmentModelId: modelId,
 				stackLb: value.stackLb,

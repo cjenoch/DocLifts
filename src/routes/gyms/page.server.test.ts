@@ -97,6 +97,40 @@ it('createMachine creates a machine and confirms', async () => {
 	expect(rows[0].localLabel).toBe('Lat Pulldown');
 });
 
+// 0.3.2: the label may be blank when a model is chosen; with no model it is
+// refused with a message the page shows.
+it('createMachine: blank label takes the model name; blank and no model is a 400', async () => {
+	await actions.createGym(post({ name: 'Garage' }));
+	const db = testDb.db!;
+	const [gym] = await db.select().from(s.gyms).where(eq(s.gyms.name, 'Garage'));
+	const refused = await actions.createMachine(
+		post({ gymId: gym.id, localLabel: '', equipmentType: 'cable', equipmentModelId: '' })
+	);
+	expect(refused).toMatchObject({
+		status: 400,
+		data: {
+			message: 'Give the machine a label, or choose its model so the label can be taken from it'
+		}
+	});
+	expect(await db.select().from(s.gymEquipment)).toHaveLength(0);
+
+	const [model] = await db
+		.insert(s.equipmentModels)
+		.values({ manufacturer: 'Nautilus', name: 'Leverage Row', loadingType: 'machine-plate' })
+		.returning();
+	const made = await actions.createMachine(
+		post({
+			gymId: gym.id,
+			localLabel: '',
+			equipmentType: 'machine-plate',
+			equipmentModelId: model.id
+		})
+	);
+	expect(made).toEqual({ message: 'Machine created' });
+	const rows = await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.gymId, gym.id));
+	expect(rows.map((r) => r.localLabel)).toEqual(['Nautilus Leverage Row']);
+});
+
 // Cross-tenant: another user's gym is reported exactly as a nonexistent one —
 // 'Gym not found', the module's existing message. No 403, no distinct wording
 // (D6), so a caller cannot probe for the existence of someone else's gym.

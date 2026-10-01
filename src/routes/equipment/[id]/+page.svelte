@@ -4,6 +4,7 @@
 		LATERALITY_LABELS,
 		LOADING_TYPE_LABELS,
 		confidenceBadge,
+		defaultMachineLabel,
 		isHttpUrl,
 		resistanceLabel
 	} from '$lib/catalog-labels';
@@ -87,14 +88,18 @@
 				></label
 			>
 			<label class="block"
-				>Local label<input
+				>Local label (optional)<input
 					name="localLabel"
-					required
 					maxlength="120"
-					placeholder="e.g. Row by the window"
+					placeholder={defaultMachineLabel(m)}
+					aria-describedby="label-hint"
 					class="mt-1 block w-full rounded bg-zinc-800 p-2"
 				/></label
 			>
+			<p id="label-hint" class="text-sm text-zinc-400">
+				Blank names it "{defaultMachineLabel(m)}". A label like "Row by the window" tells two of the
+				same model apart.
+			</p>
 			<div class="grid grid-cols-2 gap-3">
 				<label class="block"
 					>Stack (lb, optional)<input

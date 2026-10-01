@@ -187,6 +187,66 @@ run('equipment pages (production build)', () => {
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
+	// 0.3.2: the label is optional when there is a model to name the machine after.
+	it('a blank label is named after the model, on both add-machine forms', async () => {
+		const db = harness.db;
+		const [gym] = await db.insert(s.gyms).values({ name: 'Label Gym', userId }).returning();
+		const [row] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(
+				and(
+					eq(s.equipmentModels.manufacturer, 'Hammer Strength'),
+					eq(s.equipmentModels.code, 'IL-ROW')
+				)
+			);
+		const labels = async () =>
+			(await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.gymId, gym.id)))
+				.map((m) => m.localLabel)
+				.sort();
+		const page = await signedInPage();
+
+		// /gyms with no model and no label: refused, with the reason on the page.
+		await page.goto(`${origin}/gyms?gym=${gym.id}&all=1`, { waitUntil: 'networkidle' });
+		await page.getByLabel('Equipment type').selectOption('cable');
+		await page.getByRole('button', { name: 'Add machine' }).click();
+		await expect
+			.poll(() => page.getByRole('status').textContent())
+			.toBe('Give the machine a label, or choose its model so the label can be taken from it');
+		expect(await labels()).toEqual([]);
+
+		// /gyms with a model and no label: named after the model.
+		await page.goto(`${origin}/gyms?gym=${gym.id}&q=IL-ROW`, { waitUntil: 'networkidle' });
+		await page.getByLabel('Equipment type').selectOption('machine-plate');
+		await page.getByLabel('Known model (optional)').selectOption(row.id);
+		await page.getByRole('button', { name: 'Add machine' }).click();
+		await expect.poll(() => page.getByRole('status').textContent()).toBe('Machine created');
+		await expect
+			.poll(() =>
+				page.getByText('Hammer Strength Iso-Lateral Row (IL-ROW) · machine-plate').count()
+			)
+			.toBe(1);
+		expect(await labels()).toEqual(['Hammer Strength Iso-Lateral Row (IL-ROW)']);
+
+		// /equipment/[id] "add to a gym" with no label: the placeholder is what is stored.
+		await page.goto(`${origin}/equipment/${row.id}`, { waitUntil: 'networkidle' });
+		expect(await page.getByLabel('Local label (optional)').getAttribute('placeholder')).toBe(
+			'Hammer Strength Iso-Lateral Row (IL-ROW)'
+		);
+		await page.getByLabel('Gym').selectOption(gym.id);
+		await page.getByRole('button', { name: 'Add to gym' }).click();
+		await expect.poll(() => page.getByRole('status').textContent()).toBe('Added to your gym');
+		await expect
+			.poll(() => page.getByText('Label Gym · Hammer Strength Iso-Lateral Row (IL-ROW)').count())
+			.toBe(2); // the one added from /gyms above, and this one
+		expect(await labels()).toEqual([
+			'Hammer Strength Iso-Lateral Row (IL-ROW)',
+			'Hammer Strength Iso-Lateral Row (IL-ROW)'
+		]);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
+
 	it('copy a catalog row into my own, then edit my copy, from the pages', async () => {
 		const db = harness.db;
 		const [global] = await db

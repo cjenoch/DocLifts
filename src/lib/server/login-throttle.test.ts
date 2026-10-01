@@ -278,3 +278,49 @@ describe('throttleConfigFromEnv', () => {
 		);
 	});
 });
+
+describe('LOGIN_MAX_FAILURES=0 disables the ceiling', () => {
+	/**
+	 * THE PERMANENT LOCKOUT THIS EXISTS TO PREVENT
+	 * -------------------------------------------
+	 * 0.2.2's release notes and runbook both tell the operator to set
+	 * LOGIN_MAX_FAILURES=0 in production "so failures slow and never lock".
+	 * The ceiling check read `count >= this.config.maxFailures`, which with
+	 * maxFailures = 0 is `count >= 0` — TRUE FOR EVERY ATTEMPT, INCLUDING AN
+	 * ACCOUNT WITH NO RECORDED FAILURES AT ALL.
+	 *
+	 * So the change the release asked for would have refused every sign-in on
+	 * the tailnet, forever, for the owner of the only account, with no typo
+	 * required and no way out. Found by reading the comparison before applying
+	 * the config, not by running it.
+	 *
+	 * These are the tests that would have caught it.
+	 */
+
+	// POSITIONAL, not { config, clock }: the constructor takes the config as
+	// its first argument. Wrapping it in an object type-checks fine (the excess
+	// property is allowed) and then leaves every field `undefined`, which makes
+	// this suite fail for a reason that has nothing to do with the ceiling —
+	// worth stating because that is exactly how it went wrong the first time.
+	const config = { ...DEFAULT_THROTTLE_CONFIG, maxFailures: 0 };
+	const keys: ThrottleKey[] = [{ type: 'email', value: 'owner@doclifts.invalid' }];
+
+	it('does not refuse an account with zero recorded failures', () => {
+		const t = new LoginThrottle(config, () => 1_000_000);
+		expect(t.check(keys).kind).toBe('allow');
+	});
+
+	it('does not refuse after many failures either — it only slows', () => {
+		const t = new LoginThrottle(config, () => 1_000_000);
+		for (let i = 0; i < 50; i++) t.recordFailure(keys);
+
+		const decision = t.check(keys);
+		expect(decision.kind).toBe('delay');
+		expect(decision.kind === 'delay' && decision.delayMs).toBeGreaterThan(0);
+	});
+
+	it('a negative ceiling is refused at startup rather than silently meaning 0', () => {
+		// The constructor takes the config positionally, not as an object.
+		expect(() => new LoginThrottle({ ...DEFAULT_THROTTLE_CONFIG, maxFailures: -1 })).toThrow();
+	});
+});

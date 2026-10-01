@@ -53,7 +53,13 @@ import { createHash } from 'node:crypto';
 
 /** Tunables. Every one is env-driven; these are the defaults. */
 export interface ThrottleConfig {
-	/** Failures per key per window before a refusal. */
+	/**
+	 * Failures per key per window before a refusal.
+	 *
+	 * ZERO MEANS THE CEILING IS OFF — failures only ever slow, never lock.
+	 * Set on the tailnet: one account and one trusted user means a ceiling
+	 * reachable by a typo is a self-lockout with no counterparty.
+	 */
 	maxFailures: number;
 	/** Sliding window length, in seconds. */
 	windowSeconds: number;
@@ -225,6 +231,16 @@ export class LoginThrottle {
 		private readonly config: ThrottleConfig = DEFAULT_THROTTLE_CONFIG,
 		clock?: Clock
 	) {
+		// A negative ceiling is not "no ceiling": the check below only treats 0
+		// as disabled, so -1 would fall through to `count >= -1`, which refuses
+		// every attempt — the same permanent lockout as 0, but by accident
+		// instead of on purpose. Reject it where it is set rather than letting
+		// an env typo become an outage.
+		if (config.maxFailures < 0) {
+			throw new Error(
+				`login throttle: maxFailures must be >= 0 (0 disables the ceiling), got ${config.maxFailures}`
+			);
+		}
 		this.clock = clock ?? (() => Date.now());
 	}
 
@@ -272,7 +288,16 @@ export class LoginThrottle {
 			count: this.liveFailures(this.keyId(key)).length
 		}));
 
-		const atCeiling = counts.find(({ count }) => count >= this.config.maxFailures);
+		// `maxFailures === 0` disables the ceiling. Read literally, `count >=
+		// 0` is true for every attempt — including an account with NO recorded
+		// failures — so setting LOGIN_MAX_FAILURES=0 would refuse every sign-in
+		// forever and lock the owner out of a working password permanently.
+		// That is precisely the failure this release exists to end, so the
+		// "0 disables" semantics are checked here rather than assumed.
+		const atCeiling =
+			this.config.maxFailures > 0
+				? counts.find(({ count }) => count >= this.config.maxFailures)
+				: undefined;
 		if (atCeiling) {
 			const stored = this.failures.get(this.keyId(atCeiling.key)) ?? [];
 			const oldest = stored[0] ?? this.clock();

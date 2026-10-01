@@ -18,33 +18,48 @@ import type { PhotoStore } from './store';
 
 export const PHOTO_PURPOSE = 'equipment_from_photo';
 
-const confidence = z.number().min(0).max(1);
+const confidence = z.number().min(0).max(1).default(0);
 const text = (max: number) => z.string().max(max);
+/** null when unknown, and null when the model leaves the key out entirely. */
+const maybe = <T extends z.ZodType>(t: T) => t.nullable().default(null);
 
-/** What the model is asked to return. Field names are the spec's, verbatim. */
+/**
+ * What the model is asked to return. Field names are the spec's, verbatim.
+ *
+ * Every key tolerates being ABSENT, falling back to what "unknown" already
+ * means: null, '', 'unknown', confidence 0 (which the review page marks as
+ * low). A model without enforced structured output omits keys it has nothing
+ * for — on 2026-10-01 production's first real analysis read the placard
+ * perfectly and was refused as schema_error for leaving out product_line.
+ * Wrong types and out-of-range values are still refused.
+ */
 export const EquipmentCandidate = z.object({
 	/** Verbatim text visible on any label or placard; '' if none. */
-	placard_text: text(4000),
-	manufacturer: text(200).nullable(),
-	product_line: text(200).nullable(),
+	placard_text: text(4000).default(''),
+	manufacturer: maybe(text(200)),
+	product_line: maybe(text(200)),
 	/** Exactly as printed, no normalization. */
-	model_code: text(200).nullable(),
+	model_code: maybe(text(200)),
 	/** e.g. "Iso-Lateral Row". */
-	name: text(200).nullable(),
-	loading_type: z.enum(['selectorized', 'plate_loaded', 'cable_stack', 'unknown']),
-	laterality: z.enum(['independent', 'bilateral', 'unknown']),
+	name: maybe(text(200)),
+	loading_type: z
+		.enum(['selectorized', 'plate_loaded', 'cable_stack', 'unknown'])
+		.default('unknown'),
+	laterality: z.enum(['independent', 'bilateral', 'unknown']).default('unknown'),
 	/** Only if printed; never estimated. */
-	starting_resistance_lb: z.number().min(0).max(2000).nullable(),
+	starting_resistance_lb: maybe(z.number().min(0).max(2000)),
 	/** Only if a stack is visible and its top plate is legible. */
-	stack_lb: z.number().min(0).max(2000).nullable(),
-	field_confidence: z.object({
-		manufacturer: confidence,
-		model_code: confidence,
-		name: confidence,
-		loading_type: confidence
-	}),
+	stack_lb: maybe(z.number().min(0).max(2000)),
+	field_confidence: z
+		.object({
+			manufacturer: confidence,
+			model_code: confidence,
+			name: confidence,
+			loading_type: confidence
+		})
+		.default({ manufacturer: 0, model_code: 0, name: 0, loading_type: 0 }),
 	/** What was unclear. */
-	notes: text(2000)
+	notes: text(2000).default('')
 });
 export type EquipmentCandidate = z.infer<typeof EquipmentCandidate>;
 

@@ -204,3 +204,14 @@ Fixture photos are generated in the tests; none is a real photo.
 
 Bulk capture; a photo-only machine without a model; OCR when no model is
 configured; cleanup of `discarded` rows; per-photo cost display.
+
+## Incomplete replies (0.4.1)
+
+`EquipmentCandidate` accepts a reply with keys missing: an absent nullable
+field is `null`, absent text is `''`, an absent loading type or laterality is
+`'unknown'`, and an absent confidence is `0` (so the review page marks the
+field as low confidence). Models without enforced structured output omit keys
+they have nothing for; production's first analysis (2026-10-01) read the
+placard correctly and was refused as `schema_error` for omitting
+`product_line`. Wrong types and out-of-range values are still a
+`schema_error`.

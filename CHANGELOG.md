@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — photo analysis tolerates an incomplete reply — not yet released
+
+- **A photo whose placard was read correctly is no longer thrown away for a
+  missing field.** The first real analysis in production read "Hammer
+  Strength · Iso-Lateral Row · IL-ROW" perfectly and was refused because the
+  model left out the product line it had nothing for. A field the model leaves
+  out now counts as unknown, exactly as if it had said so; a wrong value is
+  still refused.
+
 ## 0.4.0 — equipment from a photo — not yet released
 
 - **Add a machine by photographing its placard.** Under each gym on **Gyms

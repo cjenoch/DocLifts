@@ -83,7 +83,9 @@ describe('analyzePhoto', () => {
 		const out = await analyzePhoto(db, alice, photo.id, {
 			store,
 			limits,
-			complete: testComplete(answeringModel('{"manufacturer": "Hammer"}'))
+			// Wrong type and an out-of-set loading type: malformed, not merely
+			// incomplete (missing keys are tolerated; see the next test).
+			complete: testComplete(answeringModel('{"manufacturer": 42, "loading_type": "hydraulic"}'))
 		});
 		expect(out?.ok).toBe(false);
 		expect(out && !out.ok && out.error).toBeInstanceOf(LlmSchemaError);
@@ -91,6 +93,49 @@ describe('analyzePhoto', () => {
 		expect(after).toMatchObject({ status: 'uploaded', candidate: null, llmCallId: null });
 		const [call] = await calls(alice);
 		expect(call).toMatchObject({ purpose: PHOTO_PURPOSE, status: 'schema_error' });
+	});
+
+	it('a reply that leaves keys out is analyzed, the missing ones read as unknown', async () => {
+		// Production's first analysis, 2026-10-01, verbatim except values: the
+		// placard read perfectly, product_line absent, and it was refused.
+		const reply = {
+			manufacturer: 'HAMMER STRENGTH',
+			model_code: 'IL-ROW',
+			name: 'ISO-LATERAL ROW',
+			loading_type: 'unknown',
+			laterality: 'unknown',
+			starting_resistance_lb: null,
+			stack_lb: null,
+			placard_text: 'HAMMER STRENGTH\nISO-LATERAL ROW\nIL-ROW',
+			notes: 'Only the placard is visible.',
+			field_confidence: { manufacturer: 1, model_code: 1, name: 1, loading_type: 1 }
+		};
+		const photo = await upload();
+		const out = await analyzePhoto(db, alice, photo.id, {
+			store,
+			limits,
+			complete: testComplete(answeringModel(JSON.stringify(reply)))
+		});
+		expect(out).toMatchObject({ ok: true });
+		const after = await row(photo.id);
+		expect(after.status).toBe('analyzed');
+		expect(after.candidate).toMatchObject({
+			manufacturer: 'HAMMER STRENGTH',
+			model_code: 'IL-ROW',
+			product_line: null
+		});
+		const [call] = await calls(alice);
+		expect(call).toMatchObject({ purpose: PHOTO_PURPOSE, status: 'ok' });
+
+		// The bare minimum: every key absent still parses, as "nothing read".
+		expect(EquipmentCandidate.parse({})).toMatchObject({
+			placard_text: '',
+			manufacturer: null,
+			loading_type: 'unknown',
+			laterality: 'unknown',
+			field_confidence: { manufacturer: 0, model_code: 0, name: 0, loading_type: 0 },
+			notes: ''
+		});
 	});
 
 	it('with no LLM configured: not_configured is recorded and the row stays uploaded', async () => {

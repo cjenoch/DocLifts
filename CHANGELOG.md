@@ -49,9 +49,44 @@ LLM adapter foundation (no user-visible features yet).
   works without JavaScript. Nothing about the throttle itself changed, and an
   address with no account sees exactly the same notice as one with.
 
-## Unreleased — 0.2.2
+## 0.2.4 — account management and password policy — 2026-10-01
 
-Three changes, all from one incident: being locked out of your own account with
+- **Change your password in the app.** `/account/password` asks for the current
+  password and the new one twice. On success every other device is signed out
+  and the one you are using stays signed in. No command line involved.
+- **Show / Hide on every password field,** so you can see what you typed
+  before submitting it.
+- **Passwords have a minimum length, and nothing else.** 12 characters by
+  default (`PASSWORD_MIN_LENGTH`, 8–128), no rules about symbols or digits. It
+  applies when a password is set, never at sign-in, so raising it cannot lock
+  anyone out of a password they already have.
+- **The longest sign-in delay is now 30 seconds** (was 8), and a malformed
+  sign-in setting now stops the app at startup, naming the variable, instead
+  of quietly falling back to a default.
+- **A sign-in page left open across a password change still works** with the
+  new password.
+- **Deploys refuse a setting the app would never see.** A key in the
+  production env file with no matching line in `docker-compose.yml` now stops
+  the deploy and names the key, instead of being silently dropped.
+- Better Auth's cross-site check is pinned on in code, so it no longer depends
+  on the environment the app happens to run in; and the app now exits cleanly
+  when stopped.
+
+## 0.2.3 — sign-in lockout fixed — 2026-10-01
+
+- **Signing in works again from any browser that had visited before.** Any
+  browser holding a cookie — even an unrelated one — had its sign-in rejected
+  by a cross-site check before the password was ever compared, and the page
+  reported it as "that email and password do not match". The password was
+  correct the whole time. Sign-in and sign-out now pass the browser's real
+  origin through, so the check runs and passes.
+- **Every sign-in setting reaches the app.** `LOGIN_MAX_FAILURES=0` in the env
+  file had no effect because the container never received it; every sign-in
+  setting now has its line in `docker-compose.yml`.
+
+## 0.2.2 — cache correctness and observability — 2026-10-01
+
+Five changes, all from one incident: being locked out of your own account with
 a correct password, and having no way to find out why.
 
 - **The sign-in page is no longer cacheable.** `/login` was public, so the
@@ -73,8 +108,11 @@ a correct password, and having no way to find out why.
 - **Stale builds detect themselves.** The client polls the deployed build's
   commit sha and reloads when it changes, instead of running old code against a
   new server.
+- **`LOGIN_MAX_FAILURES=0` means no ceiling.** It had been read as "allow zero
+  failures", which refused every attempt; 0 now turns the hard limit off and
+  leaves only the delay.
 
-## 0.2.1
+## 0.2.1 — 2026-09-30
 
 Hotfix for three defects found by using the released app rather than testing
 it. All user-visible.
@@ -105,7 +143,7 @@ it. All user-visible.
   optional, all defaulted, all in `.env.example` and the README's "Tuning"
   section. Change one and restart the container.
 
-## Unreleased
+## 0.2.0 — accounts — 2026-09-30
 
 Behavior changes since 0.1.0 that a user would notice:
 

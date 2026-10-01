@@ -396,6 +396,49 @@ claimed by `pnpm user:bootstrap`, which keeps that id — so the backfilled rows
 stay attached — and gives it a real email and a credential row. Until bootstrap
 runs, the data is owned by an account nobody can sign in as.
 
+## Shipping and production
+
+Owner rules (2026-10-01). They govern how a change reaches `main` and
+production, not what the change is.
+
+**`main` moves only on a green gate, twice.** Push `main` only after the full
+local gate passes the way CI runs it — `pnpm lint`, `pnpm check`,
+`pnpm exec drizzle-kit check` (with `DATABASE_URL` set), the `server`, `demo`
+and `client` projects, `pnpm build`, and `pnpm test:e2e` under `CI=1` so a
+missing prerequisite fails instead of skipping — **and** CI is green on the
+branch. Watch it with `gh run watch`; do not infer it.
+
+**No force-push to `main`, and no squash.** History on `main` is a record. A
+wrong commit gets a fix-forward commit that says what it fixes.
+
+**Nothing touches production without the owner's explicit "go" in the current
+session.** That covers `scripts/compose-prod.sh`, `scripts/migrate-prod.sh` and
+`scripts/user-prod.sh`. A "go" from an earlier session, a handoff, or a plan is
+not one. Before any production build, preserve the running image:
+
+```sh
+docker tag doclifts-web:vps doclifts-web:pre-<version>
+```
+
+Delete it only after the release checks pass. Run the `*-prod.sh` wrappers on
+the VPS over SSH, never from another machine against its Docker socket.
+
+**Secrets never appear in chat, commits, logs, or docs.** Not passwords, not
+`BETTER_AUTH_SECRET`, not database URLs with credentials, and that includes
+"just for the record" quotes in a release log. Passwords reach the CLI through
+`--password-stdin` from the owner's own shell, never typed into a command line
+by an assistant. A log line may carry a length or a hash of a secret, never the
+value.
+
+**Every key in the production env file needs a passthrough line in
+`docker-compose.yml`.** Compose enumerates the container environment
+explicitly, so a key added to `/srv/doclifts/.env` without a matching
+`environment:` entry is silently absent in the container — and every check
+still passes, because the env file looks right. That is how the 0.2.2 deploy
+kept the default ceiling of 10 with `LOGIN_MAX_FAILURES=0` in the env file. A
+new tunable is not done until it has its line, and the pre-deploy check must
+compare the env file's keys against `compose config`.
+
 ## Out of scope
 
 Per owner decision (2026-09-26): the feature-gate list is retired. There is no standing

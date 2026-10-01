@@ -79,21 +79,30 @@
 				<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm" data-testid="candidate">
 					<dt class="text-zinc-400">Manufacturer</dt>
 					<dd class={low('manufacturer') ? 'text-amber-300' : ''}>
-						{c.manufacturer ?? '—'}{#if low('manufacturer')}<span> (check)</span>{/if}
+						{c.manufacturer ?? '—'}{#if low('manufacturer')}<span
+								class="ml-1"
+								data-low="manufacturer">(check)</span
+							>{/if}
 					</dd>
 					<dt class="text-zinc-400">Product line</dt>
 					<dd>{c.product_line ?? '—'}</dd>
 					<dt class="text-zinc-400">Model code</dt>
 					<dd class={['font-mono', low('model_code') && 'text-amber-300']}>
-						{c.model_code ?? '—'}{#if low('model_code')}<span class="font-sans"> (check)</span>{/if}
+						{c.model_code ?? '—'}{#if low('model_code')}<span
+								class="ml-1 font-sans"
+								data-low="model_code">(check)</span
+							>{/if}
 					</dd>
 					<dt class="text-zinc-400">Name</dt>
 					<dd class={low('name') ? 'text-amber-300' : ''}>
-						{c.name ?? '—'}{#if low('name')}<span> (check)</span>{/if}
+						{c.name ?? '—'}{#if low('name')}<span class="ml-1" data-low="name">(check)</span>{/if}
 					</dd>
 					<dt class="text-zinc-400">Loading type</dt>
 					<dd class={low('loading_type') ? 'text-amber-300' : ''}>
-						{CANDIDATE_LOADING[c.loading_type]}{#if low('loading_type')}<span> (check)</span>{/if}
+						{CANDIDATE_LOADING[c.loading_type]}{#if low('loading_type')}<span
+								class="ml-1"
+								data-low="loading_type">(check)</span
+							>{/if}
 					</dd>
 					<dt class="text-zinc-400">Laterality</dt>
 					<dd>{LATERALITY_LABELS[c.laterality] ?? c.laterality}</dd>

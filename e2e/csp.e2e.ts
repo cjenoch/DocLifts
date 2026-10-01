@@ -26,6 +26,8 @@ import {
 	startTestServer
 } from '$lib/server/test-auth-helpers';
 import * as s from '$lib/server/db/schema';
+import { smallPng } from '$lib/server/photos/test-fixtures';
+import { postPhoto, reviewedPhotoId } from './photo-upload';
 
 function chromiumPath(): string | undefined {
 	if (process.env.PW_EXECUTABLE_PATH) return process.env.PW_EXECUTABLE_PATH;
@@ -89,6 +91,8 @@ run('production build: CSP and page render', () => {
 	let programId: string;
 	let sessionId: string;
 	let modelId: string;
+	let gymId: string;
+	let photoId: string;
 
 	beforeAll(async () => {
 		harness = await freshTestDb();
@@ -225,6 +229,15 @@ run('production build: CSP and page render', () => {
 
 		cookie = await signInAs(origin);
 
+		// 0.4.0: a gym and a photo uploaded through the served build's own form
+		// action, so /gyms/{id}/equipment/photo and /photos/{id}/review are
+		// crawled with a real stored image behind the review page's <img>.
+		[{ id: gymId }] = await db
+			.insert(s.gyms)
+			.values({ name: 'E2E Gym', userId: user.id })
+			.returning();
+		photoId = reviewedPhotoId(await postPhoto(origin, cookie, gymId, await smallPng()));
+
 		browser = await chromium.launch({ executablePath });
 	});
 
@@ -323,6 +336,8 @@ run('production build: CSP and page render', () => {
 		'/history',
 		'/reports',
 		'/gyms',
+		'/gyms/{id}/equipment/photo',
+		'/photos/{id}/review',
 		'/equipment',
 		'/equipment/{id}',
 		'/equipment/{id}/edit',
@@ -343,6 +358,8 @@ run('production build: CSP and page render', () => {
 		if (pattern === '/sessions/{id}') return `/sessions/${sessionId}`;
 		if (pattern === '/equipment/{id}') return `/equipment/${modelId}`;
 		if (pattern === '/equipment/{id}/edit') return `/equipment/${modelId}/edit`;
+		if (pattern === '/gyms/{id}/equipment/photo') return `/gyms/${gymId}/equipment/photo`;
+		if (pattern === '/photos/{id}/review') return `/photos/${photoId}/review`;
 		return pattern;
 	}
 

@@ -18,14 +18,31 @@
   the photo before it is stored or read; the photo is stored privately and
   shown only to you. Up to 20 photos a day, 10 MB each.
 
-## 0.3.2 — machine labels and catalog notes — not yet released
+## 0.3.2 — machine labels, machine edit, and the researched catalog — 2026-10-01
 
+- **The machine catalog grows from 543 to 890 models,** researched from the
+  manufacturers' own pages: all but 21 now have a model code (210 had none
+  before), 17 wrong codes are corrected, and 98 models now show the
+  manufacturer's starting weight. Machines you already added stay linked to
+  the same model.
 - **A machine's label is optional when you pick its model.** Adding a machine
   on **Gyms and machines**, or from a model's page, no longer makes you invent
   a name. Leave the label blank and the machine is named after its model, for
   example "Hammer Strength Iso-Lateral Row (IL-ROW)". A label you type still
   wins, and is the way to tell two of the same model apart. With no model, a
   label is still needed, and the page says so.
+- **Edit a machine's label, stack and increment.** Each machine on **Gyms and
+  machines** now has an **Edit** link. Clear the label and it goes back to
+  the model's name; logged history stays with the machine.
+- **Adding a machine fills in the manufacturer's standard stack.** A model's
+  page shows its standard weight stack (355 models have one), and adding that
+  model to a gym fills the stack in for you. Type a different number if your
+  gym's machine has a heavier stack; what you type always wins.
+- **Placeholder product lines are hidden once their real models are in the
+  catalog.** Seven entries that only named a product line (such as Cybex VR3
+  or Technogym Artis) are replaced by the actual machines. They no longer
+  appear in the catalog or the model picker, but any machine already linked to
+  one keeps it, and its page still opens, marked "No longer in the catalog".
 - **Catalog notes on each model's page.** The catalog's own remarks (298
   models have one, such as "code unknown — verify") now show on the model's
   page, and come along when you create your own copy.

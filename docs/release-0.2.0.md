@@ -1454,18 +1454,20 @@ and the 0.3.0 image simply ignores them. Only if the checkout itself is moved
 back to 0.3.0 does `check-env-passthrough.sh` refuse the `up` and name them;
 comment them out of the env file then.
 
-## 20. 0.3.2 — optional machine label, catalog promotion, model notes — NOT DEPLOYED
+## 20. 0.3.2 — machine label and edit, catalog promotion/recode/retirement, notes, standard stack — NOT DEPLOYED
 
 ```
 branch   feat/0.3.2 from main 43490c3 (production runs 0.3.1 = fd916d3 + docs)
 status   NOT deployed. Nothing below has run against production.
-migrate  0014: equipment_models.notes (text, nullable). Verified on a restore
-         of doclifts-2026-10-01.sql.gz, below
-catalog  re-import the SAME 2026-09-30 CSV: expect 0 inserted, ~298 updated
-         (notes), 0 promoted, 0 recoded
+migrate  0014: equipment_models.notes; 0015: standard_stack_lb (CHECK > 0),
+         standard_stack_note, retired_at. Additive. Verified on a restore of
+         doclifts-2026-10-01.sql.gz, below
+catalog  import the 2026-10-01 snapshot (890 rows). Expected TOTAL against
+         production's catalog: 354 inserted, 225 updated, 195 promoted,
+         9 recoded, 107 unchanged, 0 skipped, 7 retired
 ```
 
-Built on branch `feat/0.3.2`. Migration **0014**. Reference:
+Built on branch `feat/0.3.2`. Migrations **0014** and **0015**. Reference:
 `docs/catalog.md`. **Nothing in this section runs without the owner's explicit
 "go" in the current session.**
 
@@ -1477,6 +1479,11 @@ Built on branch `feat/0.3.2`. Migration **0014**. Reference:
   "Hammer Strength Iso-Lateral Row (IL-ROW)", "Nautilus Leverage Row". Blank
   with no model is refused with a message. `gym_equipment.local_label` stays
   NOT NULL; no schema change for this. Existing labels are not touched.
+- **Edit a machine** (owner request, "Drop an edit option in"): an **Edit**
+  link per machine on `/gyms` opens `/gyms/[gymId]/machines/[id]/edit`, which
+  changes the label, stack and increment (not the model). Blank label: the
+  model's default, or refused with no model. Another user's machine, or one
+  under the wrong gym, is a 404. No schema change.
 - **The importer promotes instead of duplicating.** A coded CSV row with no
   global row for `(manufacturer, code)` updates the one global codeless row of
   the same `(manufacturer, product_line, name)` in place, so `gym_equipment`
@@ -1486,12 +1493,24 @@ Built on branch `feat/0.3.2`. Migration **0014**. Reference:
 - **The importer recodes corrected codes.** An optional last CSV column,
   `replaces_code`, names a model's earlier code; the global row under that
   code takes the new code, name and catalog columns in place (new `recoded`
-  column). Rows under both codes: the run fails. The 2026-09-30 CSV has no
-  such column and adds no codes, so this release's re-import promotes and
-  recodes nothing; both matter for the next snapshot.
+  column). Rows under both codes: the run fails. The 2026-10-01 snapshot uses
+  it for 9 corrected codes.
 - **`equipment_models.notes`** (migration 0014, additive). The importer maps
   the CSV `notes` column as a catalog column; `/equipment/[id]` shows it;
   "create my own copy" carries it.
+- **The model's standard stack** (migration 0015): `standard_stack_lb`
+  (integer, CHECK > 0) and `standard_stack_note`, from the CSV's `stack_lb` /
+  `stack_note`, whole pounds rounded down (36 half-pound Life Fitness stacks;
+  the exact figure stays in the note). Adding a machine with a model and the
+  stack blank stores the standard stack; `/equipment/[id]` shows it and
+  pre-fills the stack field. A typed stack always wins.
+- **Retirement** (migration 0015): `retired_at`. Every global row the snapshot
+  does not contain is retired (never deleted) and hidden from `/equipment`,
+  search, the `/gyms` picker and new machines; its page still renders with
+  "No longer in the catalog", and linked machines keep it. A snapshot that
+  lists it again un-retires it. Owned rows are never touched. Reported in a
+  `retired` column, one `retire` line per row, replacing "N existing global
+  row(s) are not in this CSV".
 - No new env var, so no compose passthrough change.
 
 ### Migration 0014, verified on a restore of production
@@ -1544,6 +1563,43 @@ so every `notes` NULL), notes were nulled and the dry run read **0 inserted,
 naming `notes` only: Cybex 36, gym80 24, Hammer Strength 30, Life Fitness 32,
 Matrix 35, Nautilus 41, Precor 38, Technogym 62.
 
+### Migration 0015 and the 2026-10-01 import, rehearsed on a restore of production
+
+The same dump, restored into a fresh throwaway database on the test container;
+0012 → 0015 applied with `drizzle-kit migrate` (`__drizzle_migrations` 12 →
+16; `standard_stack_lb`, `standard_stack_note`, `retired_at` present;
+`equipment_models_standard_stack_lb_check` present by name); 2026-09-30
+imported (543 inserted); one machine linked to Nautilus "Leverage Row"
+(codeless) and one to Hammer Strength `IL-DY` (a corrected code). Then
+2026-10-01:
+
+```
+                inserted  updated  promoted  recoded  unchanged  skipped  retired
+dry run              354      155       195        9        177        0        7
+run                  354      155       195        9        177        0        7
+dry run again          0        0         0        0        890        0        0
+```
+
+- **Retired 7**, the product-line placeholders the research replaced with
+  models: Cybex VR1, VR1 Duals, VR3, Cybex Plate Loaded; Technogym Artis
+  Strength, Element+; Precor Glutebuilder line.
+- `equipment_models` afterwards: 897 rows, 890 current, 7 retired, 0 owned;
+  **355 with a standard stack** (36 rounded down from half pounds); 597 with
+  notes (590 from this snapshot, plus the 7 retired rows' old notes).
+- **Both links survived** on the same model ids: "Leverage Row" promoted to
+  `9NP-L3004`, `IL-DY` recoded to `IL-DRW`, both current. Every user-data
+  table's row count unchanged (31 sessions, 454 sets, 2 gyms, 4 programs).
+- **Production's shape.** Production's 543 rows were written by 0.3.0, so they
+  have no notes and no stacks. A second restore with notes and stacks cleared
+  after the 2026-09-30 import gave the dry-run TOTAL to expect in production:
+  **354 inserted, 225 updated, 195 promoted, 9 recoded, 107 unchanged,
+  0 skipped, 7 retired** (Cybex 99/4/28/0/0/0/4, gym80 27/24/0/0/104/0/0,
+  Hammer Strength 20/26/33/5/0/0/0, Life Fitness 18/2/59/0/0/0/0, Matrix
+  64/82/0/0/1/0/0, Nautilus 53/21/18/4/0/0/0, Precor 20/53/10/0/2/0/1,
+  Technogym 53/13/47/0/0/0/2).
+
+Both restore databases were dropped.
+
 ### Before deploying
 
 ```bash
@@ -1553,48 +1609,75 @@ Matrix 35, Nautilus 41, Precor 38, Technogym 62.
 sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.3.2
 ```
 
-### Migrate, deploy, re-import
+### Migrate, deploy, import
 
 ```bash
-# 3. Migration 0014 (verified dump first; refuses to migrate without one).
+# 3. Migrations 0014 and 0015 (verified dump first; refuses without one).
 sudo -n scripts/migrate-prod.sh
 
-# 4. Deploy. 0.3.1 code ignores the new column, so 3 before 4 is safe.
+# 4. Deploy. 0.3.1 code ignores the new columns, so 3 before 4 is safe.
 sudo -n scripts/compose-prod.sh up -d --build --wait web
 
-# 5. The SAME 2026-09-30 CSV again, to fill notes: verified dump, dry run
-#    printed, then type IMPORT. Expect the dry run to show ~298 updated (each
-#    update line ending ": notes"), 0 inserted, 0 promoted, 0 recoded, ~245
-#    unchanged, 0 skipped, and "(kept) notes: 298 row(s)". Anything inserted,
-#    promoted or recoded means production's catalog is not what 0.3.0
-#    imported: answer anything but IMPORT and stop.
-sudo -n scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-09-30.csv
+# 5. The 2026-10-01 snapshot: verified dump, dry run printed, then type
+#    IMPORT. Expect TOTAL: 354 inserted, 225 updated, 195 promoted,
+#    9 recoded, 107 unchanged, 0 skipped, 7 retired, and the 7 retire lines
+#    naming the placeholders above. Any skip, refusal, ambiguity or conflict,
+#    or a different retired count: answer anything but IMPORT and stop.
+sudo -n scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-10-01.csv
 ```
+
+### The 2026-10-01 snapshot
+
+`data/catalog/equipment_models_seed_2026-10-01.csv`: 890 rows from five
+research agents, one per brand group, under `research-2026-10-01/BRIEF.md`
+(every new or changed code from a page fetched that day, cited in `source`;
+the per-brand change logs sit beside it). Against 2026-09-30: codeless 210 ->
+21, inferred 69 -> 10, line_only 8 -> 1, with starting resistance 11 -> 98.
+17 wrong codes corrected, 9 of them on rows that already had a code (carried
+by `replaces_code`). About 60 codes were spot-checked against their sources
+by fetching them again; all confirmed. Merge decisions: the two Hammer
+Strength smith machines dropped; Technogym Artis rows `reseller_or_manual`
+because Technogym's own pages pair Artis codes and names two ways; Precor's
+PD-xx codes noted as dealer SKUs; 11 starting weights without a stated basis
+(or stated only in kg) moved to `notes` rather than guessed.
 
 ### Checks
 
 ```bash
-# 6. Notes present, catalog size unchanged, the owner's machine still linked.
+# 6. The catalog: 890 current, 7 retired, 355 standard stacks, 590 notes.
 sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
-  "select count(*) filter (where notes is not null), count(*)
+  "select count(*) filter (where retired_at is null),
+          count(*) filter (where retired_at is not null),
+          count(*) filter (where standard_stack_lb is not null),
+          count(*) filter (where notes is not null)
    from equipment_models where owner_user_id is null"
-#   298|543
-sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
-  "select m.manufacturer, m.name from gym_equipment g
-   join equipment_models m on m.id = g.equipment_model_id"
-#   Nautilus|Leverage Row  (and any machines added since)
+#   890|7|355|590
 
-# 7. Idempotent: run step 5 again; the dry run must show 0 inserted,
-#    0 updated, 0 promoted, 0 recoded. Answer anything but IMPORT to stop.
+# 7. The owner's machine kept its model, which gained its code and is current.
+sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
+  "select m.manufacturer, m.code, m.name, m.retired_at is null
+   from gym_equipment g join equipment_models m on m.id = g.equipment_model_id"
+#   Nautilus|9NP-L3004|Leverage Row|t  (and any machines added since)
+
+# 8. Idempotent: run step 5 again; the dry run must show 0 inserted,
+#    0 updated, 0 promoted, 0 recoded, 890 unchanged, 0 retired. Answer
+#    anything but IMPORT to stop.
 ```
 
-8. On the scratch account: `/equipment/<Leverage Row id>` shows
-   "Notes: name from training data; code unknown — verify". "Add to a gym" with
-   the label blank adds "Nautilus Leverage Row"; `/gyms` with no model and no
-   label refuses with "Give the machine a label, or choose its model so the
-   label can be taken from it". Remove the scratch machine afterwards.
+9. On the scratch account: `/equipment` lists 890 models; a retired
+   placeholder (search `VR3 (legacy)`) lists 0 models, and its page, opened by id (`select id, name from equipment_models where retired_at is not null`), is 200 with "No longer in the catalog". A model with a
+   standard stack (e.g. Hammer Strength `MTSBC`) shows "Standard stack:
+   100 lb" and pre-fills "Add to a gym"; adding it with the label blank adds
+   "Hammer Strength MTS Iso-Lateral Biceps Curl (MTSBC)" with a 100 lb stack.
+   `/gyms` with no model and no label refuses with "Give the machine a label,
+   or choose its model so the label can be taken from it". **Edit** on the
+   scratch machine, change its label, save: the list shows it. Remove the
+   scratch machine afterwards.
+10. **Then the owner** fixes his own first machine's label ("Make this
+    optional maybe? Next to deadlift platform") with **Edit** on `/gyms`. Not
+    done by an assistant.
 
-`pre-0.3.2` is deleted only after 6–8 pass.
+`pre-0.3.2` is deleted only after 6–9 pass.
 
 ### Rollback
 
@@ -1603,29 +1686,30 @@ DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.3.2 \
   sudo -n scripts/compose-prod.sh up -d --wait web
 ```
 
-0014 is additive and 0.3.1 runs against it unchanged, so the column and its
-notes stay. Machines added with a derived label keep it; to 0.3.1 it is an
-ordinary label.
+0014 and 0015 are additive and 0.3.1 runs against them unchanged, so the
+columns stay. One difference under 0.3.1: it does not know `retired_at`, so
+the 7 retired placeholders reappear in its lists and picker until 0.3.2 is
+back. Promoted and recoded rows keep their new codes, and machines added with
+a derived label keep it; to 0.3.1 it is an ordinary label.
 
 ## 21. 0.4.0 — equipment from a photo — NOT DEPLOYED
 
 ```
-branch   feat/0.4.0-photo from feat/0.3.2 2041136 (0.3.2, itself NOT deployed)
+branch   feat/0.4.0-photo from feat/0.3.2 2041136, merged with main bc43f0b (0.3.2)
 status   NOT deployed. Nothing below has run against production.
-migrate  0015: equipment_photos (new table). Verified on a restore of
+migrate  0016: equipment_photos (new table). Verified on a restore of
          doclifts-2026-10-01.sql.gz, below
 env      PHOTO_STORE=s3, the five S3_* names, BODY_SIZE_LIMIT=12M;
          PHOTO_MAX_BYTES and PHOTO_DAILY_LIMIT default
 ```
 
-Built on branch `feat/0.4.0-photo`. Migration **0015**. Spec:
+Built on branch `feat/0.4.0-photo`. Migration **0016**. Spec:
 `SPEC-0.4.0-equipment-photo.md`. Reference: `docs/photos.md`. **0.4.0 ships
-after 0.3.2: §20 is done first, and its migration 0014 is part of this
-chain.** **Nothing in this section runs without the owner's explicit "go" in
+after 0.3.2, which is deployed (§20); production is at 0015.** **Nothing in this section runs without the owner's explicit "go" in
 the current session.**
 
 Deviations from the spec, all decided before the build: the migration is
-0015, not 0014 (0.3.2 took 0014); no `secrets-apply.sh` and no allowlist (the
+0016, not 0014 (0.3.2 took 0014 and 0015); no `secrets-apply.sh` and no allowlist (the
 new keys are enforced by `check-env-passthrough.sh` like every other); a model
 created from a photo may carry the reader's notes in 0.3.2's
 `equipment_models.notes`; matching gained a prefix step (catalog base code vs
@@ -1639,7 +1723,7 @@ building: adapter-node answers an over-limit body with a **500**, not a 413
   `/photos/<id>/review` (link / create my own / re-analyze / discard), **new
   route** `GET /photos/<id>/image` (owner-only image proxy). Thumbnails on
   `/gyms` and `/equipment/<id>`. CSP unchanged.
-- **New table `equipment_photos`** (0015), additive. Written only by the photo
+- **New table `equipment_photos`** (0016), additive. Written only by the photo
   routes.
 - **The first `complete()` consumer**: `purpose = 'equipment_from_photo'`,
   `kind = 'vision'`. Uses `LLM_VISION_MODEL`, falling back to `LLM_MODEL`; the
@@ -1750,7 +1834,7 @@ sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.4.0
 ### Migrate, deploy
 
 ```bash
-# 6. Migration 0015 (verified dump first; refuses to migrate without one).
+# 6. Migration 0016 (verified dump first; refuses to migrate without one).
 sudo -n scripts/migrate-prod.sh
 
 # 7. BODY_SIZE_LIMIT is in the rendered compose config. One line only: the
@@ -1832,7 +1916,7 @@ DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.4.0 \
   sudo -n scripts/compose-prod.sh up -d --wait web
 ```
 
-0015 is additive and 0.3.2 runs against it unchanged, so the table and the
+0016 is additive and 0.3.2 runs against it unchanged, so the table and the
 bucket's objects stay. The env file may keep the new keys while the checkout
 stays at 0.4.0 (its compose reads them); if the checkout moves back to 0.3.2,
 `check-env-passthrough.sh` will name them, so comment them out first.

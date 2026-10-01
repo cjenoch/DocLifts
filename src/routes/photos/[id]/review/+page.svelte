@@ -167,6 +167,7 @@
 								max="2000"
 								step="1"
 								inputmode="numeric"
+								placeholder="Blank: the model's standard stack"
 								value={c?.stack_lb ?? ''}
 								class="mt-1 block w-full rounded bg-zinc-800 p-2"
 							/></label

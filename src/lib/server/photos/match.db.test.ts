@@ -4,6 +4,7 @@
  * invisible to anyone else.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDbWithUsers, type TestDb } from '../test-db';
 import * as s from '../db/schema';
 import { isPrefixMatch, matchCandidate, nameTokens, normalizeCode } from './match';
@@ -202,6 +203,24 @@ describe('matchCandidate', () => {
 		// Both "Chest Press" rows (2 tokens) lead, from two manufacturers; then 1-token rows.
 		expect(ids(all).slice(0, 2).sort()).toEqual([models.mb20.id, models.nlChest.id].sort());
 		expect(ids(all)).toHaveLength(5);
+	});
+
+	it('a retired catalog model with the exact code is not matched, by code, prefix or name', async () => {
+		const candidate = {
+			manufacturer: 'Hammer Strength',
+			model_code: 'IL-ROW',
+			name: 'Iso-Lateral Row'
+		};
+		// Positive first: before retirement it is the exact match.
+		expect((await matchCandidate(db, alice, candidate)).preselectedId).toBe(models.ilRow.id);
+		await db
+			.update(s.equipmentModels)
+			.set({ retiredAt: new Date() })
+			.where(eq(s.equipmentModels.id, models.ilRow.id));
+		const after = await matchCandidate(db, alice, candidate);
+		expect(ids(after)).not.toContain(models.ilRow.id);
+		expect(after.method).toBe('name'); // falls through to the current rows
+		expect(after.preselectedId).toBeNull();
 	});
 
 	it('nothing: no code match and no usable name', async () => {

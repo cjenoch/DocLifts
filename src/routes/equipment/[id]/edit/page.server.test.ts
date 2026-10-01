@@ -51,7 +51,9 @@ beforeEach(async () => {
 			confidence: 'manufacturer_page',
 			sourceUrl: 'https://example.invalid/catalog',
 			catalogSnapshot: '2026-09-30',
-			notes: 'Iso-Lateral: arms move independently'
+			notes: 'Iso-Lateral: arms move independently',
+			standardStackLb: 200,
+			standardStackNote: 'manufacturer page'
 		})
 		.returning();
 	[alicesOwn] = await harness.db
@@ -129,6 +131,8 @@ it('create my own copy: a new owned row with my values; the catalog row is untou
 		sourceUrl: null,
 		catalogSnapshot: null,
 		notes: 'Iso-Lateral: arms move independently',
+		standardStackLb: 200,
+		standardStackNote: 'manufacturer page',
 		ownerUserId: alice
 	});
 	expect(await reread(global.id)).toEqual(global);

@@ -110,8 +110,15 @@
     {
       "idx": 15,
       "version": "7",
-      "when": 1790857668176,
-      "tag": "0015_equipment_photos",
+      "when": 1790861041021,
+      "tag": "0015_equipment_model_stack_retired",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790867287270,
+      "tag": "0016_equipment_photos",
       "breakpoints": true
     }
   ]

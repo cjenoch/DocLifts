@@ -1,5 +1,5 @@
 /**
- * Migration 0015 (equipment_photos), checked against the applied database
+ * Migration 0016 (equipment_photos), checked against the applied database
  * rather than the SQL file: CLAUDE.md "a generated migration is verified by
  * applying it". Every object is looked up BY NAME, so a constraint Postgres
  * named for itself, or truncated past 63 bytes, fails here.
@@ -37,7 +37,7 @@ const row = (over: Partial<s.NewEquipmentPhoto> = {}): s.NewEquipmentPhoto => ({
 	...over
 });
 
-describe('0015 equipment_photos schema', () => {
+describe('0016 equipment_photos schema', () => {
 	it('has the columns, nullability and types the spec lists', async () => {
 		const cols = await handle.client<
 			{ column_name: string; is_nullable: string; data_type: string }[]

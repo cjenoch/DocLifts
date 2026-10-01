@@ -124,6 +124,34 @@ describe('linkPhoto', () => {
 		expect((await photoRow(bobsPhoto.id)).status).toBe('analyzed');
 	});
 
+	it('a blank stack takes the model’s standard stack; a given stack wins', async () => {
+		await db
+			.update(s.equipmentModels)
+			.set({ standardStackLb: 230 })
+			.where(eq(s.equipmentModels.id, catalogRow.id));
+		const blank = await analyzedPhoto();
+		const given = await analyzedPhoto();
+		const a = await linkPhoto(db, alice, blank.id, { modelId: catalogRow.id, stackLb: '' });
+		const b = await linkPhoto(db, alice, given.id, { modelId: catalogRow.id, stackLb: '200' });
+		const stackOf = async (id: string) =>
+			(await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, id)))[0].stackLb;
+		expect(await stackOf(a!.gymEquipmentId)).toBe(230);
+		expect(await stackOf(b!.gymEquipmentId)).toBe(200);
+	});
+
+	it('a retired catalog model cannot be linked (not found), and nothing is written', async () => {
+		const photo = await analyzedPhoto();
+		await db
+			.update(s.equipmentModels)
+			.set({ retiredAt: new Date() })
+			.where(eq(s.equipmentModels.id, catalogRow.id));
+		await expect(linkPhoto(db, alice, photo.id, { modelId: catalogRow.id })).rejects.toThrow(
+			new MachineInputError('Model not found')
+		);
+		expect(await machinesAt(gymId)).toEqual([]);
+		expect((await photoRow(photo.id)).status).toBe('analyzed');
+	});
+
 	it('a confirmed photo cannot be confirmed again (a double submit makes one machine)', async () => {
 		const photo = await analyzedPhoto();
 		expect(await linkPhoto(db, alice, photo.id, { modelId: catalogRow.id })).not.toBeNull();

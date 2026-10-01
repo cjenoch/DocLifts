@@ -10,14 +10,15 @@
  *    photo is not found — a double submit cannot create two machines);
  *  - the gym: the photo row's, re-resolved by createMachine with
  *    `gyms.user_id = userId`;
- *  - a linked model: `modelVisibleTo(userId)` — global, or the user's own.
+ *  - a linked model: `modelVisibleTo(userId)` — a current (not retired)
+ *    global model, or the user's own.
  * Another user's photo or model is null (the route answers 404), never 403.
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { RESISTANCE_BASES, equipmentModels, equipmentPhotos } from '../db/schema';
 import type { Database } from '../progression';
-import { LATERALITIES, LOADING_TYPES, loadModel } from '../catalog';
+import { LATERALITIES, LOADING_TYPES, modelVisibleTo } from '../catalog';
 import { createMachine, MachineInputError } from '../machines';
 import { isUuid } from './index';
 import type { PhotoStore } from './store';
@@ -87,7 +88,9 @@ export type Confirmed = { photoId: string; modelId: string; gymEquipmentId: stri
 
 /**
  * Link: a gym_equipment row at the photo's gym for a model this user can see.
- * A blank label takes `defaultMachineLabel(model)` (createMachine). Returns
+ * A blank label takes `defaultMachineLabel(model)` and a blank stack the
+ * model's `standard_stack_lb` (both in createMachine, as on every add path);
+ * a value the user gives wins. Returns
  * null when the photo is not this user's open photo; throws
  * `MachineInputError` when the model is not visible to them.
  */
@@ -101,7 +104,13 @@ export async function linkPhoto(
 	return db.transaction(async (tx) => {
 		const photo = await lockOpenPhoto(tx, userId, photoId);
 		if (!photo) return null;
-		const model = await loadModel(tx, userId, value.modelId);
+		// modelVisibleTo, not the by-id modelReadableBy: a model a later
+		// snapshot retired is never offered for a NEW machine, so linking to it
+		// is "not found", exactly like another user's model.
+		const [model] = await tx
+			.select()
+			.from(equipmentModels)
+			.where(and(eq(equipmentModels.id, value.modelId), modelVisibleTo(userId)));
 		if (!model) throw new MachineInputError('Model not found');
 		const machine = await createMachine(tx, userId, {
 			gymId: photo.gymId,

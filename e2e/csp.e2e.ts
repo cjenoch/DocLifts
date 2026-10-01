@@ -93,6 +93,7 @@ run('production build: CSP and page render', () => {
 	let modelId: string;
 	let gymId: string;
 	let photoId: string;
+	let machineId: string;
 
 	beforeAll(async () => {
 		harness = await freshTestDb();
@@ -221,6 +222,19 @@ run('production build: CSP and page render', () => {
 			})
 			.returning();
 		modelId = model.id;
+		// A gym with one machine, so /gyms/{gymId}/machines/{id}/edit resolves.
+		const [gym] = await db.insert(s.gyms).values({ name: 'CSP Gym', userId: user.id }).returning();
+		gymId = gym.id;
+		const [machine] = await db
+			.insert(s.gymEquipment)
+			.values({
+				gymId,
+				localLabel: 'CSP row',
+				equipmentType: 'machine-plate',
+				equipmentModelId: model.id
+			})
+			.returning();
+		machineId = machine.id;
 
 		const started = await startTestServer();
 		origin = started.origin;
@@ -229,13 +243,9 @@ run('production build: CSP and page render', () => {
 
 		cookie = await signInAs(origin);
 
-		// 0.4.0: a gym and a photo uploaded through the served build's own form
-		// action, so /gyms/{id}/equipment/photo and /photos/{id}/review are
-		// crawled with a real stored image behind the review page's <img>.
-		[{ id: gymId }] = await db
-			.insert(s.gyms)
-			.values({ name: 'E2E Gym', userId: user.id })
-			.returning();
+		// 0.4.0: a photo uploaded to that gym through the served build's own
+		// form action, so /gyms/{gymId}/equipment/photo and /photos/{id}/review
+		// are crawled with a real stored image behind the review page's <img>.
 		photoId = reviewedPhotoId(await postPhoto(origin, cookie, gymId, await smallPng()));
 
 		browser = await chromium.launch({ executablePath });
@@ -336,8 +346,9 @@ run('production build: CSP and page render', () => {
 		'/history',
 		'/reports',
 		'/gyms',
-		'/gyms/{id}/equipment/photo',
+		'/gyms/{gymId}/equipment/photo',
 		'/photos/{id}/review',
+		'/gyms/{gymId}/machines/{id}/edit',
 		'/equipment',
 		'/equipment/{id}',
 		'/equipment/{id}/edit',
@@ -358,8 +369,10 @@ run('production build: CSP and page render', () => {
 		if (pattern === '/sessions/{id}') return `/sessions/${sessionId}`;
 		if (pattern === '/equipment/{id}') return `/equipment/${modelId}`;
 		if (pattern === '/equipment/{id}/edit') return `/equipment/${modelId}/edit`;
-		if (pattern === '/gyms/{id}/equipment/photo') return `/gyms/${gymId}/equipment/photo`;
+		if (pattern === '/gyms/{gymId}/equipment/photo') return `/gyms/${gymId}/equipment/photo`;
 		if (pattern === '/photos/{id}/review') return `/photos/${photoId}/review`;
+		if (pattern === '/gyms/{gymId}/machines/{id}/edit')
+			return `/gyms/${gymId}/machines/${machineId}/edit`;
 		return pattern;
 	}
 

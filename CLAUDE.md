@@ -287,6 +287,18 @@ manufacturer catalog. The rule is exact:
   this section: D5 signatures, D6 404s, cross-tenant tests.
 - **Reads are `owner_user_id IS NULL OR owner_user_id = userId`.** Another user's
   owned row is a 404, exactly like a missing id; a global row is visible to all.
+  Two predicates in `catalog.ts` encode it, and the difference matters:
+  `modelVisibleTo` (lists, search, pickers, new links, photo matching) also
+  excludes **retired** global rows; `modelReadableBy` (one model by id, e.g.
+  `/equipment/[id]` and machines already linked) does not, so a retired model
+  still renders for the machines that point at it. Never widen a list to
+  `modelReadableBy`, and never narrow a by-id read to `modelVisibleTo`.
+- **Retirement, not deletion (since 0.3.2, migration 0015).** The importer sets
+  `retired_at` on every global row a snapshot no longer contains, and clears it
+  when a later snapshot brings the row back. Catalog rows are never deleted,
+  because `gym_equipment` and `equipment_photos` may reference them. A snapshot
+  is the whole catalog: importing a partial CSV would retire everything it
+  leaves out.
 - **Writes only ever target owned rows:** every UPDATE/DELETE from the app
   carries `owner_user_id = userId` in its WHERE, never `IS NULL`.
 - The importer never touches a row whose `owner_user_id` is not null, and the

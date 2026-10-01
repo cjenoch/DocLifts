@@ -1,6 +1,6 @@
 {
-  "id": "2591c111-abe1-4e32-8436-97b086292369",
-  "prevId": "f775689e-4f44-4590-9508-bef281a065d7",
+  "id": "ce4488c7-cdec-42a6-88a7-85a26687dc2e",
+  "prevId": "2591c111-abe1-4e32-8436-97b086292369",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -847,6 +847,311 @@
         "equipment_models_resistance_basis_check": {
           "name": "equipment_models_resistance_basis_check",
           "value": "\"equipment_models\".\"starting_resistance_basis\" IS NULL OR \"equipment_models\".\"starting_resistance_basis\" IN ('total', 'per_arm')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.equipment_photos": {
+      "name": "equipment_photos",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gym_id": {
+          "name": "gym_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "storage_key": {
+          "name": "storage_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bytes": {
+          "name": "bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "llm_call_id": {
+          "name": "llm_call_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "candidate": {
+          "name": "candidate",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "matched_model_id": {
+          "name": "matched_model_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_model_id": {
+          "name": "created_model_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gym_equipment_id": {
+          "name": "gym_equipment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "equipment_photos_user_created_idx": {
+          "name": "equipment_photos_user_created_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_photos_gym_equipment_idx": {
+          "name": "equipment_photos_gym_equipment_idx",
+          "columns": [
+            {
+              "expression": "gym_equipment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_photos_gym_idx": {
+          "name": "equipment_photos_gym_idx",
+          "columns": [
+            {
+              "expression": "gym_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_photos_llm_call_idx": {
+          "name": "equipment_photos_llm_call_idx",
+          "columns": [
+            {
+              "expression": "llm_call_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_photos_matched_model_idx": {
+          "name": "equipment_photos_matched_model_idx",
+          "columns": [
+            {
+              "expression": "matched_model_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "equipment_photos_created_model_idx": {
+          "name": "equipment_photos_created_model_idx",
+          "columns": [
+            {
+              "expression": "created_model_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "equipment_photos_user_id_fk": {
+          "name": "equipment_photos_user_id_fk",
+          "tableFrom": "equipment_photos",
+          "tableTo": "user",
+          "schemaTo": "auth",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "equipment_photos_gym_id_fk": {
+          "name": "equipment_photos_gym_id_fk",
+          "tableFrom": "equipment_photos",
+          "tableTo": "gyms",
+          "columnsFrom": [
+            "gym_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "equipment_photos_llm_call_id_fk": {
+          "name": "equipment_photos_llm_call_id_fk",
+          "tableFrom": "equipment_photos",
+          "tableTo": "llm_calls",
+          "columnsFrom": [
+            "llm_call_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "equipment_photos_matched_model_id_fk": {
+          "name": "equipment_photos_matched_model_id_fk",
+          "tableFrom": "equipment_photos",
+          "tableTo": "equipment_models",
+          "columnsFrom": [
+            "matched_model_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "equipment_photos_created_model_id_fk": {
+          "name": "equipment_photos_created_model_id_fk",
+          "tableFrom": "equipment_photos",
+          "tableTo": "equipment_models",
+          "columnsFrom": [
+            "created_model_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "equipment_photos_gym_equipment_id_fk": {
+          "name": "equipment_photos_gym_equipment_id_fk",
+          "tableFrom": "equipment_photos",
+          "tableTo": "gym_equipment",
+          "columnsFrom": [
+            "gym_equipment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "equipment_photos_storage_key_unique": {
+          "name": "equipment_photos_storage_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "storage_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "equipment_photos_status_check": {
+          "name": "equipment_photos_status_check",
+          "value": "\"equipment_photos\".\"status\" IN ('uploaded', 'analyzed', 'confirmed', 'discarded')"
+        },
+        "equipment_photos_size_check": {
+          "name": "equipment_photos_size_check",
+          "value": "\"equipment_photos\".\"bytes\" > 0 AND \"equipment_photos\".\"width\" > 0 AND \"equipment_photos\".\"height\" > 0"
         }
       },
       "isRLSEnabled": false

@@ -17,10 +17,12 @@
  *      promote (a coded CSV row that names a codeless global row: the code
  *      is added to that row in place) / recode (a row whose `replaces_code`
  *      names an existing global row: that row takes the new code in place) /
- *      skipped (ambiguous or conflicting: resolve by hand).
+ *      skipped (ambiguous or conflicting: resolve by hand). Every global
+ *      row no CSV row matched is retired (retired_at set; never deleted);
+ *      a matched row that was retired is un-retired.
  *   3. apply the plan in one transaction (skipped by --dry-run).
  */
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './db/schema';
 import { BODY_REGIONS, CONFIDENCE_VALUES, RESISTANCE_BASES, equipmentModels } from './db/schema';
@@ -79,6 +81,15 @@ export type CatalogFields = {
 	catalogSnapshot: string;
 	/** The catalog's remark on the row (0.3.2, migration 0014); empty becomes NULL. */
 	notes: string | null;
+	/**
+	 * CSV `stack_lb`, in whole pounds rounded DOWN (0.3.2, 0015): a few
+	 * manufacturers state half pounds (Life Fitness 262.5), the column and
+	 * gym_equipment.stack_lb are integers, and a default must never overstate
+	 * the stack. The exact figure stays in the note.
+	 */
+	standardStackLb: number | null;
+	/** CSV `stack_note`, who stated the stack; empty becomes NULL. */
+	standardStackNote: string | null;
 };
 const COMPARED: (keyof CatalogFields)[] = [
 	'name',
@@ -91,15 +102,14 @@ const COMPARED: (keyof CatalogFields)[] = [
 	'confidence',
 	'sourceUrl',
 	'catalogSnapshot',
-	'notes'
+	'notes',
+	'standardStackLb',
+	'standardStackNote'
 ];
 
 export type MappedRow = {
 	line: number;
 	fields: CatalogFields;
-	/** Instance data, deliberately NOT imported onto the model; reported instead. */
-	stackLb: number | null;
-	stackNote: string | null;
 	/** CSV `replaces_code`: the earlier code of this model, to recode in place. */
 	replacesCode: string | null;
 };
@@ -148,15 +158,32 @@ export function parseCsv(text: string): string[][] {
 const blank = (v: string | undefined) => (v ?? '').trim() === '';
 const opt = (v: string | undefined) => (blank(v) ? null : v!.trim());
 
+/** Per-column counts the report states, so nothing is changed or dropped silently. */
+export type Counts = {
+	notes: number;
+	startingResistanceKg: number;
+	/** Rows with a stack_lb (stored as the model's standard stack). */
+	stack: number;
+	/** Of those, rows whose stack_lb is not whole pounds (stored rounded down). */
+	stackRounded: number;
+	sourceNotUrl: number;
+};
+
 export function mapCatalogCsv(text: string): {
 	rows: MappedRow[];
 	errors: RowError[];
-	ignored: { notes: number; startingResistanceKg: number; stackNote: number; sourceNotUrl: number };
+	ignored: Counts;
 } {
 	const table = parseCsv(text);
 	const errors: RowError[] = [];
 	const rows: MappedRow[] = [];
-	const ignored = { notes: 0, startingResistanceKg: 0, stackNote: 0, sourceNotUrl: 0 };
+	const ignored: Counts = {
+		notes: 0,
+		startingResistanceKg: 0,
+		stack: 0,
+		stackRounded: 0,
+		sourceNotUrl: 0
+	};
 	if (!table.length) return { rows, errors: [{ line: 1, message: 'empty file' }], ignored };
 	const header = table[0].map((h) => h.trim());
 	const missing = REQUIRED_COLUMNS.filter((c) => !header.includes(c));
@@ -201,12 +228,17 @@ export function mapCatalogCsv(text: string): {
 				problems.push(`starting_resistance_basis '${basis ?? ''}' must be total or per_arm`);
 		} else if (basis)
 			problems.push('starting_resistance_basis given without starting_resistance_lb');
-		let stackLb: number | null = null;
+		let standardStackLb: number | null = null;
 		const stack = opt(r.stack_lb);
 		if (stack) {
-			stackLb = Number(stack);
-			if (!Number.isFinite(stackLb) || stackLb <= 0)
-				problems.push(`stack_lb '${stack}' is not a positive number`);
+			const exact = Number(stack);
+			standardStackLb = Math.floor(exact);
+			if (!Number.isFinite(exact) || standardStackLb < 1)
+				problems.push(`stack_lb '${stack}' is not a number of pounds of at least 1`);
+			else {
+				ignored.stack++;
+				if (standardStackLb !== exact) ignored.stackRounded++;
+			}
 		}
 		const snapshot = (r.catalog_snapshot ?? '').trim();
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(snapshot) || Number.isNaN(Date.parse(snapshot)))
@@ -252,7 +284,6 @@ export function mapCatalogCsv(text: string): {
 		}
 		if (!blank(r.notes)) ignored.notes++;
 		if (!blank(r.starting_resistance_kg)) ignored.startingResistanceKg++;
-		if (!blank(r.stack_note)) ignored.stackNote++;
 		rows.push({
 			line,
 			fields: {
@@ -268,10 +299,10 @@ export function mapCatalogCsv(text: string): {
 				confidence,
 				sourceUrl,
 				catalogSnapshot: snapshot,
-				notes: opt(r.notes)
+				notes: opt(r.notes),
+				standardStackLb,
+				standardStackNote: opt(r.stack_note)
 			},
-			stackLb,
-			stackNote: opt(r.stack_note),
 			replacesCode
 		});
 	});
@@ -296,15 +327,23 @@ export function importKey(r: {
 }
 
 type Existing = typeof equipmentModels.$inferSelect;
+/** A column that changes on a matched row. `retiredAt`: the row is un-retired. */
+export type Changed = keyof CatalogFields | 'retiredAt';
 export type PlanItem =
 	| { kind: 'insert'; row: MappedRow }
-	| { kind: 'update'; row: MappedRow; id: string; changed: (keyof CatalogFields)[] }
+	| { kind: 'update'; row: MappedRow; id: string; changed: Changed[] }
 	| { kind: 'unchanged'; row: MappedRow; id: string }
 	/** A code added to a model the catalog had without one: that row, updated in place. */
-	| { kind: 'promote'; row: MappedRow; id: string; changed: (keyof CatalogFields)[] }
+	| { kind: 'promote'; row: MappedRow; id: string; changed: Changed[] }
 	/** A corrected code (`replaces_code`): the old-code row takes the new code in place. */
-	| { kind: 'recode'; row: MappedRow; id: string; from: string; changed: (keyof CatalogFields)[] }
+	| { kind: 'recode'; row: MappedRow; id: string; from: string; changed: Changed[] }
 	| { kind: 'skipped'; row: MappedRow; reason: string };
+
+/** What a CSV row changes on the existing row it matched; a retired row comes back. */
+const changesTo = (e: Existing, row: MappedRow): Changed[] => [
+	...COMPARED.filter((f) => (e[f] ?? null) !== (row.fields[f] ?? null)),
+	...(e.retiredAt ? (['retiredAt'] as const) : [])
+];
 
 /** The codeless key of a row, whatever its code: (manufacturer, product_line, name). */
 const lineKey = (r: { manufacturer: string; productLine: string | null; name: string }) =>
@@ -336,7 +375,7 @@ export function planImport(rows: MappedRow[], existingGlobal: Existing[]): PlanI
 				};
 			if (old.length === 1) {
 				const [e] = old;
-				const changed = COMPARED.filter((f) => (e[f] ?? null) !== (row.fields[f] ?? null));
+				const changed = changesTo(e, row);
 				return {
 					kind: 'recode',
 					row,
@@ -372,7 +411,7 @@ export function planImport(rows: MappedRow[], existingGlobal: Existing[]): PlanI
 					: `key matches ${matches.length} existing global rows; resolve by hand`
 			};
 		const [e] = matches;
-		const changed = COMPARED.filter((f) => (e[f] ?? null) !== (row.fields[f] ?? null));
+		const changed = changesTo(e, row);
 		if (promote) return { kind: 'promote', row, id: e.id, changed: ['code', ...changed] };
 		return changed.length
 			? { kind: 'update', row, id: e.id, changed }
@@ -402,16 +441,28 @@ export type ManufacturerTally = {
 	recoded: number;
 	unchanged: number;
 	skipped: number;
+	/** Global rows of this manufacturer that the CSV no longer lists, retired by this run. */
+	retired: number;
+};
+/** A global row this snapshot does not contain: retired (hidden), never deleted. */
+export type Retirement = {
+	id: string;
+	manufacturer: string;
+	productLine: string | null;
+	code: string | null;
+	name: string;
 };
 export type ImportResult = {
 	dryRun: boolean;
 	errors: RowError[];
 	plan: PlanItem[];
 	byManufacturer: Map<string, ManufacturerTally>;
-	/** Global rows of the CSV's manufacturers that this CSV does not mention. Left untouched. */
-	untouchedGlobal: number;
-	ignored: { notes: number; startingResistanceKg: number; stackNote: number; sourceNotUrl: number };
-	stackRows: MappedRow[];
+	/**
+	 * Global rows no CSV row matched (after promote and recode) and not yet
+	 * retired. The run sets their retired_at. A snapshot is the whole catalog.
+	 */
+	retired: Retirement[];
+	ignored: Counts;
 	/** True when the run must exit non-zero. */
 	failed: boolean;
 };
@@ -422,15 +473,13 @@ export async function importCatalog(
 	opts: { dryRun: boolean }
 ): Promise<ImportResult> {
 	const { rows, errors, ignored } = mapCatalogCsv(csvText);
-	const stackRows = rows.filter((r) => r.stackLb != null);
 	const empty: ImportResult = {
 		dryRun: opts.dryRun,
 		errors,
 		plan: [],
 		byManufacturer: new Map(),
-		untouchedGlobal: 0,
+		retired: [],
 		ignored,
-		stackRows,
 		failed: true
 	};
 	// Any unmappable row stops the run before the database is touched.
@@ -445,39 +494,48 @@ export async function importCatalog(
 			.from(equipmentModels)
 			.where(isNull(equipmentModels.ownerUserId));
 		const plan = planImport(rows, existing);
+		const matched = new Set(plan.flatMap((p) => ('id' in p ? [p.id] : [])));
+		const retired: Retirement[] = existing
+			.filter((e) => !matched.has(e.id) && e.retiredAt == null)
+			.map(({ id, manufacturer, productLine, code, name }) => ({
+				id,
+				manufacturer,
+				productLine,
+				code,
+				name
+			}));
 		const byManufacturer = new Map<string, ManufacturerTally>();
-		for (const item of plan) {
-			const m = item.row.fields.manufacturer;
+		const tally = (m: string) => {
 			const t = byManufacturer.get(m) ?? {
 				inserted: 0,
 				updated: 0,
 				promoted: 0,
 				recoded: 0,
 				unchanged: 0,
-				skipped: 0
+				skipped: 0,
+				retired: 0
 			};
+			byManufacturer.set(m, t);
+			return t;
+		};
+		for (const r of retired) tally(r.manufacturer).retired++;
+		for (const item of plan) {
+			const t = tally(item.row.fields.manufacturer);
 			if (item.kind === 'insert') t.inserted++;
 			else if (item.kind === 'update') t.updated++;
 			else if (item.kind === 'promote') t.promoted++;
 			else if (item.kind === 'recode') t.recoded++;
 			else if (item.kind === 'unchanged') t.unchanged++;
 			else t.skipped++;
-			byManufacturer.set(m, t);
 		}
-		const matched = new Set(plan.flatMap((p) => ('id' in p ? [p.id] : [])));
-		const manufacturers = new Set(rows.map((r) => r.fields.manufacturer));
-		const untouchedGlobal = existing.filter(
-			(e) => manufacturers.has(e.manufacturer) && !matched.has(e.id)
-		).length;
 		const skipped = plan.some((p) => p.kind === 'skipped');
 		const result: ImportResult = {
 			dryRun: opts.dryRun,
 			errors,
 			plan,
 			byManufacturer,
-			untouchedGlobal,
+			retired,
 			ignored,
-			stackRows,
 			failed: skipped
 		};
 		if (opts.dryRun || skipped) return result;
@@ -506,12 +564,31 @@ export async function importCatalog(
 					sourceUrl: f.sourceUrl,
 					catalogSnapshot: f.catalogSnapshot,
 					notes: f.notes,
+					standardStackLb: f.standardStackLb,
+					standardStackNote: f.standardStackNote,
 					// A promotion adds the code and a recode replaces it; an update
 					// matched on it, or has none.
-					...(p.kind === 'update' ? {} : { code: f.code })
+					...(p.kind === 'update' ? {} : { code: f.code }),
+					// In this snapshot, so in the catalog: un-retire it.
+					retiredAt: null
 				})
 				.where(and(eq(equipmentModels.id, p.id), isNull(equipmentModels.ownerUserId)));
 		}
+		// Retire, never delete: gym_equipment rows may point at these. Same
+		// owner guard, and only rows not already retired, so the first
+		// retirement date is kept.
+		const ids = retired.map((r) => r.id);
+		for (let i = 0; i < ids.length; i += 200)
+			await tx
+				.update(equipmentModels)
+				.set({ retiredAt: sql`now()` })
+				.where(
+					and(
+						inArray(equipmentModels.id, ids.slice(i, i + 200)),
+						isNull(equipmentModels.ownerUserId),
+						isNull(equipmentModels.retiredAt)
+					)
+				);
 		return result;
 	});
 }
@@ -532,7 +609,8 @@ export function formatImportReport(r: ImportResult): string {
 		'promoted',
 		'recoded',
 		'unchanged',
-		'skipped'
+		'skipped',
+		'retired'
 	];
 	const lines = [...r.byManufacturer.entries()].sort(([a], [b]) => a.localeCompare(b));
 	const total = lines.reduce(
@@ -542,16 +620,19 @@ export function formatImportReport(r: ImportResult): string {
 			promoted: t.promoted + v.promoted,
 			recoded: t.recoded + v.recoded,
 			unchanged: t.unchanged + v.unchanged,
-			skipped: t.skipped + v.skipped
+			skipped: t.skipped + v.skipped,
+			retired: t.retired + v.retired
 		}),
-		{ inserted: 0, updated: 0, promoted: 0, recoded: 0, unchanged: 0, skipped: 0 }
+		{ inserted: 0, updated: 0, promoted: 0, recoded: 0, unchanged: 0, skipped: 0, retired: 0 }
 	);
 	const width = Math.max(12, ...lines.map(([m]) => m.length));
 	const fmt = (cells: (string | number)[]) =>
 		cells.map((c, i) => (i === 0 ? String(c).padEnd(width) : String(c).padStart(9))).join(' ');
 	out.push(fmt(head));
 	for (const [m, v] of lines)
-		out.push(fmt([m, v.inserted, v.updated, v.promoted, v.recoded, v.unchanged, v.skipped]));
+		out.push(
+			fmt([m, v.inserted, v.updated, v.promoted, v.recoded, v.unchanged, v.skipped, v.retired])
+		);
 	out.push(
 		fmt([
 			'TOTAL',
@@ -560,7 +641,8 @@ export function formatImportReport(r: ImportResult): string {
 			total.promoted,
 			total.recoded,
 			total.unchanged,
-			total.skipped
+			total.skipped,
+			total.retired
 		])
 	);
 	for (const p of r.plan)
@@ -581,25 +663,26 @@ export function formatImportReport(r: ImportResult): string {
 			out.push(
 				`  recode line ${p.row.line} ${p.row.fields.manufacturer} ${p.from} -> ${p.row.fields.code}: kept in place (${p.changed.join(', ')})`
 			);
-	if (r.untouchedGlobal)
+	for (const x of r.retired)
 		out.push(
-			`${r.untouchedGlobal} existing global row(s) are not in this CSV and were left as they are.`
+			`  retire ${x.manufacturer} ${x.code ?? x.name}${x.code ? ` ${x.name}` : ''}${x.productLine ? ` [${x.productLine}]` : ''}: not in this snapshot; hidden from lists and pickers, kept for linked machines`
 		);
 	out.push('');
 	out.push('Not imported onto the model (by design):');
-	out.push(
-		`  stack_lb: ${r.stackRows.length} row(s). Stack size is the gym's instance data (gym_equipment.stack_lb), not the model's:`
-	);
-	for (const s of r.stackRows)
-		out.push(
-			`    ${s.fields.manufacturer} ${s.fields.code ?? s.fields.name}: ${s.stackLb} lb${s.stackNote ? ` (${s.stackNote})` : ''}`
-		);
 	out.push(
 		`  starting_resistance_kg: ${r.ignored.startingResistanceKg} row(s); the lb value is stored, kg is derived.`
 	);
 	if (r.ignored.notes)
 		out.push(
 			`  (kept) notes: ${r.ignored.notes} row(s) carry a note; stored on the model (equipment_models.notes) and shown on its page.`
+		);
+	if (r.ignored.stack)
+		out.push(
+			`  (kept) stack_lb: ${r.ignored.stack} row(s) carry a standard stack; stored on the model (equipment_models.standard_stack_lb) and pre-filled when a machine is added.`
+		);
+	if (r.ignored.stackRounded)
+		out.push(
+			`  (rounded down) stack_lb: ${r.ignored.stackRounded} of them are not whole pounds; stored rounded down, the exact figure stays in stack_note.`
 		);
 	if (r.ignored.sourceNotUrl)
 		out.push(

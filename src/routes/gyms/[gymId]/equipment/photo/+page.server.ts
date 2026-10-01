@@ -14,7 +14,7 @@ import type { Actions, PageServerLoad } from './$types';
 // id that never existed (D6).
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const userId = requireUser(locals).id;
-	const gym = await ownGym(db, userId, params.id);
+	const gym = await ownGym(db, userId, params.gymId);
 	if (!gym) error(404, 'Gym not found');
 	// Photos still waiting for a decision, so an interrupted review can be resumed.
 	const waiting = await db
@@ -53,7 +53,7 @@ export const actions: Actions = {
 				db,
 				userId,
 				{
-					gymId: params.id,
+					gymId: params.gymId,
 					bytes: new Uint8Array(await file.arrayBuffer()),
 					type: file.type,
 					name: file.name

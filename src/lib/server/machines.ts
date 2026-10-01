@@ -24,7 +24,7 @@ import {
 } from './progression';
 import { snapForEquipment } from './plates';
 import { mainPrefills } from './main-prefill';
-import { modelVisibleTo } from './catalog';
+import { modelReadableBy, modelVisibleTo } from './catalog';
 import { defaultMachineLabel } from '../catalog-labels';
 
 const name = z.string().trim().min(1).max(120);
@@ -124,12 +124,17 @@ export async function createMachine(db: Database, userId: string, input: unknown
 		// A blank label is named after the model: the chosen one, or the one
 		// typed in. With neither there is nothing to derive it from.
 		let localLabel = value.localLabel;
+		// Blank stack with a catalog model: the manufacturer's standard stack.
+		// An explicit value always wins; a machine with no model gets nothing.
+		let stackLb = value.stackLb;
 		if (!localLabel && !modelId && !value.modelName)
 			throw new MachineInputError(LABEL_REQUIRED_MESSAGE);
 		if (modelId) {
 			// A model is usable when it is global (owner_user_id IS NULL) or
 			// belongs to this user. Anything else is not found as far as this
-			// user is concerned — no 403, no distinct message.
+			// user is concerned — no 403, no distinct message. A model retired
+			// by a later snapshot is not offered for new machines either;
+			// machines already linked to it keep it.
 			const [model] = await tx
 				.select()
 				.from(equipmentModels)
@@ -137,6 +142,7 @@ export async function createMachine(db: Database, userId: string, input: unknown
 			if (!model || model.loadingType !== value.equipmentType)
 				throw new MachineInputError('Model loading type does not match machine');
 			localLabel ??= defaultMachineLabel(model);
+			stackLb ??= model.standardStackLb ?? undefined;
 		} else if (value.manufacturer && value.modelName) {
 			const [model] = await tx
 				.insert(equipmentModels)
@@ -158,11 +164,82 @@ export async function createMachine(db: Database, userId: string, input: unknown
 				localLabel,
 				equipmentType: value.equipmentType,
 				equipmentModelId: modelId,
-				stackLb: value.stackLb,
+				stackLb,
 				incrementLb: value.incrementLb
 			})
 			.returning();
 		return machine;
+	});
+}
+const machineEditSchema = z.object({
+	localLabel: optionalLabel,
+	stackLb: optionalLb,
+	incrementLb: optionalLb
+});
+
+/**
+ * One machine for its edit page, with its gym and model. Ownership is in the
+ * query: the machine must be under `gymId`, and that gym must be this user's.
+ * Another user's machine, or a machine under a different gym, is null (D6).
+ */
+export async function loadMachine(db: Database, userId: string, gymId: string, machineId: string) {
+	const id = z.string().uuid();
+	if (!id.safeParse(gymId).success || !id.safeParse(machineId).success) return null;
+	const [row] = await db
+		.select({ machine: gymEquipment, gym: gyms, model: equipmentModels })
+		.from(gymEquipment)
+		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
+		.leftJoin(
+			equipmentModels,
+			// A machine keeps its model after a snapshot retires it.
+			and(eq(equipmentModels.id, gymEquipment.equipmentModelId), modelReadableBy(userId))
+		)
+		.where(
+			and(eq(gymEquipment.id, machineId), eq(gymEquipment.gymId, gymId), eq(gyms.userId, userId))
+		);
+	return row ?? null;
+}
+
+/**
+ * Edit a machine's label, stack and increment (0.3.2). The model is not
+ * changed here. A blank label takes the model's default label, exactly as on
+ * create; with no model it is refused. Blank stack or increment clears it.
+ * Returns null, writing nothing, when the machine is not this user's or not
+ * under `gymId`: the owner chain gym_id -> gyms.user_id is in the UPDATE.
+ */
+export async function updateMachine(
+	db: Database,
+	userId: string,
+	gymId: string,
+	machineId: string,
+	input: unknown
+) {
+	const value = machineEditSchema.parse(input);
+	return db.transaction(async (tx) => {
+		const found = await loadMachine(tx, userId, gymId, machineId);
+		if (!found) return null;
+		const localLabel =
+			value.localLabel ?? (found.model ? defaultMachineLabel(found.model) : undefined);
+		if (!localLabel) throw new MachineInputError(LABEL_REQUIRED_MESSAGE);
+		const [row] = await tx
+			.update(gymEquipment)
+			.set({
+				localLabel,
+				stackLb: value.stackLb ?? null,
+				incrementLb: value.incrementLb ?? null
+			})
+			.where(
+				and(
+					eq(gymEquipment.id, machineId),
+					eq(gymEquipment.gymId, gymId),
+					inArray(
+						gymEquipment.gymId,
+						tx.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
+					)
+				)
+			)
+			.returning();
+		return row ?? null;
 	});
 }
 // Models are NOT part of this: with the 0.3.0 catalog that is 543+ rows, and

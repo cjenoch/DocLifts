@@ -4,7 +4,8 @@
  * `equipment_models` holds two kinds of row (CLAUDE.md, "The one exception:
  * the global equipment catalog"): global catalog rows (owner_user_id IS NULL),
  * read-only to every user, and owned rows (owner_user_id = userId), user data.
- * Every read here goes through `modelVisibleTo`; every write targets an owned
+ * Every list goes through `modelVisibleTo` (by-id reads through
+ * `modelReadableBy`, which adds retired catalog rows); every write targets an owned
  * row by putting `owner_user_id = userId` in its WHERE.
  */
 import { and, asc, count, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
@@ -19,10 +20,28 @@ import {
 import type { Database } from './progression';
 
 /**
- * The one visibility rule for models: global, or this user's own. Another
+ * The visibility rule for every list, search, picker and match: a CURRENT
+ * global model (not retired by a later snapshot), or this user's own. Another
  * user's owned model is indistinguishable from a missing id (D6).
+ *
+ * Retired catalog rows (0.3.2) are hidden here, so a new reader inherits that
+ * by default. Only by-id reads of a model a machine may already point at use
+ * the wider `modelReadableBy`.
  */
 export function modelVisibleTo(userId: string): SQL {
+	return or(
+		and(isNull(equipmentModels.ownerUserId), isNull(equipmentModels.retiredAt)),
+		eq(equipmentModels.ownerUserId, userId)
+	)!;
+}
+
+/**
+ * `modelVisibleTo` plus retired catalog rows: for reading ONE model by id —
+ * its page, or the model of a machine that already links to it. Retired
+ * rows are never deleted because machines point at them, so those must keep
+ * rendering. Never for lists, search, pickers or matching.
+ */
+export function modelReadableBy(userId: string): SQL {
 	return or(isNull(equipmentModels.ownerUserId), eq(equipmentModels.ownerUserId, userId))!;
 }
 
@@ -135,7 +154,7 @@ export async function loadModel(db: Database, userId: string, modelId: string) {
 	const [row] = await db
 		.select()
 		.from(equipmentModels)
-		.where(and(eq(equipmentModels.id, modelId), modelVisibleTo(userId)));
+		.where(and(eq(equipmentModels.id, modelId), modelReadableBy(userId)));
 	return row ?? null;
 }
 
@@ -204,7 +223,8 @@ export async function modelChoices(
 					.from(gymEquipment)
 					.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
 					.innerJoin(equipmentModels, eq(equipmentModels.id, gymEquipment.equipmentModelId))
-					.where(and(eq(gyms.id, params.gym), eq(gyms.userId, userId), modelVisibleTo(userId)))
+					// The gym's machines name its manufacturers, retired models included.
+					.where(and(eq(gyms.id, params.gym), eq(gyms.userId, userId), modelReadableBy(userId)))
 					.orderBy(asc(equipmentModels.manufacturer))
 			).map((r) => r.v)
 		: [];
@@ -273,7 +293,7 @@ export async function updateOwnedModel(
  * user's load fields and confidence 'user', so a wrong catalog number can be
  * corrected for one person without changing the catalog for everyone. The
  * copy keeps the model's identity (manufacturer, line, code, name, loading
- * type, body region) and the catalog's notes, and drops the catalog
+ * type, body region), the catalog's notes and standard stack, and drops the catalog
  * provenance (source, snapshot).
  * Returns null when the model is not visible to this user.
  */
@@ -296,6 +316,8 @@ export async function copyModelForUser(
 			loadingType: source.loadingType,
 			bodyRegion: source.bodyRegion,
 			notes: source.notes,
+			standardStackLb: source.standardStackLb,
+			standardStackNote: source.standardStackNote,
 			...value,
 			confidence: 'user',
 			sourceUrl: null,

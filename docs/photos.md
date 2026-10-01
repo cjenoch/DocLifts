@@ -26,8 +26,7 @@ added.** The model's output is a suggestion, never a write.
    - **Link** an existing model (a radio list of the matches): a machine is
      added to the gym the photo was taken for. Leave the label blank and it is
      named after the model, e.g. "Hammer Strength Iso-Lateral Row (IL-ROW)"
-     (0.3.2's default label). The stack is prefilled when the candidate read
-     one.
+     (0.3.2's default label). The stack is prefilled when the candidate read one; left blank, it takes the model's standard stack (0.3.2), as on every other way of adding a machine.
    - **Create my own model** from the candidate: every field is prefilled
      and editable; loading type must be chosen when the reader said
      "unknown". The model is yours (`confidence = 'user'`, no source), the
@@ -132,9 +131,9 @@ and choosing is done by you.
 
 ## Matching
 
-`matchCandidate(db, userId, candidate)` (`photos/match.ts`), over the global
-catalog and your own models (another user's models are invisible), first hit
-wins:
+`matchCandidate(db, userId, candidate)` (`photos/match.ts`), over the current
+global catalog and your own models (`modelVisibleTo`: another user's models,
+and catalog rows a later snapshot retired, never match), first hit wins:
 
 1. **Exact**: manufacturer (case-insensitive) and model code, ignoring case,
    whitespace and hyphens (`IL ROW` = `IL-ROW`). Preselected. If both the
@@ -177,7 +176,7 @@ order by created_at desc limit 10;
 
 ## Data
 
-`equipment_photos` (migration 0015): `id`, `user_id` (owner, NOT NULL),
+`equipment_photos` (migration 0016): `id`, `user_id` (owner, NOT NULL),
 `gym_id`, `storage_key` (unique), `content_type`, `bytes`, `width`, `height`
 and `sha256` of the stored image, `status` (`uploaded` → `analyzed` →
 `confirmed` | `discarded`), `llm_call_id`, `candidate` (jsonb),

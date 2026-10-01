@@ -19,6 +19,7 @@
 		"user:create": "tsx scripts/user-create.ts",
 		"user:set-password": "tsx scripts/user-set-password.ts",
 		"catalog:import": "tsx scripts/catalog-import.ts",
+		"llm:ping": "tsx scripts/llm-ping.ts",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --check .",
 		"format": "prettier --write .",

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
+	import PasswordInput from '$lib/PasswordInput.svelte';
 
 	let { form, data }: { form: ActionData; data: PageData } = $props();
 </script>
@@ -29,41 +30,32 @@
 	{/if}
 
 	<form method="POST" class="space-y-4">
-		<label class="block">
-			<span class="mb-1 block text-sm font-medium">Current password</span>
-			<input
-				name="currentPassword"
-				type="password"
-				autocomplete="current-password"
-				required
-				class="w-full rounded border border-neutral-300 px-3 py-2"
-			/>
-		</label>
+		<PasswordInput
+			id="current-password"
+			label="Current password"
+			name="currentPassword"
+			autocomplete="current-password"
+			required
+		/>
 
-		<label class="block">
-			<span class="mb-1 block text-sm font-medium">New password</span>
-			<input
-				name="newPassword"
-				type="password"
-				autocomplete="new-password"
-				minlength={data.minLength}
-				required
-				aria-describedby="new-password-hint"
-				class="w-full rounded border border-neutral-300 px-3 py-2"
-			/>
-		</label>
+		<PasswordInput
+			id="new-password"
+			label="New password"
+			name="newPassword"
+			autocomplete="new-password"
+			minlength={data.minLength}
+			required
+			aria-describedby="new-password-hint"
+		/>
 
-		<label class="block">
-			<span class="mb-1 block text-sm font-medium">New password again</span>
-			<input
-				name="confirmPassword"
-				type="password"
-				autocomplete="new-password"
-				minlength={data.minLength}
-				required
-				class="w-full rounded border border-neutral-300 px-3 py-2"
-			/>
-		</label>
+		<PasswordInput
+			id="confirm-password"
+			label="New password again"
+			name="confirmPassword"
+			autocomplete="new-password"
+			minlength={data.minLength}
+			required
+		/>
 
 		<!--
 			Length is the whole policy (spec §2 item 4): no symbol, digit or case

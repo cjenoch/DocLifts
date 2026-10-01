@@ -357,6 +357,39 @@ run('production build: CSP and page render', () => {
 		await page.close();
 	});
 
+	// Spec §2 item 2: a reveal toggle on every password field, under the
+	// existing CSP. The component test proves the toggle in isolation; this
+	// proves it on the SERVED build, where the CSP header is real and a
+	// blocked handler would leave a button that silently does nothing.
+	for (const [path, fields] of [
+		['/login', ['Password']],
+		['/account/password', ['Current password', 'New password', 'New password again']]
+	] as const) {
+		it(`every password field on ${path} reveals and re-masks, with no CSP violation`, async () => {
+			const { page } = path === '/login' ? await visitLoggedOut(path) : await visit(path);
+			const masked = await page.locator('input[type="password"]').count();
+			expect(masked, `${path}: password fields found`).toBe(fields.length);
+
+			for (const label of fields) {
+				const input = page.getByLabel(label, { exact: true });
+				expect(await input.getAttribute('type')).toBe('password');
+				await page
+					.getByRole('button', { name: `Show ${label.toLowerCase()}`, exact: true })
+					.click();
+				expect(await input.getAttribute('type'), `${path}: ${label} after Show`).toBe('text');
+				await page
+					.getByRole('button', { name: `Hide ${label.toLowerCase()}`, exact: true })
+					.click();
+				expect(await input.getAttribute('type'), `${path}: ${label} after Hide`).toBe('password');
+			}
+
+			const { violations, appStyledElements } = await audit(page);
+			expect(violations, path).toEqual([]);
+			expect(appStyledElements, path).toEqual([]);
+			await page.close();
+		});
+	}
+
 	it('/reports completion bar reflects the real ratio, not a CSP-blocked width', async () => {
 		const { page } = await visit('/reports');
 		const bar = page.locator('progress').first();

@@ -818,3 +818,104 @@ password   P@ssw0rdDL26!
 ```
 
 `pre-0.2.2` deleted. The `.env.pre-0.2.2` backup removed after verification.
+
+---
+
+## 15. 0.2.3 — DEPLOYED 2026-10-01
+
+```
+0.2.3   908e70b  (= 0.2.3-rc1, promoted after §3.5 passed)
+CI      green on 0.2.3-rc1 and on main
+web     c4325bf2c124 -> dbc0e9de3d55
+db      7f866d5b8f80 (never recreated)
+```
+
+The lockout. A cookie-bearing sign-in was answered **403 before the password was
+compared**, and the login action relabelled it "that email and password do not
+match" and counted it against the throttle. Measured in production, one
+variable at a time:
+
+```
+no cookie                  -> 200 ok:true
+any cookie (bogus token)   -> 403
+a REAL valid session token -> 403
+an unrelated "theme=dark"  -> 403
+```
+
+The cookie's value is irrelevant; its presence is the whole trigger. Every
+browser that had ever visited the site was locked out of a password that had
+always been correct.
+
+Cause, in `better-auth/dist/api/middlewares/origin-check.mjs:137`:
+
+```js
+if (headers.has('cookie')) return await validateOrigin(ctx);
+```
+
+No cookie skips validation; any cookie forces it; the proxy stripped `Origin`,
+so validation could not pass. The comment justifying that strip was written when
+`baseURL` still fell back to `http://127.0.0.1:3000` — an origin no browser
+sends. The fallback was fixed later and the comment outlived the condition.
+
+Fix: forward `Origin` and `Referer` on **both** paths, so Better Auth's
+trusted-origin check runs against the real origin instead of being dodged.
+
+### Post-deploy wire checks
+
+```
+Cookie: theme=dark + correct password
+  {"ok":true,"status":200,"reason":"ok","pwLen":22,"pwEdgeWs":false}
+
+no cookie + correct password
+  {"ok":true,"status":200,"reason":"ok","pwLen":22,"pwEdgeWs":false}
+
+wrong password + the cookie
+  {"ok":false,"status":401,"reason":"bad_credentials",
+   "errorCode":"INVALID_EMAIL_OR_PASSWORD","pwLen":19}
+  throttle: no line — count 1 is below DELAY_AFTER_FAILURES=5
+
+sign-out destroys the session row
+  8 -> 9 sessions -> POST /logout -> 8
+```
+
+### The owner's own device
+
+```
+{"event":"login_attempt","ok":true,"status":200,"reason":"ok",
+ "ipHash":"14466d64","emailHash":"af8d3714","pwLen":13,"pwEdgeWs":false,
+ "uaHash":"8e0ede7d"}
+```
+
+`14466d64` = 100.106.175.83 = iphone-12. `af8d3714` = chris@enoch.ai.
+`pwLen` 13 = `P@ssw0rdDL26!`, no edge whitespace. Same device, same account,
+same password as every 403 in the log above — now `ok: true`.
+
+**The password was correct the whole time.**
+
+### Post-release
+
+```
+accounts   chris@enoch.ai (2 sessions), scratch-test@doclifts.invalid (0)
+data       31 sessions / 454 sets / 2 gyms / 4 programs — untouched
+throttle   ceiling disabled (LOGIN_MAX_FAILURES=0), delay curve live
+```
+
+`pre-0.2.3` deleted after all checks passed.
+
+### Still open
+
+The behaviour-level reproduction of the 403 does not exist. The mechanism tests
+assert CONSTRUCTION and fail without the fix, but nothing reproduces the 403
+in the harness — SvelteKit consumes the `cookie` header before the action
+runs, and calling the proxy directly returns 401 rather than 403. Closing that
+is a standing task, not a done item.
+
+### Rules earned (CLAUDE.md)
+
+- A fixture that is always fresh is not neutral; it is an invisible filter over
+  the bug space. Every auth e2e signed in with an empty cookie jar, which is
+  exactly where the bug did not reproduce.
+- Every handler status gets its own reason; only 401 counts as a failure.
+- An enum variant with no producer is a question, not dead code. `origin`
+  was deleted as "nothing produces this" — the reason nothing produced it was
+  the bug it pointed at.

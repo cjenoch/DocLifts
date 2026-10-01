@@ -80,6 +80,14 @@ describe('a malformed value stops the server at boot', () => {
 		);
 	});
 
+	it('refuses to start with PASSWORD_MIN_LENGTH below the floor of 8, and names it', async () => {
+		// createAuth runs when hooks.server.ts imports auth.ts, so this is a
+		// boot failure, not a first-request one.
+		await expect(startTestServer({ PASSWORD_MIN_LENGTH: '7' })).rejects.toThrow(
+			/server exited early[\s\S]*PASSWORD_MIN_LENGTH="7"/
+		);
+	});
+
 	it('refuses to start on a negative value, and names it', async () => {
 		await expect(startTestServer({ LOGIN_MAX_FAILURES: '-1' })).rejects.toThrow(
 			/server exited early[\s\S]*LOGIN_MAX_FAILURES="-1"/

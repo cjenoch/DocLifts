@@ -213,6 +213,13 @@ sudo scripts/compose-prod.sh up -d --wait web
 | `LOGIN_DELAY_BASE_MS`        | `1000`  | First delay step; doubles per further failure                     |
 | `LOGIN_DELAY_MAX_MS`         | `30000` | Ceiling on that delay                                             |
 | `SESSION_EXPIRES_DAYS`       | `30`    | Session lifetime, sliding                                         |
+| `PASSWORD_MIN_LENGTH`        | `12`    | Minimum length when a password is set; 8–128, else boot fails     |
+
+**Password policy is length only.** No symbol, digit or case rules at any
+length (NIST SP 800-63B). Set `PASSWORD_MIN_LENGTH` to the length you will
+actually type. It applies when a password is set — the change-password page
+and the `user:*` CLI — never at sign-in, so raising it cannot lock out a
+password that already exists.
 
 ### How the sign-in throttle works
 

@@ -114,6 +114,7 @@ services:
       LOGIN_DELAY_BASE_MS: ${LOGIN_DELAY_BASE_MS:-1000}
       LOGIN_DELAY_MAX_MS: ${LOGIN_DELAY_MAX_MS:-30000}
       SESSION_EXPIRES_DAYS: ${SESSION_EXPIRES_DAYS:-30}
+      PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
     # Publish on the VPS tailnet IP (not 127.0.0.1, not 0.0.0.0) so the app is
     # reachable from other tailnet devices (phone/laptop) but not the public
     # internet. DB stays off the host port.

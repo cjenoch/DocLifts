@@ -79,6 +79,50 @@ function sessionExpiresDays(): number {
 	return parsed;
 }
 
+/** The code default, and the floor below which a configured value is refused. */
+export const PASSWORD_MIN_LENGTH_DEFAULT = 12;
+export const PASSWORD_MIN_LENGTH_FLOOR = 8;
+/** Better Auth's own default maximum (create-context.mjs), which we do not change. */
+export const PASSWORD_MAX_LENGTH = 128;
+
+/**
+ * Minimum password length, from PASSWORD_MIN_LENGTH. LENGTH IS THE WHOLE POLICY.
+ *
+ * Spec §2 item 4, after NIST SP 800-63B: no composition rules (no required
+ * symbol, digit or case) at any length. The code ships 12; the owner sets the
+ * number he will actually type, in the env file.
+ *
+ * 8 is a floor, not a suggestion — NIST's minimum for a user-chosen password.
+ * Below it, or anything that is not a whole number, THROWS. createAuth runs at
+ * module load of auth.ts, which hooks.server.ts imports, so a bad value stops
+ * the server at boot instead of quietly running the default. Above Better
+ * Auth's maximum of 128 also throws: every password would be impossible.
+ *
+ * Read from `process.env` for the same reason as SESSION_EXPIRES_DAYS: the
+ * account CLI builds its own auth instance from here, outside SvelteKit, and
+ * the two must enforce the same number. Sign-in never checks this — Better
+ * Auth applies it to setting a password, not to verifying one — so raising it
+ * cannot lock out a password that already exists. password-policy.e2e.ts
+ * proves that rather than trusting it.
+ */
+export function passwordMinLength(env: Record<string, string | undefined> = process.env): number {
+	const raw = env.PASSWORD_MIN_LENGTH;
+	if (raw === undefined || raw.trim() === '') return PASSWORD_MIN_LENGTH_DEFAULT;
+	const parsed = Number(raw);
+	if (
+		!Number.isInteger(parsed) ||
+		parsed < PASSWORD_MIN_LENGTH_FLOOR ||
+		parsed > PASSWORD_MAX_LENGTH
+	) {
+		throw new Error(
+			`[auth] PASSWORD_MIN_LENGTH="${raw}" must be a whole number from ` +
+				`${PASSWORD_MIN_LENGTH_FLOOR} to ${PASSWORD_MAX_LENGTH}. ` +
+				`Fix it in the env file, or unset it to use ${PASSWORD_MIN_LENGTH_DEFAULT}.`
+		);
+	}
+	return parsed;
+}
+
 export function createAuth(db: Database, opts: CreateAuthOptions) {
 	return betterAuth({
 		baseURL: opts.baseURL,
@@ -160,7 +204,8 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 			 * auth-off toggle — there is no auth-off mode.
 			 */
 			disableSignUp: !opts.openSignup,
-			minPasswordLength: 12
+			// Length only. See passwordMinLength.
+			minPasswordLength: passwordMinLength()
 		},
 
 		/**

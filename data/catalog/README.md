@@ -21,3 +21,6 @@
 - `model_code` is the join key for photo capture. Codes with an 'N' suffix (gym80) or trailing generation digit (Nautilus IP..5 vs IP..3) mark revisions; the placard decides.
 - Starting resistance stays per model; stack size belongs on gym_equipment (the gym's instance), because several brands sell optional heavier stacks under the same code.
 - Biostrength (Technogym) uses motorized resistance and is not a weight stack; it is listed as line_only and needs a new loading_type if ever cataloged.
+
+## Optional column for later snapshots (importer, since 0.3.2)
+- replaces_code: added as the LAST column of a newer snapshot when a manufacturer's code was corrected (e.g. Hammer Strength IL-DY -> IL-DRW). Holds the code the model was listed under before. The importer recodes the existing global row in place, so gyms' machines stay linked. Leave it empty on every other row. The 2026-09-30 file does not have this column and does not need it. Details: docs/catalog.md.

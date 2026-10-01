@@ -11,10 +11,11 @@
 - **Catalog notes on each model's page.** The catalog's own remarks (298
   models have one, such as "code unknown — verify") now show on the model's
   page, and come along when you create your own copy.
-- **A catalog update that adds a model code keeps your machines attached.**
-  When a newer catalog gives a code to a model that had none, the existing
-  model gains the code instead of a duplicate appearing beside it, so machines
-  you already added stay linked to it.
+- **A catalog update that adds or corrects a model code keeps your machines
+  attached.** When a newer catalog gives a code to a model that had none, or
+  corrects a manufacturer's code, the existing model takes the new code
+  instead of a duplicate appearing beside it, so machines you already added
+  stay linked to it.
 
 ## 0.3.1 — LLM adapter foundation — 2026-10-01
 

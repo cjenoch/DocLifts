@@ -300,7 +300,9 @@ describe('a code added to a codeless model (promotion)', () => {
 		expect(totals(dry)).toEqual({ inserted: 0, updated: 0, unchanged: 542, skipped: 0 });
 		expect(dry.byManufacturer.get('Nautilus')).toMatchObject({ promoted: 1, inserted: 0 });
 		const report = formatImportReport(dry);
-		expect(report).toMatch(/manufacturer\s+inserted\s+updated\s+promoted\s+unchanged\s+skipped/);
+		expect(report).toMatch(
+			/manufacturer\s+inserted\s+updated\s+promoted\s+recoded\s+unchanged\s+skipped/
+		);
 		expect(report).toContain(
 			`promote line ${LINE} Nautilus Leverage Row: codeless row gains code TEST-ROW, kept in place (code)`
 		);
@@ -383,6 +385,167 @@ describe('a code added to a codeless model (promotion)', () => {
 			.where(eq(s.equipmentModels.id, mine.id));
 		expect(after).toEqual(mine);
 		expect(await owned()).toBe(1);
+	});
+});
+
+// 0.3.2: `replaces_code`, an optional last column, recodes a row in place when
+// a newer snapshot corrects a manufacturer's code (Hammer Strength IL-DY ->
+// IL-DRW, line 136 of the seed).
+describe('a corrected code (replaces_code)', () => {
+	const LINE = 136;
+	/** The seed plus an empty replaces_code column, with `edits` applied to given lines. */
+	function withReplaces(edits: Record<number, { code: string; replaces: string; name?: string }>) {
+		const lines = csv.trimEnd().split(/\r?\n/);
+		const header = lines[0].split(',');
+		return lines
+			.map((l, i) => {
+				if (i === 0) return `${l},replaces_code`;
+				const edit = edits[i + 1];
+				if (!edit) return `${l},`;
+				const cells = l.split(',');
+				cells[header.indexOf('model_code')] = edit.code;
+				if (edit.name) cells[header.indexOf('name')] = edit.name;
+				return `${cells.join(',')},${edit.replaces}`;
+			})
+			.join('\n');
+	}
+	const recoded = withReplaces({
+		[LINE]: { code: 'IL-DRW', replaces: 'IL-DY', name: 'Iso-Lateral D.Y. Row (corrected)' }
+	});
+	const byCode = async (code: string) =>
+		db
+			.select()
+			.from(s.equipmentModels)
+			.where(
+				and(
+					eq(s.equipmentModels.manufacturer, 'Hammer Strength'),
+					eq(s.equipmentModels.code, code),
+					isNull(s.equipmentModels.ownerUserId)
+				)
+			);
+
+	it('recodes the old-code row in place: same id, new code and name, link kept', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		const [before] = await byCode('IL-DY');
+		const [gym] = await db.insert(s.gyms).values({ name: 'Gym', userId: alice }).returning();
+		const [machine] = await db
+			.insert(s.gymEquipment)
+			.values({
+				gymId: gym.id,
+				localLabel: 'DY row',
+				equipmentType: 'machine-plate',
+				equipmentModelId: before.id
+			})
+			.returning();
+
+		const dry = await importCatalog(db, recoded, { dryRun: true });
+		expect(dry.byManufacturer.get('Hammer Strength')).toMatchObject({
+			inserted: 0,
+			recoded: 1,
+			unchanged: 63
+		});
+		const report = formatImportReport(dry);
+		expect(report).toMatch(
+			/manufacturer\s+inserted\s+updated\s+promoted\s+recoded\s+unchanged\s+skipped/
+		);
+		expect(report).toContain(
+			`recode line ${LINE} Hammer Strength IL-DY -> IL-DRW: kept in place (code, name)`
+		);
+		expect(await byCode('IL-DRW')).toEqual([]);
+
+		const result = await importCatalog(db, recoded, { dryRun: false });
+		expect(result.failed).toBe(false);
+		expect(await globals()).toBe(543);
+		expect(await byCode('IL-DY')).toEqual([]);
+		const [after] = await byCode('IL-DRW');
+		expect(after).toEqual({ ...before, code: 'IL-DRW', name: 'Iso-Lateral D.Y. Row (corrected)' });
+		const [link] = await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, machine.id));
+		expect(link.equipmentModelId).toBe(before.id);
+
+		const again = await importCatalog(db, recoded, { dryRun: false });
+		expect(totals(again)).toEqual({ inserted: 0, updated: 0, unchanged: 543, skipped: 0 });
+		expect(again.byManufacturer.get('Hammer Strength')!.recoded).toBe(0);
+	});
+
+	it('fails, writing nothing, when rows exist for both the new and the old code', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		const [old] = await byCode('IL-DY');
+		const { id: _id, ...copy } = old;
+		await db.insert(s.equipmentModels).values({ ...copy, code: 'IL-DRW' });
+		const result = await importCatalog(db, recoded, { dryRun: false });
+		expect(result.failed).toBe(true);
+		expect(totals(result).skipped).toBe(1);
+		expect(formatImportReport(result)).toContain(
+			`skipped line ${LINE} (Hammer Strength): global rows exist for both IL-DRW and the code it replaces, IL-DY`
+		);
+		expect((await byCode('IL-DY'))[0]).toEqual(old);
+	});
+
+	it('inserts as normal when neither code exists', async () => {
+		const result = await importCatalog(db, recoded, { dryRun: false });
+		expect(totals(result).inserted).toBe(543);
+		expect(await byCode('IL-DRW')).toHaveLength(1);
+	});
+
+	it('the 2026-09-30 CSV imports the same with an empty replaces_code column as without', async () => {
+		const plain = await importCatalog(db, csv, { dryRun: true });
+		const empty = await importCatalog(db, withReplaces({}), { dryRun: true });
+		expect(empty.errors).toEqual([]);
+		expect(empty.byManufacturer).toEqual(plain.byManufacturer);
+		expect(empty.plan.map((p) => [p.kind, p.row.fields])).toEqual(
+			plain.plan.map((p) => [p.kind, p.row.fields])
+		);
+	});
+
+	it("never recodes, or touches, a user's own row with the old code", async () => {
+		const [mine] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Hammer Strength',
+				code: 'IL-DY',
+				name: 'My DY row',
+				loadingType: 'machine-plate',
+				ownerUserId: alice
+			})
+			.returning();
+		const first = await importCatalog(db, recoded, { dryRun: false });
+		expect(first.byManufacturer.get('Hammer Strength')).toMatchObject({ inserted: 64, recoded: 0 });
+		await db.delete(s.equipmentModels).where(isNull(s.equipmentModels.ownerUserId));
+		await importCatalog(db, csv, { dryRun: false });
+		const second = await importCatalog(db, recoded, { dryRun: false });
+		expect(second.byManufacturer.get('Hammer Strength')!.recoded).toBe(1);
+		const [after] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.id, mine.id));
+		expect(after).toEqual(mine);
+	});
+
+	it('refuses replaces_code without a code, equal to its own code, or replaced twice', () => {
+		const bad = withReplaces({
+			[LINE]: { code: '', replaces: 'IL-DY' },
+			138: { code: 'IL-FLP', replaces: 'IL-FLP' },
+			139: { code: 'X-1', replaces: 'OLD' },
+			140: { code: 'X-2', replaces: 'OLD' }
+		});
+		expect(mapCatalogCsv(bad).errors).toEqual([
+			{ line: LINE, message: 'replaces_code given without model_code' },
+			{ line: 138, message: "replaces_code 'IL-FLP' is the row's own model_code" },
+			{ line: 140, message: "replaces_code 'OLD' also replaced on line 139" }
+		]);
+	});
+
+	it('fails when one CSV row recodes a row another still lists under the old code', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		const lines = recoded.split('\n');
+		// The old IL-DY row listed again, alongside the row that replaces it.
+		const oldRow = csv.trimEnd().split(/\r?\n/)[LINE - 1];
+		const result = await importCatalog(db, [...lines, `${oldRow},`].join('\n'), {
+			dryRun: false
+		});
+		expect(result.failed).toBe(true);
+		expect(totals(result).skipped).toBe(2);
+		expect(await byCode('IL-DRW')).toEqual([]);
 	});
 });
 

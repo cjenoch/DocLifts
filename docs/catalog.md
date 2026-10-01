@@ -69,6 +69,7 @@ rather than a URL; they are stored as written and shown without a link.
 | `confidence`, `source`                 | `confidence`, `source_url`     |                                                          |
 | `catalog_snapshot`                     | `catalog_snapshot`             |                                                          |
 | `notes`                                | `notes`                        | since 0.3.2 (migration 0014); empty becomes NULL         |
+| `replaces_code` (optional, last)       | — (not stored)                 | steers the match; see "A corrected code" below           |
 
 **Not imported, on purpose**, and listed in every import report so nothing is
 dropped silently:
@@ -119,9 +120,28 @@ pnpm catalog:import data/catalog/equipment_models_seed_2026-09-30.csv
   name, or the name both with and without a code) fail the same way. Owned
   rows are never candidates. After the promotion the row matches on its code,
   so the next run reports it `unchanged`.
+- **A corrected code is a recode, not a new row** (since 0.3.2). The optional
+  last column `replaces_code` names the code a model was listed under in an
+  earlier snapshot, when the manufacturer's code has since been corrected
+  (Hammer Strength `IL-DY` → `IL-DRW`). For such a row, when no global row has
+  the new `(manufacturer, model_code)` and exactly one has
+  `(manufacturer, replaces_code)`, that row is updated in place: the new code,
+  the name and the catalog columns. Its id and its `gym_equipment` links stay.
+  Counted in the `recoded` column and listed as
+  `recode line N <manufacturer> <old> -> <new>: kept in place (<columns>)`.
+  Global rows under **both** codes: the row is skipped as a conflict and the
+  run fails. Neither: the row imports as any other (insert, or a promotion).
+  A row that still lists the old code beside the row replacing it fails the
+  same way. Refused at validation: `replaces_code` without a `model_code`,
+  equal to the row's own code, or the same old code replaced by two rows.
+  The column is optional: a CSV without it (the 2026-09-30 snapshot) imports
+  exactly as before. After a recode the old code is gone and the new one
+  matches, so the next run reports `unchanged`. Owned rows are never
+  candidates.
 - **Ambiguous match** (a key matching two existing global rows): reported as
   skipped, and the run fails without writing.
-- **Idempotent:** a second run reports 0 inserted, 0 updated, 0 promoted.
+- **Idempotent:** a second run reports 0 inserted, 0 updated, 0 promoted,
+  0 recoded.
 - Global rows that are not in the CSV are left as they are, and counted.
 - The run holds `SHARE ROW EXCLUSIVE` on the table for its transaction, so two
   imports cannot interleave; app reads are not blocked.
@@ -136,9 +156,10 @@ pnpm catalog:import data/catalog/equipment_models_seed_2026-09-30.csv
    dump, dry run printed, real run only when you type `IMPORT`.
 
 A code added to a model that had none is a promotion (above): same row, now
-with the code. Codes **renamed** between snapshots (one code replaced by
-another) import as **new** rows; the old row stays, since a user's machine may
-point at it. Models dropped from a catalog stay too.
+with the code. A code **corrected** between snapshots is a recode when the new
+CSV says so in `replaces_code`: same row, new code. Without `replaces_code` a
+changed code imports as a **new** row and the old row stays, since a user's
+machine may point at it. Models dropped from a catalog stay too.
 
 ### Production
 

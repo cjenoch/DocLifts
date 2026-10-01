@@ -1462,7 +1462,7 @@ status   NOT deployed. Nothing below has run against production.
 migrate  0014: equipment_models.notes (text, nullable). Verified on a restore
          of doclifts-2026-10-01.sql.gz, below
 catalog  re-import the SAME 2026-09-30 CSV: expect 0 inserted, ~298 updated
-         (notes), 0 promoted
+         (notes), 0 promoted, 0 recoded
 ```
 
 Built on branch `feat/0.3.2`. Migration **0014**. Reference:
@@ -1482,8 +1482,13 @@ Built on branch `feat/0.3.2`. Migration **0014**. Reference:
   the same `(manufacturer, product_line, name)` in place, so `gym_equipment`
   links (production has one, to Nautilus "Leverage Row") keep pointing at it.
   Reported in a new `promoted` column. Two candidates, or two CSV rows claiming
-  one: the run fails, nothing written. The 2026-09-30 CSV adds no codes, so
-  this release's re-import promotes nothing; it matters for the next snapshot.
+  one: the run fails, nothing written.
+- **The importer recodes corrected codes.** An optional last CSV column,
+  `replaces_code`, names a model's earlier code; the global row under that
+  code takes the new code, name and catalog columns in place (new `recoded`
+  column). Rows under both codes: the run fails. The 2026-09-30 CSV has no
+  such column and adds no codes, so this release's re-import promotes and
+  recodes nothing; both matter for the next snapshot.
 - **`equipment_models.notes`** (migration 0014, additive). The importer maps
   the CSV `notes` column as a catalog column; `/equipment/[id]` shows it;
   "create my own copy" carries it.
@@ -1559,10 +1564,10 @@ sudo -n scripts/compose-prod.sh up -d --build --wait web
 
 # 5. The SAME 2026-09-30 CSV again, to fill notes: verified dump, dry run
 #    printed, then type IMPORT. Expect the dry run to show ~298 updated (each
-#    update line ending ": notes"), 0 inserted, 0 promoted, ~245 unchanged,
-#    0 skipped, and "(kept) notes: 298 row(s)". Anything inserted or promoted
-#    means production's catalog is not what 0.3.0 imported: answer anything
-#    but IMPORT and stop.
+#    update line ending ": notes"), 0 inserted, 0 promoted, 0 recoded, ~245
+#    unchanged, 0 skipped, and "(kept) notes: 298 row(s)". Anything inserted,
+#    promoted or recoded means production's catalog is not what 0.3.0
+#    imported: answer anything but IMPORT and stop.
 sudo -n scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-09-30.csv
 ```
 
@@ -1580,7 +1585,7 @@ sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
 #   Nautilus|Leverage Row  (and any machines added since)
 
 # 7. Idempotent: run step 5 again; the dry run must show 0 inserted,
-#    0 updated, 0 promoted. Answer anything but IMPORT to stop there.
+#    0 updated, 0 promoted, 0 recoded. Answer anything but IMPORT to stop.
 ```
 
 8. On the scratch account: `/equipment/<Leverage Row id>` shows

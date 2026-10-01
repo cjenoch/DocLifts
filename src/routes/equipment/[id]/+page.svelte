@@ -48,6 +48,9 @@
 		<dt class="text-zinc-400">Catalog date</dt>
 		<dd>{m.catalogSnapshot ?? '—'}</dd>
 	</dl>
+	<a href={`/equipment/${m.id}/edit`} class="inline-block text-sm text-indigo-300"
+		>{mine ? 'Edit starting resistance and laterality' : 'Numbers wrong? Create your own copy'}</a
+	>
 	{#if badge.tone === 'unverified'}
 		<p class="text-sm text-amber-300">
 			Unverified: this row was inferred, not read from a catalog. Check the placard on the machine.

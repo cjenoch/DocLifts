@@ -35,6 +35,7 @@ describe('isPublicPath', () => {
 			'/gyms',
 			'/equipment',
 			'/equipment/1',
+			'/equipment/1/edit',
 			'/imported-history',
 			'/sessions/1',
 			'/account/password'
@@ -152,6 +153,7 @@ describe('route inventory', () => {
 			'/account/password',
 			'/equipment',
 			'/equipment/x',
+			'/equipment/x/edit',
 			'/gyms',
 			'/history',
 			'/imported-history',

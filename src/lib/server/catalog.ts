@@ -9,7 +9,7 @@
  */
 import { and, asc, count, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { equipmentModels, gymEquipment, gyms } from './db/schema';
+import { RESISTANCE_BASES, equipmentModels, gymEquipment, gyms } from './db/schema';
 import type { Database } from './progression';
 
 /**
@@ -214,4 +214,79 @@ export async function modelChoices(
 			sql`${equipmentModels.code} ASC NULLS LAST`
 		);
 	return { models, scope, gymManufacturers };
+}
+
+export const LATERALITIES = ['bilateral', 'independent', 'not_applicable', 'unknown'] as const;
+const blankToNull = (v: unknown) => (v === '' || v == null ? null : v);
+const loadFieldsSchema = z
+	.object({
+		startingResistance: z.preprocess(blankToNull, z.coerce.number().min(0).max(2000).nullable()),
+		startingResistanceBasis: z.preprocess(blankToNull, z.enum(RESISTANCE_BASES).nullable()),
+		laterality: z.enum(LATERALITIES)
+	})
+	.refine((v) => v.startingResistance == null || v.startingResistanceBasis != null, {
+		message: 'Say whether the starting resistance is total or per arm'
+	})
+	// A basis with no number means nothing; drop it rather than store noise.
+	.transform((v) => ({
+		...v,
+		startingResistanceBasis: v.startingResistance == null ? null : v.startingResistanceBasis
+	}));
+export type LoadFields = z.infer<typeof loadFieldsSchema>;
+
+/**
+ * Edit the load fields of a model THIS user owns. The owner is in the UPDATE's
+ * WHERE, so a global row or another user's row is simply not found (null),
+ * never changed: global rows are catalog data and are not editable in place.
+ */
+export async function updateOwnedModel(
+	db: Database,
+	userId: string,
+	modelId: string,
+	input: unknown
+) {
+	if (!uuid.safeParse(modelId).success) return null;
+	const value = loadFieldsSchema.parse(input);
+	const [row] = await db
+		.update(equipmentModels)
+		.set(value)
+		.where(and(eq(equipmentModels.id, modelId), eq(equipmentModels.ownerUserId, userId)))
+		.returning();
+	return row ?? null;
+}
+
+/**
+ * "Create my own copy": an owned duplicate of a visible model, carrying the
+ * user's load fields and confidence 'user', so a wrong catalog number can be
+ * corrected for one person without changing the catalog for everyone. The
+ * copy keeps the model's identity (manufacturer, line, code, name, loading
+ * type, body region) and drops the catalog provenance (source, snapshot).
+ * Returns null when the model is not visible to this user.
+ */
+export async function copyModelForUser(
+	db: Database,
+	userId: string,
+	modelId: string,
+	input: unknown
+) {
+	const value = loadFieldsSchema.parse(input);
+	const source = await loadModel(db, userId, modelId);
+	if (!source) return null;
+	const [copy] = await db
+		.insert(equipmentModels)
+		.values({
+			manufacturer: source.manufacturer,
+			productLine: source.productLine,
+			code: source.code,
+			name: source.name,
+			loadingType: source.loadingType,
+			bodyRegion: source.bodyRegion,
+			...value,
+			confidence: 'user',
+			sourceUrl: null,
+			catalogSnapshot: null,
+			ownerUserId: userId
+		})
+		.returning();
+	return copy;
 }

@@ -325,6 +325,7 @@ run('production build: CSP and page render', () => {
 		'/gyms',
 		'/equipment',
 		'/equipment/{id}',
+		'/equipment/{id}/edit',
 		'/imported-history',
 		'/programs/new',
 		'/programs/{id}',
@@ -341,6 +342,7 @@ run('production build: CSP and page render', () => {
 		if (pattern === '/programs/{id}/edit') return `/programs/${programId}/edit`;
 		if (pattern === '/sessions/{id}') return `/sessions/${sessionId}`;
 		if (pattern === '/equipment/{id}') return `/equipment/${modelId}`;
+		if (pattern === '/equipment/{id}/edit') return `/equipment/${modelId}/edit`;
 		return pattern;
 	}
 

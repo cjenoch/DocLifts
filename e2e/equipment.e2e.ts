@@ -187,4 +187,54 @@ run('equipment pages (production build)', () => {
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
+	it('copy a catalog row into my own, then edit my copy, from the pages', async () => {
+		const db = harness.db;
+		const [global] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(
+				and(
+					eq(s.equipmentModels.manufacturer, 'Hammer Strength'),
+					eq(s.equipmentModels.code, 'IL-HBP')
+				)
+			);
+		const page = await signedInPage();
+		await page.goto(`${origin}/equipment/${global.id}`, { waitUntil: 'networkidle' });
+		await page.getByRole('link', { name: 'Numbers wrong? Create your own copy' }).click();
+		await page.waitForURL('**/edit');
+		await page.getByLabel('Starting resistance (lb)').fill('15');
+		await page.getByLabel('Basis').selectOption('total');
+		await page.getByRole('button', { name: 'Create my own copy' }).click();
+		await page.waitForURL(
+			(url) => !url.pathname.endsWith('/edit') && !url.pathname.endsWith(global.id)
+		);
+		await expect.poll(() => page.getByText('15 lb total').count()).toBe(1);
+
+		const copyId = page.url().split('/').pop()!;
+		const [copy] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.id, copyId));
+		expect(copy).toMatchObject({ ownerUserId: userId, confidence: 'user', startingResistance: 15 });
+
+		await page.getByRole('link', { name: 'Edit starting resistance and laterality' }).click();
+		await page.waitForURL('**/edit');
+		await page.getByLabel('Starting resistance (lb)').fill('16');
+		await page.getByRole('button', { name: 'Save' }).click();
+		await page.waitForURL(`**/equipment/${copyId}`);
+		await expect.poll(() => page.getByText('16 lb total').count()).toBe(1);
+		const [edited] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.id, copyId));
+		expect(edited.startingResistance).toBe(16);
+		// The catalog row never moved.
+		const [after] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.id, global.id));
+		expect(after).toEqual(global);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
 });

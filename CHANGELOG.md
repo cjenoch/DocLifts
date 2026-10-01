@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1 — LLM adapter foundation (not yet released)
+## 0.3.1 — LLM adapter foundation — 2026-10-01
 
 LLM adapter foundation (no user-visible features yet).
 
@@ -15,7 +15,7 @@ LLM adapter foundation (no user-visible features yet).
 - **Nothing changes if it is not configured.** The app runs without any LLM
   setting; `pnpm llm:ping` checks a key once one is added.
 
-## 0.3.0 — equipment catalog (not yet released)
+## 0.3.0 — equipment catalog — 2026-10-01
 
 - **A catalog of 543 machines from 8 manufacturers.** gym80, Matrix, Precor,
   Hammer Strength, Technogym, Life Fitness, Nautilus and Cybex, read from their
@@ -37,7 +37,7 @@ LLM adapter foundation (no user-visible features yet).
 - Live workout pages no longer carry the whole model list, which they never
   used.
 
-## Unreleased — 0.2.5
+## 0.2.5 — login delay notice — 2026-10-01
 
 - **The sign-in page says when it is making you wait.** After five failed
   sign-ins each further attempt is held before the password is checked — 1,

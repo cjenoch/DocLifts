@@ -929,7 +929,28 @@ is a standing task, not a done item.
   was deleted as "nothing produces this" — the reason nothing produced it was
   the bug it pointed at.
 
-## 16. 0.2.4 — account management and password policy
+## 16. 0.2.4 — account management and password policy — DEPLOYED 2026-10-01
+
+```
+0.2.4   5b9884d
+CI      green on main (run 36814739727)
+web     image 7e7148dc13a2 -> 71dc97ff7ed4
+db      7f866d5b8f80 (never recreated)
+config  login_config: LOGIN_MAX_FAILURES 0, LOGIN_DELAY_MAX_MS 30000, ceiling disabled
+        PASSWORD_MIN_LENGTH=12 now explicit in the env file (equal to the
+        compose default, so the container was not recreated for it)
+```
+
+All five checks passed on the scratch account: sign-in from a browser holding
+an unrelated cookie; password change with a second session present (that
+session sent to `/login`, exactly one scratch session row left, old password
+refused, new one accepted); Show/Hide on `/login`; the hint read "At least 12
+characters". `pre-0.2.4` deleted afterwards.
+
+A first scripted run of check 4 reported a failure that was the script's own:
+a bare `button[type="submit"]` selector clicked the layout's sign-out button,
+which comes before the form's. Scope a submit to its form
+(`form:has(#new-password) button[type="submit"]`).
 
 No migration. Spec: `docs/handoffs/REPLY-login-spec.md` §2. **Nothing in this
 section runs without the owner's explicit "go" in the current session.**
@@ -1029,10 +1050,11 @@ harness now runs the build as `NODE_ENV=production` without `TEST`, the check
 is pinned on in code, and `e2e/sign-in-origin.e2e.ts` holds the
 behaviour-level test, which fails with the `Origin` forward reverted.
 
-## 17. 0.2.5 — login delay notice
+## 17. 0.2.5 — login delay notice — DEPLOYED 2026-10-01
 
-**NOT deployed.** Branch `feat/0.2.5-throttle-notice`; no step below has been
-run. No migration, no new env key, no compose change. Spec:
+Deployed together with 0.3.0 and 0.3.1 as `fd916d3` (see §18 for the
+deploy record); merged to `main` as `997908b`. The steps below were not run
+separately. Branch `feat/0.2.5-throttle-notice`. No migration, no new env key, no compose change. Spec:
 `docs/handoffs/REPLY-login-spec.md` §1 item 4 — "When the throttle delays or
 refuses, the page says so with the number of seconds. Never a silent wait."
 0.2.2 shipped the refusal half; this is the delay half. **Nothing in this
@@ -1107,9 +1129,31 @@ would carry the delay into his next sign-in. A restart clears the counters.
 
 `pre-0.2.5` is deleted only after all four pass.
 
-## 18. 0.3.0 — equipment catalog
+## 18. 0.3.0 — equipment catalog — DEPLOYED 2026-10-01
 
-**NOT deployed.** Built on branch `feat/0.3.0-catalog` from `main` at 0.2.4
+```
+main     fd916d3 (0.2.5 997908b, 0.3.0 41ec429, 0.3.1 fd916d3), one deploy
+CI       green on main at each of the three (runs 36843822042, 36845371122,
+         36846316422)
+migrate  0012 + 0013 applied together; dump predeploy-20261001T101008Z.dump;
+         __drizzle_migrations 12 -> 14; equipment_models_catalog_code_unique,
+         llm_calls_user_created_idx, llm_calls_purpose_created_idx present
+data     31 sessions / 454 sets / 2 gyms / 4 programs — unchanged
+web      image 71dc97ff7ed4 -> 1c9baa8a1069; db never recreated
+catalog  543 global, 0 owned. gym80 128, Matrix 83, Precor 66, Hammer Strength
+         64, Technogym 62, Life Fitness 61, Nautilus 43, Cybex 36
+         dumps precatalog-20261001T103258Z, precatalog-20261001T103329Z
+rerun    dry run: 0 inserted, 0 updated, 543 unchanged, 0 skipped; declined
+```
+
+Checks on the scratch account, from a browser holding an unrelated cookie:
+`/`, `/history`, `/gyms`, `/equipment`, `/account/password` all 200 with no
+page errors; the only CSP report per page was the tolerated
+`#svelte-announcer`. Check 9 (the narrowed picker at the owner's primary gym)
+waits on the owner linking a first machine to a catalog model. `pre-0.3.0`
+deleted afterwards.
+
+Originally built on branch `feat/0.3.0-catalog` from `main` at 0.2.4
 (`5b9884d`). Migration **0012**. Spec:
 `SPEC-0.3.0-catalog-0.3.1-llm.md` Part A. Reference: `docs/catalog.md`.
 (Numbered 18 because a 0.2.5 section may land as §17 first; this section
@@ -1244,9 +1288,26 @@ with 543 rows those pages get heavier until 0.3.0 is back. The narrow undo is
 in `docs/catalog.md`, and the full one is the `precatalog-*.dump` that
 `catalog-prod.sh` took.
 
-## 19. 0.3.1 — LLM adapter foundation
+## 19. 0.3.1 — LLM adapter foundation — DEPLOYED 2026-10-01
 
-**NOT deployed.** Built on branch `feat/0.3.1-llm` from `feat/0.3.0-catalog`
+Deployed with 0.3.0 (record in §18). Then the key and model:
+
+```
+env      OPENROUTER_API_KEY and LLM_MODEL=stealth/space-bunny-alpha added;
+         web recreated; both set in the container (presence checked, never
+         the value); no key in the web log
+ping     purpose ping, provider openrouter, model stealth/space-bunny-alpha,
+         status ok, 177 prompt / 60 completion tokens, 1213 ms,
+         output {"ok": true, "model": "Space Bunny"}, prompt not stored,
+         request id recorded — on the scratch account
+```
+
+OpenRouter does not list `structured_outputs` for this model, but it accepts
+`response_format`, and the ping's object validated against its schema. A
+richer schema is the real test; a `schema_error` row is what failure looks
+like.
+
+Originally built on branch `feat/0.3.1-llm` from `feat/0.3.0-catalog`
 at `bdcd629` (0.3.0, itself not yet on `main`). Migration **0013**. Spec:
 `SPEC-0.3.0-catalog-0.3.1-llm.md` Part B. Reference: `docs/llm.md`.
 **0.3.1 ships after 0.3.0: §18 is done first, and its migration 0012 is part

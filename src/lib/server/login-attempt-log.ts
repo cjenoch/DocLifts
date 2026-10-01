@@ -38,13 +38,7 @@
 import { createHash } from 'node:crypto';
 
 /** Why an attempt ended the way it did. */
-export type LoginAttemptReason =
-	| 'ok'
-	| 'bad_credentials'
-	| 'validation'
-	| 'throttled'
-	| 'origin'
-	| 'error';
+export type LoginAttemptReason = 'ok' | 'bad_credentials' | 'validation' | 'throttled' | 'error';
 
 export interface LoginAttemptEvent {
 	ok: boolean;

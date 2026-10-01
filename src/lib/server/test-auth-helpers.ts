@@ -92,10 +92,17 @@ export async function claimPort(): Promise<number> {
 	return port;
 }
 
-export async function waitForServer(origin: string, child: ChildProcess): Promise<void> {
+export async function waitForServer(
+	origin: string,
+	child: ChildProcess,
+	/** The child's captured output, so a timeout can report WHY. */
+	log: () => string = () => ''
+): Promise<void> {
 	const deadline = Date.now() + 30_000;
 	while (Date.now() < deadline) {
-		if (child.exitCode !== null) throw new Error(`server exited early (${child.exitCode})`);
+		if (child.exitCode !== null) {
+			throw new Error(`server exited early (${child.exitCode})\n${tail(log())}`);
+		}
 		try {
 			const res = await fetch(origin + '/login');
 			if (res.status < 500) return;
@@ -104,7 +111,26 @@ export async function waitForServer(origin: string, child: ChildProcess): Promis
 		}
 		await new Promise((r) => setTimeout(r, 200));
 	}
-	throw new Error('server did not come up within 30s');
+	throw new Error(`server did not come up within 30s\n${tail(log())}`);
+}
+
+/**
+ * The last 40 lines of the server's output.
+ *
+ * EARNED. A duplicate `event.setHeaders` call made every page return 500, and
+ * the harness reported it as "server did not come up within 30s" — which reads
+ * like infrastructure and sent the investigation toward Postgres and ports
+ * instead of toward the hook. The actual cause, `Error: "cache-control" header
+ * is already set`, was already sitting in this buffer, three lines long.
+ *
+ * A timeout message that hides the only useful evidence is worse than one with
+ * no message: it converts a one-read diagnosis into a hand-run of the built
+ * server. Keep this.
+ */
+function tail(output: string, lines = 40): string {
+	const trimmed = output.trimEnd();
+	if (!trimmed) return '(the server produced no output at all)';
+	return trimmed.split('\n').slice(-lines).join('\n');
 }
 
 /**
@@ -157,7 +183,7 @@ export async function startTestServer(
 	server.stdout?.on('data', (d) => (log += d));
 	server.stderr?.on('data', (d) => (log += d));
 
-	await waitForServer(origin, server);
+	await waitForServer(origin, server, () => log);
 	return { origin, server, log: () => log };
 }
 

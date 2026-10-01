@@ -339,6 +339,21 @@ passed with the entire `version` block deleted from `svelte.config.js` because
 `'dev'` is the framework's own default. Always revert the fix and watch the
 test fail before believing it.
 
+**In `hooks.server.ts`, never set response headers and then `throw redirect()`.**
+The headers are lost. SvelteKit's `respond` catches the `Redirect` and builds the
+response itself with `redirect_response(e.status, e.location)` — a bare
+`Response` with only a location — so everything the hook set is discarded with
+the unwound stack. That is why the 0.2.1 `no-store` never reached the wire on
+any `303`. Build and return the `Response` with its headers explicitly; see
+`redirectWithNoStore`. The e2e asserts `no-store` on an unauthenticated `303`,
+so a refactor that reintroduces the throw fails CI.
+
+**`event.setHeaders` is not idempotent.** Applying the same header twice throws
+`"cache-control" header is already set` and turns every page into a 500. It
+looks like an infrastructure failure rather than a crash, and `waitForServer`
+now prints the child's last 40 lines so the real cause is in the failure
+message instead of one hand-run away.
+
 **`event.setHeaders` cannot reach a thrown `redirect()`.** SvelteKit's
 `respond` builds that response itself (`redirect_response(e.status,
 e.location)`) and discards everything the hook set, so an unauthenticated

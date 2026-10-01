@@ -115,6 +115,18 @@ services:
       LOGIN_DELAY_MAX_MS: ${LOGIN_DELAY_MAX_MS:-30000}
       SESSION_EXPIRES_DAYS: ${SESSION_EXPIRES_DAYS:-30}
       PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
+      # LLM adapter (0.3.1). All optional: the app boots and serves with none
+      # set, and complete() throws LlmNotConfigured until OPENROUTER_API_KEY and
+      # LLM_MODEL are present. They still need lines here, for the same reason
+      # as LOGIN_*: a key in the env file without a line is absent from the
+      # container. Empty means unset. Defaults match src/lib/server/llm/config.ts.
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_VISION_MODEL: ${LLM_VISION_MODEL:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-30000}
+      LLM_MAX_CALLS_PER_USER_PER_HOUR: ${LLM_MAX_CALLS_PER_USER_PER_HOUR:-60}
+      LLM_STORE_PROMPTS: ${LLM_STORE_PROMPTS:-0}
     # Publish on the VPS tailnet IP (not 127.0.0.1, not 0.0.0.0) so the app is
     # reachable from other tailnet devices (phone/laptop) but not the public
     # internet. DB stays off the host port.

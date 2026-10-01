@@ -13,6 +13,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { THROTTLE_ENV } from './login-throttle';
+import { LLM_DEFAULTS, LLM_ENV } from './llm/config';
 
 const CHECK = resolve('scripts/check-env-passthrough.sh');
 const COMPOSE_PROD = resolve('scripts/compose-prod.sh');
@@ -24,7 +25,9 @@ const PRODUCTION_KEYS = [
 	'PUBLIC_ORIGIN',
 	'SESSION_EXPIRES_DAYS',
 	'PASSWORD_MIN_LENGTH',
-	...Object.values(THROTTLE_ENV)
+	...Object.values(THROTTLE_ENV),
+	// 0.3.1: the owner adds at least OPENROUTER_API_KEY and LLM_MODEL.
+	...Object.values(LLM_ENV)
 ];
 
 let dir: string;
@@ -68,6 +71,30 @@ describe('check-env-passthrough.sh', () => {
 		const r = check(env);
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain('all 2 key(s)');
+	});
+});
+
+describe('LLM variables in docker-compose.yml', () => {
+	it('each has a passthrough line whose default matches the code', () => {
+		// The same trap as LOGIN_*: compose hands the container its own copy of
+		// each default, so a default changed only in code never reaches
+		// production. Empty is "unset" in llm/config.ts.
+		const compose = readFileSync('docker-compose.yml', 'utf8');
+		const expected: Record<string, string> = {
+			[LLM_ENV.provider]: LLM_DEFAULTS.provider,
+			[LLM_ENV.model]: '',
+			[LLM_ENV.visionModel]: '',
+			[LLM_ENV.apiKey]: '',
+			[LLM_ENV.timeoutMs]: String(LLM_DEFAULTS.timeoutMs),
+			[LLM_ENV.maxCallsPerUserPerHour]: String(LLM_DEFAULTS.maxCallsPerUserPerHour),
+			[LLM_ENV.storePrompts]: LLM_DEFAULTS.storePrompts ? '1' : '0'
+		};
+		expect(Object.keys(expected).sort()).toEqual(Object.values(LLM_ENV).sort());
+		for (const [name, value] of Object.entries(expected)) {
+			const match = compose.match(new RegExp(`\\n\\s+${name}: \\$\\{${name}:-([^}]*)\\}`));
+			expect(match, `${name} has no passthrough line in docker-compose.yml`).not.toBeNull();
+			expect(match![1], `${name}: compose default vs code default`).toBe(value);
+		}
 	});
 });
 

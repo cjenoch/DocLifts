@@ -263,6 +263,25 @@ a restart clears them and a second replica would get its own empty counter.
 Before running more than one instance, move the store to a table — do not
 raise the numbers to compensate.
 
+## LLM
+
+Since 0.3.1 the server has one optional LLM seam, `complete()` in
+`src/lib/server/llm/`: a typed object from a model, validated against a zod
+schema, with a per-user hourly cap, a timeout, and one `llm_calls` row per call
+on every path. Nothing calls a provider SDK any other way. **No feature uses it
+yet**, and the training logic does not depend on it.
+
+It is **not needed to run the app.** With no LLM variable set the app boots,
+serves, and passes CI; a call then fails with `LlmNotConfigured`. To enable it,
+add `OPENROUTER_API_KEY` and `LLM_MODEL` to the production env file (both
+already have `docker-compose.yml` passthrough lines), restart the web
+container, and run the smoke test `pnpm llm:ping --email <account>` once in the
+builder image. Prompts are not stored unless `LLM_STORE_PROMPTS=1`. The key is
+a secret: never in a commit, log, doc, chat, or command line.
+
+Variables, defaults, statuses, and the production ping command:
+[docs/llm.md](docs/llm.md).
+
 ## Local development and tests
 
 The production Compose file does not publish PostgreSQL to the host and is tied to the VPS tailnet binding. For a host-based development server, use a separate local database container and volume:

@@ -1165,3 +1165,152 @@ The catalog rows can stay too, with one cost: 0.2.4 lists every model in the
 with 543 rows those pages get heavier until 0.3.0 is back. The narrow undo is
 in `docs/catalog.md`, and the full one is the `precatalog-*.dump` that
 `catalog-prod.sh` took.
+
+## 19. 0.3.1 — LLM adapter foundation
+
+**NOT deployed.** Built on branch `feat/0.3.1-llm` from `feat/0.3.0-catalog`
+at `bdcd629` (0.3.0, itself not yet on `main`). Migration **0013**. Spec:
+`SPEC-0.3.0-catalog-0.3.1-llm.md` Part B. Reference: `docs/llm.md`.
+**0.3.1 ships after 0.3.0: §18 is done first, and its migration 0012 is part
+of this chain.** **Nothing in this section runs without the owner's explicit
+"go" in the current session.**
+
+### What changes
+
+- New table `llm_calls`, additive only. Nothing writes it until a feature
+  calls `complete()`; 0.3.1 has no such feature.
+- New dependencies `ai` 7.0.123 and `@openrouter/ai-sdk-provider` 3.1.0
+  (production dependencies; nothing in a route imports them yet).
+- Seven new env vars, **all optional for boot**: `LLM_PROVIDER`, `LLM_MODEL`,
+  `LLM_VISION_MODEL`, `OPENROUTER_API_KEY`, `LLM_TIMEOUT_MS`,
+  `LLM_MAX_CALLS_PER_USER_PER_HOUR`, `LLM_STORE_PROMPTS`. Every one has a
+  `docker-compose.yml` passthrough line in this release, so adding one to the
+  env file passes `check-env-passthrough.sh`.
+- `pnpm llm:ping`, the smoke test for the key.
+- No new page or route; the CSP crawl is unchanged.
+
+### Migration 0013, verified on a restore of production
+
+Applied with the repo's migrator (drizzle-orm `migrate()`, as
+`migrate-prod.sh` runs it) to a fresh restore of
+`/srv/backups/doclifts/doclifts-2026-10-01.sql.gz` in a throwaway database on
+the disposable test container (`doclifts_restore_0013`, dropped afterwards).
+The dump is at 0011, so the chain applied 0012 and 0013. Counts only:
+
+| table                           | before | after 0013 |
+| ------------------------------- | -----: | ---------: |
+| `auth.account`                  |      2 |          2 |
+| `auth.session`                  |      2 |          2 |
+| `auth.user`                     |      2 |          2 |
+| `auth.verification`             |      0 |          0 |
+| `drizzle.__drizzle_migrations`  |     12 |         14 |
+| `public.day_exercises`          |     61 |         61 |
+| `public.days`                   |     12 |         12 |
+| `public.equipment_models`       |      0 |          0 |
+| `public.exercise_equipment_map` |      0 |          0 |
+| `public.exercises`              |     94 |         94 |
+| `public.gym_equipment`          |      0 |          0 |
+| `public.gyms`                   |      2 |          2 |
+| `public.imported_workouts`      |    107 |        107 |
+| `public.llm_calls`              |      — |          0 |
+| `public.pain_events`            |      0 |          0 |
+| `public.prescribed_sets`        |    140 |        140 |
+| `public.program_draft_requests` |      1 |          1 |
+| `public.programs`               |      4 |          4 |
+| `public.session_exercises`      |     22 |         22 |
+| `public.sessions`               |     31 |         31 |
+| `public.sets`                   |    454 |        454 |
+| `public.workout_log_imports`    |      1 |          1 |
+
+New objects, by name, as Postgres reports them: table `llm_calls` (15
+columns); `llm_calls_pkey` (`id`); FK `llm_calls_user_id_fk`
+(`user_id` → `auth."user"(id)`, NO ACTION); CHECK `llm_calls_status_check`
+(`ok`, `schema_error`, `provider_error`, `timeout`, `refused`); indexes
+`llm_calls_user_created_idx` (`user_id, created_at`) and
+`llm_calls_purpose_created_idx` (`purpose, created_at`). Longest constraint
+name 22 bytes. `drizzle-kit check` is green.
+
+### Before deploying
+
+```bash
+# 1. §18 (0.3.0) deployed and its checks passed. CI green on main at the
+#    release sha (gh run list --branch main).
+
+# 2. Preserve the running image.
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.3.1
+```
+
+3. **Add the key and the model to `/srv/doclifts/.env`** with an editor, not
+   with `echo` (shell history) and not by pasting into a chat:
+
+   ```dotenv
+   OPENROUTER_API_KEY=<the key>
+   LLM_MODEL=<an OpenRouter model id, vendor/model>
+   ```
+
+   The rest default (`docs/llm.md`). The app also runs without these two; they
+   are needed only for step 6 and for future features.
+
+### Migrate, deploy
+
+```bash
+# 4. Migration 0013 (verified dump first; refuses to migrate without one).
+sudo -n scripts/migrate-prod.sh
+
+# 5. Deploy. 0.3.0 code ignores llm_calls, so 4 before 5 is safe. The
+#    passthrough check runs first and must list the new keys as read.
+sudo -n scripts/compose-prod.sh up -d --build --wait web
+```
+
+### Checks
+
+```bash
+# 6. The key reached the container — presence only, never the value.
+sudo -n docker exec doclifts-web sh -c \
+  'test -n "$OPENROUTER_API_KEY" && test -n "$LLM_MODEL" && echo both set'
+#   both set
+
+# 7. The smoke test, once, in the builder image, on the owner's own account.
+cd /home/chris/code/DocLifts
+sudo -n bash -c '
+  set -euo pipefail
+  set -a; source <(grep -E "^[A-Za-z_][A-Za-z0-9_]*=" /srv/doclifts/.env); set +a
+  export DATABASE_URL="postgresql://doclifts:${POSTGRES_PASSWORD}@db:5432/doclifts"
+  docker build --target builder -t doclifts-migrations:local .
+  docker run --rm --network doclifts_default -e DATABASE_URL \
+    --env-file /srv/doclifts/.env \
+    doclifts-migrations:local pnpm llm:ping --email <your account email>'
+#   prints "ok": true, a model name, a call_id, tokens and latency
+
+# 8. Its row.
+sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -c \
+  "select status, model, prompt_tokens, completion_tokens, latency_ms,
+          prompt_text is null as no_prompt
+   from llm_calls where purpose = 'ping' order by created_at desc limit 1"
+#   ok | <LLM_MODEL> | n | n | n | t
+```
+
+9. Pages still load (`/`, `/history`, `/equipment`): nothing in a route calls
+   the LLM layer, so this is only the image changing under them.
+
+A `refused` row with `not_configured` in step 8 means a variable is missing
+(step 7 printed which); `provider_error` with `http_401` means the key is
+wrong. Either is fixed in the env file and a restart, not a release. Step 7
+is the acceptance test for the key; the module's own acceptance is the
+offline test suite.
+
+`pre-0.3.1` is deleted only after 6–9 pass.
+
+### Rollback
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.3.1 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+0013 is additive and 0.3.0 runs against it unchanged, so the table stays.
+The env file may keep the LLM keys: this rollback still uses the checkout's
+0.3.1 `docker-compose.yml`, which reads them, so the passthrough check passes
+and the 0.3.0 image simply ignores them. Only if the checkout itself is moved
+back to 0.3.0 does `check-env-passthrough.sh` refuse the `up` and name them;
+comment them out of the env file then.

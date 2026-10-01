@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1 — LLM adapter foundation (not yet released)
+
+LLM adapter foundation (no user-visible features yet).
+
+- **One way to ask a model for something.** `complete()` returns an object
+  checked against a schema, or a typed error. OpenRouter is the first provider;
+  others are a configuration addition.
+- **Every call is recorded** in a new `llm_calls` table (migration 0013): who,
+  what for, which model, tokens, how long, and how it ended — including calls
+  that failed, timed out, or were refused. Prompts are not stored unless
+  `LLM_STORE_PROMPTS=1`; the API key is never stored or logged.
+- **A per-user hourly limit** (60 by default) and a 30-second timeout.
+- **Nothing changes if it is not configured.** The app runs without any LLM
+  setting; `pnpm llm:ping` checks a key once one is added.
+
 ## 0.3.0 — equipment catalog (not yet released)
 
 - **A catalog of 543 machines from 8 manufacturers.** gym80, Matrix, Precor,

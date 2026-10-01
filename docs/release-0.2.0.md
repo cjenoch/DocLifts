@@ -823,7 +823,7 @@ accounts   chris@enoch.ai, scratch-test@doclifts.invalid
 sessions   0 and 0 (the scratch session from check 5/6 purged)
 data       31 sessions / 454 sets / 2 gyms / 4 programs / 94 exercises
 throttle   ceiling disabled, delay curve live (1s 2s 4s 8s)
-password   P@ssw0rdDL26!
+password   the owner's, unchanged (value deliberately not recorded)
 ```
 
 `pre-0.2.2` deleted. The `.env.pre-0.2.2` backup removed after verification.
@@ -896,7 +896,7 @@ sign-out destroys the session row
 ```
 
 `14466d64` = 100.106.175.83 = iphone-12. `af8d3714` = chris@enoch.ai.
-`pwLen` 13 = `P@ssw0rdDL26!`, no edge whitespace. Same device, same account,
+`pwLen` 13 = the owner's password length, no edge whitespace. Same device, same account,
 same password as every 403 in the log above — now `ok: true`.
 
 **The password was correct the whole time.**

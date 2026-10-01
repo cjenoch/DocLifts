@@ -22,6 +22,12 @@
 		{[m.manufacturer, m.productLine].filter(Boolean).join(' · ')}
 	</p>
 	{#if form?.message}<p role="status" class="text-amber-300">{form.message}</p>{/if}
+	{#if m.retiredAt}
+		<p class="text-sm text-amber-300" data-testid="model-retired">
+			No longer in the catalog: the latest manufacturer snapshot does not list this model. Machines
+			already linked to it keep it; it is not offered for new machines.
+		</p>
+	{/if}
 
 	<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
 		<dt class="text-zinc-400">Model code</dt>
@@ -88,58 +94,60 @@
 		{/if}
 	</section>
 
-	<form method="POST" action="?/addToGym" class="space-y-3 rounded border border-zinc-700 p-4">
-		<h2 class="font-semibold">Add to a gym</h2>
-		{#if data.gyms.length}
-			<label class="block"
-				>Gym<select name="gymId" required class="mt-1 block w-full rounded bg-zinc-800 p-2"
-					>{#each data.gyms as gym (gym.id)}<option value={gym.id}>{gym.name}</option
-						>{/each}</select
-				></label
-			>
-			<label class="block"
-				>Local label (optional)<input
-					name="localLabel"
-					maxlength="120"
-					placeholder={defaultMachineLabel(m)}
-					aria-describedby="label-hint"
-					class="mt-1 block w-full rounded bg-zinc-800 p-2"
-				/></label
-			>
-			<p id="label-hint" class="text-sm text-zinc-400">
-				Blank names it "{defaultMachineLabel(m)}". A label like "Row by the window" tells two of the
-				same model apart.
-			</p>
-			<div class="grid grid-cols-2 gap-3">
+	{#if !m.retiredAt}
+		<form method="POST" action="?/addToGym" class="space-y-3 rounded border border-zinc-700 p-4">
+			<h2 class="font-semibold">Add to a gym</h2>
+			{#if data.gyms.length}
 				<label class="block"
-					>Stack (lb, optional)<input
-						name="stackLb"
-						type="number"
-						min="1"
-						max="2000"
-						step="1"
-						inputmode="numeric"
-						value={m.standardStackLb ?? ''}
+					>Gym<select name="gymId" required class="mt-1 block w-full rounded bg-zinc-800 p-2"
+						>{#each data.gyms as gym (gym.id)}<option value={gym.id}>{gym.name}</option
+							>{/each}</select
+					></label
+				>
+				<label class="block"
+					>Local label (optional)<input
+						name="localLabel"
+						maxlength="120"
+						placeholder={defaultMachineLabel(m)}
+						aria-describedby="label-hint"
 						class="mt-1 block w-full rounded bg-zinc-800 p-2"
 					/></label
 				>
-				<label class="block"
-					>Increment (lb, optional)<input
-						name="incrementLb"
-						type="number"
-						min="1"
-						max="2000"
-						step="1"
-						inputmode="numeric"
-						class="mt-1 block w-full rounded bg-zinc-800 p-2"
-					/></label
-				>
-			</div>
-			<button class="rounded bg-indigo-600 px-4 py-2">Add to gym</button>
-		{:else}
-			<p class="text-sm text-zinc-400">
-				You have no gyms yet. <a href="/gyms" class="text-indigo-300">Create one</a> first.
-			</p>
-		{/if}
-	</form>
+				<p id="label-hint" class="text-sm text-zinc-400">
+					Blank names it "{defaultMachineLabel(m)}". A label like "Row by the window" tells two of
+					the same model apart.
+				</p>
+				<div class="grid grid-cols-2 gap-3">
+					<label class="block"
+						>Stack (lb, optional)<input
+							name="stackLb"
+							type="number"
+							min="1"
+							max="2000"
+							step="1"
+							inputmode="numeric"
+							value={m.standardStackLb ?? ''}
+							class="mt-1 block w-full rounded bg-zinc-800 p-2"
+						/></label
+					>
+					<label class="block"
+						>Increment (lb, optional)<input
+							name="incrementLb"
+							type="number"
+							min="1"
+							max="2000"
+							step="1"
+							inputmode="numeric"
+							class="mt-1 block w-full rounded bg-zinc-800 p-2"
+						/></label
+					>
+				</div>
+				<button class="rounded bg-indigo-600 px-4 py-2">Add to gym</button>
+			{:else}
+				<p class="text-sm text-zinc-400">
+					You have no gyms yet. <a href="/gyms" class="text-indigo-300">Create one</a> first.
+				</p>
+			{/if}
+		</form>
+	{/if}
 </div>

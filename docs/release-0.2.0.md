@@ -1454,20 +1454,20 @@ and the 0.3.0 image simply ignores them. Only if the checkout itself is moved
 back to 0.3.0 does `check-env-passthrough.sh` refuse the `up` and name them;
 comment them out of the env file then.
 
-## 20. 0.3.2 — optional machine label, catalog promotion, model notes — NOT DEPLOYED
+## 20. 0.3.2 — machine label and edit, catalog promotion/recode/retirement, notes, standard stack — NOT DEPLOYED
 
 ```
 branch   feat/0.3.2 from main 43490c3 (production runs 0.3.1 = fd916d3 + docs)
 status   NOT deployed. Nothing below has run against production.
-migrate  0014: equipment_models.notes (text, nullable). Verified on a restore
-         of doclifts-2026-10-01.sql.gz, below
-catalog  import the 2026-10-01 snapshot (890 rows, researched): expect 354
-         inserted, 195 promoted, 9 recoded, 0 skipped, updated + unchanged =
-         332. Rehearsed on a production restore; see "The 2026-10-01 snapshot"
-         below
+migrate  0014: equipment_models.notes; 0015: standard_stack_lb (CHECK > 0),
+         standard_stack_note, retired_at. Additive. Verified on a restore of
+         doclifts-2026-10-01.sql.gz, below
+catalog  import the 2026-10-01 snapshot (890 rows). Expected TOTAL against
+         production's catalog: 354 inserted, 225 updated, 195 promoted,
+         9 recoded, 107 unchanged, 0 skipped, 7 retired
 ```
 
-Built on branch `feat/0.3.2`. Migration **0014**. Reference:
+Built on branch `feat/0.3.2`. Migrations **0014** and **0015**. Reference:
 `docs/catalog.md`. **Nothing in this section runs without the owner's explicit
 "go" in the current session.**
 
@@ -1493,12 +1493,24 @@ Built on branch `feat/0.3.2`. Migration **0014**. Reference:
 - **The importer recodes corrected codes.** An optional last CSV column,
   `replaces_code`, names a model's earlier code; the global row under that
   code takes the new code, name and catalog columns in place (new `recoded`
-  column). Rows under both codes: the run fails. The 2026-09-30 CSV has no
-  such column and adds no codes, so this release's re-import promotes and
-  recodes nothing; both matter for the next snapshot.
+  column). Rows under both codes: the run fails. The 2026-10-01 snapshot uses
+  it for 9 corrected codes.
 - **`equipment_models.notes`** (migration 0014, additive). The importer maps
   the CSV `notes` column as a catalog column; `/equipment/[id]` shows it;
   "create my own copy" carries it.
+- **The model's standard stack** (migration 0015): `standard_stack_lb`
+  (integer, CHECK > 0) and `standard_stack_note`, from the CSV's `stack_lb` /
+  `stack_note`, whole pounds rounded down (36 half-pound Life Fitness stacks;
+  the exact figure stays in the note). Adding a machine with a model and the
+  stack blank stores the standard stack; `/equipment/[id]` shows it and
+  pre-fills the stack field. A typed stack always wins.
+- **Retirement** (migration 0015): `retired_at`. Every global row the snapshot
+  does not contain is retired (never deleted) and hidden from `/equipment`,
+  search, the `/gyms` picker and new machines; its page still renders with
+  "No longer in the catalog", and linked machines keep it. A snapshot that
+  lists it again un-retires it. Owned rows are never touched. Reported in a
+  `retired` column, one `retire` line per row, replacing "N existing global
+  row(s) are not in this CSV".
 - No new env var, so no compose passthrough change.
 
 ### Migration 0014, verified on a restore of production
@@ -1551,6 +1563,43 @@ so every `notes` NULL), notes were nulled and the dry run read **0 inserted,
 naming `notes` only: Cybex 36, gym80 24, Hammer Strength 30, Life Fitness 32,
 Matrix 35, Nautilus 41, Precor 38, Technogym 62.
 
+### Migration 0015 and the 2026-10-01 import, rehearsed on a restore of production
+
+The same dump, restored into a fresh throwaway database on the test container;
+0012 → 0015 applied with `drizzle-kit migrate` (`__drizzle_migrations` 12 →
+16; `standard_stack_lb`, `standard_stack_note`, `retired_at` present;
+`equipment_models_standard_stack_lb_check` present by name); 2026-09-30
+imported (543 inserted); one machine linked to Nautilus "Leverage Row"
+(codeless) and one to Hammer Strength `IL-DY` (a corrected code). Then
+2026-10-01:
+
+```
+                inserted  updated  promoted  recoded  unchanged  skipped  retired
+dry run              354      155       195        9        177        0        7
+run                  354      155       195        9        177        0        7
+dry run again          0        0         0        0        890        0        0
+```
+
+- **Retired 7**, the product-line placeholders the research replaced with
+  models: Cybex VR1, VR1 Duals, VR3, Cybex Plate Loaded; Technogym Artis
+  Strength, Element+; Precor Glutebuilder line.
+- `equipment_models` afterwards: 897 rows, 890 current, 7 retired, 0 owned;
+  **355 with a standard stack** (36 rounded down from half pounds); 597 with
+  notes (590 from this snapshot, plus the 7 retired rows' old notes).
+- **Both links survived** on the same model ids: "Leverage Row" promoted to
+  `9NP-L3004`, `IL-DY` recoded to `IL-DRW`, both current. Every user-data
+  table's row count unchanged (31 sessions, 454 sets, 2 gyms, 4 programs).
+- **Production's shape.** Production's 543 rows were written by 0.3.0, so they
+  have no notes and no stacks. A second restore with notes and stacks cleared
+  after the 2026-09-30 import gave the dry-run TOTAL to expect in production:
+  **354 inserted, 225 updated, 195 promoted, 9 recoded, 107 unchanged,
+  0 skipped, 7 retired** (Cybex 99/4/28/0/0/0/4, gym80 27/24/0/0/104/0/0,
+  Hammer Strength 20/26/33/5/0/0/0, Life Fitness 18/2/59/0/0/0/0, Matrix
+  64/82/0/0/1/0/0, Nautilus 53/21/18/4/0/0/0, Precor 20/53/10/0/2/0/1,
+  Technogym 53/13/47/0/0/0/2).
+
+Both restore databases were dropped.
+
 ### Before deploying
 
 ```bash
@@ -1560,29 +1609,21 @@ Matrix 35, Nautilus 41, Precor 38, Technogym 62.
 sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.3.2
 ```
 
-### Migrate, deploy, re-import
+### Migrate, deploy, import
 
 ```bash
-# 3. Migration 0014 (verified dump first; refuses to migrate without one).
+# 3. Migrations 0014 and 0015 (verified dump first; refuses without one).
 sudo -n scripts/migrate-prod.sh
 
-# 4. Deploy. 0.3.1 code ignores the new column, so 3 before 4 is safe.
+# 4. Deploy. 0.3.1 code ignores the new columns, so 3 before 4 is safe.
 sudo -n scripts/compose-prod.sh up -d --build --wait web
 
 # 5. The 2026-10-01 snapshot: verified dump, dry run printed, then type
-#    IMPORT. Expect TOTAL: 354 inserted, 195 promoted, 9 recoded, 0 skipped,
-#    and updated + unchanged = 332 (production's 543 rows have no notes yet,
-#    so rows the rehearsal counted unchanged may read updated here). "7
-#    existing global row(s) are not in this CSV" is expected: the line_only
-#    placeholders the research replaced with models. Any skip, refusal,
-#    ambiguity or conflict: answer anything but IMPORT and stop.
+#    IMPORT. Expect TOTAL: 354 inserted, 225 updated, 195 promoted,
+#    9 recoded, 107 unchanged, 0 skipped, 7 retired, and the 7 retire lines
+#    naming the placeholders above. Any skip, refusal, ambiguity or conflict,
+#    or a different retired count: answer anything but IMPORT and stop.
 sudo -n scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-10-01.csv
-# 6a. Idempotent: run step 5 again; the dry run must show 0 inserted, 0
-#     updated, 0 promoted, 0 recoded, 890 unchanged. Answer anything but IMPORT.
-# 6b. The owner's machine kept its model and gained the code:
-#     select ge.local_label, m.code, m.name from gym_equipment ge
-#       join equipment_models m on m.id = ge.equipment_model_id;
-#     -> Nautilus 9NP-L3004 Leverage Row
 ```
 
 ### The 2026-10-01 snapshot
@@ -1600,43 +1641,43 @@ because Technogym's own pages pair Artis codes and names two ways; Precor's
 PD-xx codes noted as dealer SKUs; 11 starting weights without a stated basis
 (or stated only in kg) moved to `notes` rather than guessed.
 
-Rehearsal on a restore of `doclifts-2026-10-01.sql.gz`, migrated to 0014,
-2026-09-30 imported, two machines linked (to Nautilus Leverage Row, codeless,
-and Hammer Strength `IL-DY`, a corrected code): dry run and real run 354
-inserted / 155 updated / 195 promoted / 9 recoded / 177 unchanged / 0
-skipped; second dry run 890 unchanged; both machines on the same model ids,
-now `9NP-L3004` and `IL-DRW`; no duplicate codes; 31 sessions / 454 sets
-unchanged. Restore dropped afterwards.
-
 ### Checks
 
 ```bash
-# 6. Notes present, catalog size unchanged, the owner's machine still linked.
+# 6. The catalog: 890 current, 7 retired, 355 standard stacks, 590 notes.
 sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
-  "select count(*) filter (where notes is not null), count(*)
+  "select count(*) filter (where retired_at is null),
+          count(*) filter (where retired_at is not null),
+          count(*) filter (where standard_stack_lb is not null),
+          count(*) filter (where notes is not null)
    from equipment_models where owner_user_id is null"
-#   298|543
-sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
-  "select m.manufacturer, m.name from gym_equipment g
-   join equipment_models m on m.id = g.equipment_model_id"
-#   Nautilus|Leverage Row  (and any machines added since)
+#   890|7|355|590
 
-# 7. Idempotent: run step 5 again; the dry run must show 0 inserted,
-#    0 updated, 0 promoted, 0 recoded. Answer anything but IMPORT to stop.
+# 7. The owner's machine kept its model, which gained its code and is current.
+sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
+  "select m.manufacturer, m.code, m.name, m.retired_at is null
+   from gym_equipment g join equipment_models m on m.id = g.equipment_model_id"
+#   Nautilus|9NP-L3004|Leverage Row|t  (and any machines added since)
+
+# 8. Idempotent: run step 5 again; the dry run must show 0 inserted,
+#    0 updated, 0 promoted, 0 recoded, 890 unchanged, 0 retired. Answer
+#    anything but IMPORT to stop.
 ```
 
-8. On the scratch account: `/equipment/<Leverage Row id>` shows
-   "Notes: name from training data; code unknown — verify". "Add to a gym" with
-   the label blank adds "Nautilus Leverage Row"; `/gyms` with no model and no
-   label refuses with "Give the machine a label, or choose its model so the
-   label can be taken from it". On `/gyms`, **Edit** on the scratch machine,
-   change its label and save: the list shows the new label. Remove the scratch
-   machine afterwards.
-9. **Then the owner** fixes his own first machine's label ("Make this
-   optional maybe? Next to deadlift platform") with **Edit** on `/gyms`. Not
-   done by an assistant.
+9. On the scratch account: `/equipment` lists 890 models; a retired
+   placeholder (search `VR3 (legacy)`) lists 0 models, and its page, opened by id (`select id, name from equipment_models where retired_at is not null`), is 200 with "No longer in the catalog". A model with a
+   standard stack (e.g. Hammer Strength `MTSBC`) shows "Standard stack:
+   100 lb" and pre-fills "Add to a gym"; adding it with the label blank adds
+   "Hammer Strength MTS Iso-Lateral Biceps Curl (MTSBC)" with a 100 lb stack.
+   `/gyms` with no model and no label refuses with "Give the machine a label,
+   or choose its model so the label can be taken from it". **Edit** on the
+   scratch machine, change its label, save: the list shows it. Remove the
+   scratch machine afterwards.
+10. **Then the owner** fixes his own first machine's label ("Make this
+    optional maybe? Next to deadlift platform") with **Edit** on `/gyms`. Not
+    done by an assistant.
 
-`pre-0.3.2` is deleted only after 6–8 pass.
+`pre-0.3.2` is deleted only after 6–9 pass.
 
 ### Rollback
 
@@ -1645,6 +1686,8 @@ DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.3.2 \
   sudo -n scripts/compose-prod.sh up -d --wait web
 ```
 
-0014 is additive and 0.3.1 runs against it unchanged, so the column and its
-notes stay. Machines added with a derived label keep it; to 0.3.1 it is an
-ordinary label.
+0014 and 0015 are additive and 0.3.1 runs against them unchanged, so the
+columns stay. One difference under 0.3.1: it does not know `retired_at`, so
+the 7 retired placeholders reappear in its lists and picker until 0.3.2 is
+back. Promoted and recoded rows keep their new codes, and machines added with
+a derived label keep it; to 0.3.1 it is an ordinary label.

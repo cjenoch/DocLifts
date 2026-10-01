@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.2 — machine labels and catalog notes — not yet released
+## 0.3.2 — machine labels, machine edit, and the researched catalog — not yet released
 
 - **The machine catalog grows from 543 to 890 models,** researched from the
   manufacturers' own pages: all but 21 now have a model code (210 had none
@@ -16,6 +16,15 @@
 - **Edit a machine's label, stack and increment.** Each machine on **Gyms and
   machines** now has an **Edit** link. Clear the label and it goes back to
   the model's name; logged history stays with the machine.
+- **Adding a machine fills in the manufacturer's standard stack.** A model's
+  page shows its standard weight stack (355 models have one), and adding that
+  model to a gym fills the stack in for you. Type a different number if your
+  gym's machine has a heavier stack; what you type always wins.
+- **Placeholder product lines are hidden once their real models are in the
+  catalog.** Seven entries that only named a product line (such as Cybex VR3
+  or Technogym Artis) are replaced by the actual machines. They no longer
+  appear in the catalog or the model picker, but any machine already linked to
+  one keeps it, and its page still opens, marked "No longer in the catalog".
 - **Catalog notes on each model's page.** The catalog's own remarks (298
   models have one, such as "code unknown — verify") now show on the model's
   page, and come along when you create your own copy.

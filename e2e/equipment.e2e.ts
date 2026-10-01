@@ -405,4 +405,62 @@ run('equipment pages (production build)', () => {
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
+	// 0.3.2: a model a snapshot no longer contains is retired: hidden from the
+	// catalog and the picker, its page still renders with a note, and a machine
+	// linked to it keeps working. Last in the file: it re-imports the full
+	// catalog at the end, so nothing before it sees a retired row.
+	it('a retired model is hidden from browse and picker, but its page and linked machine render', async () => {
+		const db = harness.db;
+		const csv = readFileSync('data/catalog/equipment_models_seed_2026-09-30.csv', 'utf8');
+		const [model] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(
+				and(
+					eq(s.equipmentModels.manufacturer, 'Hammer Strength'),
+					eq(s.equipmentModels.code, 'IL-DY')
+				)
+			);
+		const [gym] = await db.insert(s.gyms).values({ name: 'Retire Gym', userId }).returning();
+		await db.insert(s.gymEquipment).values({
+			gymId: gym.id,
+			localLabel: 'DY row by the door',
+			equipmentType: model.loadingType,
+			equipmentModelId: model.id
+		});
+		const lines = csv.trimEnd().split(/\r?\n/);
+		const without = lines.filter((l) => !l.includes(',IL-DY,')).join('\n');
+		const run = await importCatalog(db, without, { dryRun: false });
+		expect(run.retired.map((r) => r.id)).toEqual([model.id]);
+
+		const page = await signedInPage();
+		await page.goto(`${origin}/equipment?q=IL-DY`, { waitUntil: 'networkidle' });
+		await expect.poll(() => page.getByRole('status').textContent()).toContain('0 models');
+		await page.goto(`${origin}/gyms?gym=${gym.id}&all=1`, { waitUntil: 'networkidle' });
+		expect(
+			await page.getByLabel('Known model (optional)').locator(`option[value="${model.id}"]`).count()
+		).toBe(0);
+		// The linked machine is still listed, with its model link.
+		await expect.poll(() => page.getByText('DY row by the door · machine-plate').count()).toBe(1);
+		const response = await page.goto(`${origin}/equipment/${model.id}`, {
+			waitUntil: 'networkidle'
+		});
+		expect(response?.status()).toBe(200);
+		expect(await page.getByTestId('model-retired').textContent()).toContain(
+			'No longer in the catalog'
+		);
+		expect(await page.getByText('Retire Gym · DY row by the door').count()).toBe(1);
+		expect(await page.getByRole('button', { name: 'Add to gym' }).count()).toBe(0);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+
+		// The full snapshot brings it back.
+		const back = await importCatalog(db, csv, { dryRun: false });
+		expect(back.failed).toBe(false);
+		const [restored] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.id, model.id));
+		expect(restored.retiredAt).toBeNull();
+	});
 });

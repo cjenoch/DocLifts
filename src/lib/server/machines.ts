@@ -24,7 +24,7 @@ import {
 } from './progression';
 import { snapForEquipment } from './plates';
 import { mainPrefills } from './main-prefill';
-import { modelVisibleTo } from './catalog';
+import { modelReadableBy, modelVisibleTo } from './catalog';
 import { defaultMachineLabel } from '../catalog-labels';
 
 const name = z.string().trim().min(1).max(120);
@@ -132,7 +132,9 @@ export async function createMachine(db: Database, userId: string, input: unknown
 		if (modelId) {
 			// A model is usable when it is global (owner_user_id IS NULL) or
 			// belongs to this user. Anything else is not found as far as this
-			// user is concerned — no 403, no distinct message.
+			// user is concerned — no 403, no distinct message. A model retired
+			// by a later snapshot is not offered for new machines either;
+			// machines already linked to it keep it.
 			const [model] = await tx
 				.select()
 				.from(equipmentModels)
@@ -189,7 +191,8 @@ export async function loadMachine(db: Database, userId: string, gymId: string, m
 		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
 		.leftJoin(
 			equipmentModels,
-			and(eq(equipmentModels.id, gymEquipment.equipmentModelId), modelVisibleTo(userId))
+			// A machine keeps its model after a snapshot retires it.
+			and(eq(equipmentModels.id, gymEquipment.equipmentModelId), modelReadableBy(userId))
 		)
 		.where(
 			and(eq(gymEquipment.id, machineId), eq(gymEquipment.gymId, gymId), eq(gyms.userId, userId))

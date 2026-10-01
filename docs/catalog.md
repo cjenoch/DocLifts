@@ -14,9 +14,12 @@ on `/gyms`. It is the index the photo feature will match against, joined on
 | `NULL`          | **Global** catalog row, from a dated snapshot                     | every user     | only `pnpm catalog:import` |
 | a user's id     | **Owned** row: a model the user typed in, or their corrected copy | that user only | that user, through the app |
 
-- Reads are `owner_user_id IS NULL OR owner_user_id = userId`, through one
-  predicate, `modelVisibleTo(userId)` in `src/lib/server/catalog.ts`. Another
-  user's owned row is a 404, the same as a missing id.
+- Lists, search, pickers and matching read through one predicate,
+  `modelVisibleTo(userId)` in `src/lib/server/catalog.ts`: a **current**
+  global row (`retired_at IS NULL`) or the user's own. Reading one model by id
+  (its page, or the model of a machine already linked to it) uses
+  `modelReadableBy(userId)`, which also admits retired global rows. Another
+  user's owned row is a 404 under both, the same as a missing id.
 - Writes from the app only ever target owned rows: `owner_user_id = userId` is
   in the UPDATE's WHERE. A global row is never edited in place. "Numbers
   wrong? Create your own copy" on a model's page inserts an owned duplicate
@@ -151,9 +154,21 @@ pnpm catalog:import data/catalog/equipment_models_seed_2026-09-30.csv
   candidates.
 - **Ambiguous match** (a key matching two existing global rows): reported as
   skipped, and the run fails without writing.
+- **Retirement** (since 0.3.2, migration 0015). A snapshot is the whole
+  catalog: every global row that no CSV row matched (after promotion and
+  recode) and is not yet retired gets `retired_at = now()`. Nothing is ever
+  deleted, because `gym_equipment` rows may point at it. Counted in the
+  `retired` column and listed as
+  `retire <manufacturer> <code or name> [<product line>]: not in this snapshot; …`
+  (this replaces the old "N existing global row(s) are not in this CSV"
+  line). A matched row that was retired is un-retired (`retired_at` cleared;
+  its `update` line names `retiredAt`). Owned rows are never read, so never
+  retired. A retired row is hidden from `/equipment`, search, the `/gyms`
+  picker and new machines; its page still renders with "No longer in the
+  catalog", and machines linked to it keep it. The first retirement date is
+  kept on later runs.
 - **Idempotent:** a second run reports 0 inserted, 0 updated, 0 promoted,
-  0 recoded.
-- Global rows that are not in the CSV are left as they are, and counted.
+  0 recoded, 0 retired.
 - The run holds `SHARE ROW EXCLUSIVE` on the table for its transaction, so two
   imports cannot interleave; app reads are not blocked.
 
@@ -170,7 +185,11 @@ A code added to a model that had none is a promotion (above): same row, now
 with the code. A code **corrected** between snapshots is a recode when the new
 CSV says so in `replaces_code`: same row, new code. Without `replaces_code` a
 changed code imports as a **new** row and the old row stays, since a user's
-machine may point at it. Models dropped from a catalog stay too.
+machine may point at it. Models dropped from a catalog are retired (above),
+never deleted. The 2026-10-01 snapshot retires 7: the product-line
+placeholders (Cybex VR1, VR1 Duals, VR3, Cybex Plate Loaded; Technogym Artis
+Strength, Element+; Precor Glutebuilder line) that its researched models
+replace.
 
 ### Production
 

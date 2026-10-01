@@ -10,6 +10,14 @@ import { and, count, eq, isNotNull, isNull } from 'drizzle-orm';
 import { setupTestDb, resetTestDbWithUsers, type TestDb } from './test-db';
 import * as s from './db/schema';
 import { formatImportReport, importCatalog, mapCatalogCsv, parseCsv } from './catalog-import';
+import {
+	browseModels,
+	instancesOfModel,
+	loadModel,
+	modelChoices,
+	parseBrowseParams
+} from './catalog';
+import { createGym, createMachine, loadMachine, machineChoices } from './machines';
 
 const CSV_PATH = 'data/catalog/equipment_models_seed_2026-09-30.csv';
 const csv = readFileSync(CSV_PATH, 'utf8');
@@ -587,6 +595,140 @@ describe('a corrected code (replaces_code)', () => {
 		expect(result.failed).toBe(true);
 		expect(totals(result).skipped).toBe(2);
 		expect(await byCode('IL-DRW')).toEqual([]);
+	});
+});
+
+// 0.3.2: a global row the snapshot no longer contains is retired, never deleted.
+describe('retiring models a snapshot no longer contains', () => {
+	const LINE = 360; // Nautilus "Leverage Row", codeless
+	const lines = csv.trimEnd().split(/\r?\n/);
+	const without = [...lines.slice(0, LINE - 1), ...lines.slice(LINE)].join('\n');
+	const leverageRow = async () =>
+		(
+			await db
+				.select()
+				.from(s.equipmentModels)
+				.where(
+					and(
+						eq(s.equipmentModels.manufacturer, 'Nautilus'),
+						eq(s.equipmentModels.name, 'Leverage Row'),
+						isNull(s.equipmentModels.ownerUserId)
+					)
+				)
+		)[0];
+
+	it('retires it, hides it from browse and pickers, and a linked machine keeps working', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		const before = await leverageRow();
+		const gym = await createGym(db, alice, { name: 'Gym' });
+		const machine = await createMachine(db, alice, {
+			gymId: gym.id,
+			localLabel: 'Next to deadlift platform',
+			equipmentType: 'machine-plate',
+			equipmentModelId: before.id
+		});
+
+		const dry = await importCatalog(db, without, { dryRun: true });
+		expect(dry.byManufacturer.get('Nautilus')).toMatchObject({ retired: 1, unchanged: 42 });
+		expect(dry.retired.map((r) => r.id)).toEqual([before.id]);
+		const report = formatImportReport(dry);
+		expect(report).toMatch(
+			/inserted\s+updated\s+promoted\s+recoded\s+unchanged\s+skipped\s+retired/
+		);
+		expect(report).toContain(
+			'retire Nautilus Leverage Row [Leverage (plate loaded)]: not in this snapshot'
+		);
+		expect(report).not.toContain('were left as they are');
+		expect((await leverageRow()).retiredAt).toBeNull(); // dry run wrote nothing
+
+		const run = await importCatalog(db, without, { dryRun: false });
+		expect(run.failed).toBe(false);
+		const after = await leverageRow();
+		expect(after.retiredAt).toBeInstanceOf(Date);
+		expect(after).toEqual({ ...before, retiredAt: after.retiredAt }); // nothing else moved
+		expect(await globals()).toBe(543); // nothing deleted
+
+		// Hidden from browse, search and the add-machine picker...
+		const browse = await browseModels(
+			db,
+			alice,
+			parseBrowseParams(new URLSearchParams('q=Leverage Row'))
+		);
+		expect(browse.rows.map((r) => r.id)).not.toContain(before.id);
+		expect(browse.total).toBe(0);
+		const picker = await modelChoices(db, alice, { all: true });
+		expect(picker.models).toHaveLength(542);
+		expect(picker.models.map((m) => m.id)).not.toContain(before.id);
+		// ...and not offered for a new machine.
+		await expect(
+			createMachine(db, alice, {
+				gymId: gym.id,
+				localLabel: 'Second row',
+				equipmentType: 'machine-plate',
+				equipmentModelId: before.id
+			})
+		).rejects.toThrow();
+		// But its page and the machine linked to it still read it.
+		expect((await loadModel(db, alice, before.id))?.id).toBe(before.id);
+		expect(await instancesOfModel(db, alice, before.id)).toHaveLength(1);
+		expect((await loadMachine(db, alice, gym.id, machine.id))?.model?.id).toBe(before.id);
+		expect((await machineChoices(db, alice)).machines.map((m) => m.id)).toEqual([machine.id]);
+		const [link] = await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, machine.id));
+		expect(link.equipmentModelId).toBe(before.id);
+
+		// Idempotent: a second run retires nothing more and keeps the first date.
+		const again = await importCatalog(db, without, { dryRun: false });
+		expect(again.retired).toEqual([]);
+		expect(totals(again)).toEqual({ inserted: 0, updated: 0, unchanged: 542, skipped: 0 });
+		expect((await leverageRow()).retiredAt).toEqual(after.retiredAt);
+	});
+
+	it('a snapshot that lists it again un-retires it', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		await importCatalog(db, without, { dryRun: false });
+		const retired = await leverageRow();
+		expect(retired.retiredAt).not.toBeNull();
+		const back = await importCatalog(db, csv, { dryRun: false });
+		expect(back.plan.find((p) => 'id' in p && p.id === retired.id)).toMatchObject({
+			kind: 'update',
+			changed: ['retiredAt']
+		});
+		expect((await leverageRow()).retiredAt).toBeNull();
+		const browse = await browseModels(
+			db,
+			alice,
+			parseBrowseParams(new URLSearchParams('q=Leverage Row'))
+		);
+		expect(browse.rows.map((r) => r.id)).toContain(retired.id);
+		const third = await importCatalog(db, csv, { dryRun: false });
+		expect(totals(third)).toEqual({ inserted: 0, updated: 0, unchanged: 543, skipped: 0 });
+		expect(third.retired).toEqual([]);
+	});
+
+	it('never retires an owned row, and an owned row stays listed for its owner', async () => {
+		const [mine] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Nautilus',
+				name: 'My own row',
+				loadingType: 'machine-plate',
+				ownerUserId: alice
+			})
+			.returning();
+		const result = await importCatalog(db, csv, { dryRun: false });
+		expect(result.retired.map((r) => r.id)).not.toContain(mine.id);
+		await importCatalog(db, without, { dryRun: false });
+		const [after] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.id, mine.id));
+		expect(after).toEqual(mine);
+		const listed = await browseModels(
+			db,
+			alice,
+			parseBrowseParams(new URLSearchParams('q=My own row'))
+		);
+		expect(listed.rows.map((r) => r.id)).toEqual([mine.id]);
 	});
 });
 

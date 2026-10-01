@@ -326,6 +326,24 @@ sign-ins in a row, no waiting — and fails at the fourth under the old
 config. A test that pins an implementation's number is a test that will
 happily pass while the behaviour is wrong.
 
+**A fixture that is always fresh is not a neutral fixture — it is an invisible
+filter over the bug space.** Every auth e2e signed in with an empty cookie jar,
+which is precisely the condition under which the sign-in 403 does not reproduce,
+so 34 e2e tests passed while the owner could not sign in from any device that
+had ever visited. At least one auth e2e must run in a context that already holds
+an unrelated cookie before sign-in.
+
+**Every handler status gets its own reason, and only 401 counts as a
+failure.** The 0.2.1 catch-all mapped every non-2xx to "that email and password
+do not match" and recorded all of them against the throttle, so a security
+rejection displayed as a wrong password AND made the next attempt slower. A
+status you cannot tell apart on the page is a status you cannot diagnose.
+
+**An enum variant with no producer is a question, not dead code.** The
+`reason: 'origin'` variant was deleted as "nothing produces this" — and the
+reason nothing produced it was the bug it was pointing at. Find the answer
+before removing the question.
+
 **Never exercise a control against the owner's account, email, or address.**
 Use `scratch-test@doclifts.invalid`. On 2026-09-30 a throttle verification sent
 ten wrong passwords at the owner's email key and locked him out of a working

@@ -10,7 +10,7 @@ import {
 	type ThrottleKeys
 } from '$lib/server/login-throttle';
 import { isSafeNext } from '$lib/server/request-user';
-import { logLoginAttempt } from '$lib/server/login-attempt-log';
+import { errorCodeFrom, logLoginAttempt } from '$lib/server/login-attempt-log';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ request }) => {
@@ -129,18 +129,43 @@ export const actions: Actions = {
 			});
 		}
 
+		// A 403 means a security check rejected the request. The password was
+		// never compared, so this is NOT a failed guess: it must not consume
+		// throttle budget, and it must not claim the credentials were wrong.
+		//
+		// Both of those happened, and together they made a correct password
+		// unreachable from any browser holding a cookie for this origin. See
+		// `signInViaHandler` for the mechanism and the measurement.
+		if (!result.ok && result.status === 403) {
+			logLoginAttempt(request, {
+				ok: false,
+				status: result.status,
+				reason: 'origin_rejected',
+				errorCode: await errorCodeFrom(result),
+				email,
+				password
+			});
+			return fail(403, {
+				email,
+				error:
+					'Sign-in was blocked by a security check before your password was checked. This is a bug, not a wrong password.',
+				retryAfter: null
+			});
+		}
+
 		// Any other failure keeps the existing deliberately-vague message:
 		// which of email or password was wrong is information an attacker can
 		// use, and the user has to fix both anyway.
 		if (!result.ok) {
 			// The one place a failure is recorded. A successful sign-in below
-			// clears both keys, so neither success nor the mere act of trying
+			// clears both keys, so neither success nor the merely act of trying
 			// can accumulate toward a refusal.
 			recordLoginFailure(loginThrottle, throttleKeys);
 			logLoginAttempt(request, {
 				ok: false,
 				status: result.status,
 				reason: 'bad_credentials',
+				errorCode: await errorCodeFrom(result),
 				email,
 				password
 			});

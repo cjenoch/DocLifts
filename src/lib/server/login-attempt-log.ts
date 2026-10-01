@@ -38,7 +38,32 @@
 import { createHash } from 'node:crypto';
 
 /** Why an attempt ended the way it did. */
-export type LoginAttemptReason = 'ok' | 'bad_credentials' | 'validation' | 'throttled' | 'error';
+export type LoginAttemptReason =
+	| 'ok'
+	| 'bad_credentials'
+	| 'validation'
+	| 'throttled'
+	/**
+	 * The request was rejected by a security check before the password was ever
+	 * compared. `status` is 403.
+	 *
+	 * RESTORED DELIBERATELY. This variant was in the original spec, then I
+	 * deleted it as dead code because nothing produced it. The thing nothing
+	 * produced it was the bug: every proxy failure was labelled
+	 * `bad_credentials`, so a CSRF rejection displayed as "that email and
+	 * password do not match" and counted toward the lockout. Whoever adds a
+	 * variant now adds the call site and the test in the same commit.
+	 */
+	| 'origin_rejected'
+	| 'error';
+
+export type LoginAttemptErrorCode =
+	| 'MISSING_OR_NULL_ORIGIN'
+	| 'INVALID_ORIGIN'
+	| 'CROSS_SITE_NAVIGATION_LOGIN_BLOCKED'
+	| 'INVALID_EMAIL_OR_PASSWORD'
+	| 'INVALID_CALLBACK_URL'
+	| 'INVALID_REDIRECT_URL';
 
 export interface LoginAttemptEvent {
 	ok: boolean;
@@ -54,6 +79,25 @@ export interface LoginAttemptEvent {
 	retryAfterS?: number;
 	/** Which key drove a throttle outcome. */
 	keyType?: 'ip' | 'email';
+	/**
+	 * Better Auth's own error code, when the handler returned one.
+	 *
+	 * Added after a 403 cost an evening: the log said `bad_credentials` for a
+	 * rejection that had never compared a password, and the page said the same.
+	 * With the code present, a production 403 is diagnosed from one line —
+	 * `MISSING_OR_NULL_ORIGIN` versus `INVALID_EMAIL_OR_PASSWORD` are
+	 * different bugs with different fixes, and both previously rendered as
+	 * "that email and password do not match".
+	 *
+	 * The union below documents the codes observed so far.
+	 *
+	 * Deliberately `string` and NOT `LoginAttemptErrorCode`. The union is what
+	 * this path is expected to produce; it is not a filter. A code nobody
+	 * anticipated is precisely the thing worth seeing, and typing the field as
+	 * the union would force a cast at the one place the value comes from
+	 * untyped JSON — turning "unknown code" into "no code".
+	 */
+	errorCode?: string;
 }
 
 /** 8 hex chars is enough to correlate and far too short to be a credential. */
@@ -93,6 +137,29 @@ export function describePassword(password: string): { pwLen: number; pwEdgeWs: b
  * Failures here must never affect a sign-in, so the whole body is wrapped —
  * a logging bug that throws would turn a working login into a 500.
  */
+/**
+ * Better Auth's error code from a handler response, or undefined.
+ *
+ * Read from a CLONE: the body of the proxied response is still needed by the
+ * action, and consuming it here would make the failure look like a success.
+ *
+ * Unknown codes are passed through as-is rather than dropped or coerced to a
+ * member of `LoginAttemptErrorCode` — the union is what this code path is
+ * expected to produce, not a filter, and a code nobody anticipated is exactly
+ * the thing worth seeing in the log.
+ */
+export async function errorCodeFrom(response: Response): Promise<string | undefined> {
+	try {
+		const clone = response.clone();
+		if (!clone.body) return undefined;
+		const body = (await clone.json()) as { code?: unknown };
+		return typeof body.code === 'string' ? body.code : undefined;
+	} catch {
+		// Not JSON, or no body. A missing code must not break the attempt log.
+		return undefined;
+	}
+}
+
 export function logLoginAttempt(
 	request: Request,
 	fields: Omit<LoginAttemptEvent, 'ipHash' | 'emailHash' | 'pwLen' | 'pwEdgeWs' | 'uaHash'> & {

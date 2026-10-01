@@ -142,20 +142,35 @@ const FORWARDED = [
 	'x-forwarded-host',
 	// Per-client identity for audit logging.
 	'user-agent',
+	// Origin and Referer, on BOTH paths.
+	//
+	// Better Auth's CSRF middleware validates origin only when the request
+	// carries a cookie (origin-check.mjs: `if (headers.has("cookie")) return
+	// await validateOrigin(ctx)`), and then requires the origin to match
+	// trustedOrigins — which is baseURL. Forwarding both keeps that check
+	// ACTIVE AND PASSING against the real origin instead of removing the
+	// cookie so it is skipped.
+	//
+	// This list once deliberately excluded them, with a comment saying
+	// forwarding Origin made Better Auth reject sign-in as cross-site. That
+	// comment was written when baseURL still fell back to
+	// http://127.0.0.1:3000, so the origin it compared against was one no
+	// browser ever sends. Once PUBLIC_ORIGIN was fixed that reasoning inverted,
+	// and stripping Origin became sufficient to fail every cookie-bearing
+	// sign-in with a 403 before the password was checked — which is how the
+	// owner was locked out of a correct password.
+	//
+	// Measured on the served build before this change:
+	//   no cookie  -> 200 ok:true
+	//   any cookie -> 403, password never compared
+	'origin',
+	'referer',
 	// Required by sign-out: Better Auth reads the session token from here to
 	// know which session row to destroy. Without it sign-out "succeeds" and
 	// leaves the session alive, which is worse than failing.
 	'cookie'
-	// NOT `origin`, unlike everything else here. Sign-out passes it explicitly
-	// (see signOutViaHandler) because Better Auth's CSRF check answers 403 for
-	// a POST with no Origin, and sign-out was being silently 403'd in
-	// production: 200 from the action, session row still there.
-	//
-	// Sign-in must NOT carry it. Forwarding the browser's Origin there makes
-	// Better Auth's trusted-origin check reject the proxied sign-in with a
-	// "Cross-site" error, because the request it is validating now presents an
-	// Origin that its own router never matched. Both behaviours are measured on
-	// the served build, not inferred.
+	// `origin` and `referer` are forwarded on BOTH paths. See
+	// `forwardedHeaders` for why that changed; it is not a no-op.
 ] as const;
 
 /**
@@ -187,16 +202,9 @@ export function clientIpFrom(headers: Headers): string | null {
  */
 export function forwardedHeaders(
 	incoming: Headers,
-	body: { contentType: 'application/json' },
-	/** Carry the browser's Origin through. Sign-out needs it; sign-in must not have it. */
-	withOrigin = false
+	body: { contentType: 'application/json' }
 ): Headers {
 	const out = new Headers({ 'content-type': body.contentType });
-
-	if (withOrigin) {
-		const origin = incoming.get('origin');
-		if (origin) out.set('origin', origin);
-	}
 
 	for (const name of FORWARDED) {
 		const value = incoming.get(name);
@@ -228,6 +236,7 @@ export async function signInViaHandler(
 	credentials: { email: string; password: string }
 ): Promise<Response> {
 	const url = new URL(SIGN_IN_ROUTE, authOrigin());
+
 	return auth.handler(
 		new Request(url, {
 			method: 'POST',
@@ -243,7 +252,7 @@ export async function signOutViaHandler(incoming: Headers): Promise<Response> {
 	return auth.handler(
 		new Request(url, {
 			method: 'POST',
-			headers: forwardedHeaders(incoming, { contentType: 'application/json' }, true),
+			headers: forwardedHeaders(incoming, { contentType: 'application/json' }),
 			body: JSON.stringify({})
 		})
 	);

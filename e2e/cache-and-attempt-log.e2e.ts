@@ -21,7 +21,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupTestDb } from '$lib/server/test-db';
-import { startTestServer, TEST_PASSWORD } from '$lib/server/test-auth-helpers';
+import { seedTestUser, startTestServer, TEST_PASSWORD } from '$lib/server/test-auth-helpers';
+import { auth } from '$lib/server/auth';
 import type { ChildProcess } from 'node:child_process';
 
 let server: ChildProcess;
@@ -202,5 +203,68 @@ describe('one structured line per sign-in attempt', () => {
 		// must be one of those two and never nothing — silence was the defect.
 		expect(lines.length, 'a successful attempt must still produce a line').toBeGreaterThan(0);
 		expect(['ok', 'bad_credentials']).toContain(lines.at(-1)!.reason);
+	});
+});
+
+describe('the proxied sign-in request is what the browser sent (mechanism)', () => {
+	/**
+	 * MECHANISM-LEVEL, NOT BEHAVIOR-LEVEL, AND DELIBERATELY SO.
+	 * ------------------------------------------------------
+	 * These assert CONSTRUCTION: what headers the proxied Request carries.
+	 *
+	 * They exist because the behavior could not be reproduced in the harness —
+	 * SvelteKit consumes the `cookie` header before the action runs, so an
+	 * end-to-end POST cannot trigger the 403, and calling the proxy directly
+	 * returned 401 rather than 403. The first version of this suite claimed to
+	 * cover the lockout and PASSED WITH THE FIX REVERTED, which is worse than
+	 * no test.
+	 *
+	 * So these do not claim to prove sign-in works. They prove the thing the fix
+	 * changed, which is directly checkable, and they fail without the change.
+	 * The behavior-level reproduction is a separate task: finding why the
+	 * harness returns 401 where production returns 403 for the same request.
+	 */
+
+	it('forwards Origin on sign-in, so Better Auth validates against the real origin', async () => {
+		const { signInViaHandler } = await import('$lib/server/auth-proxy');
+		const { auth } = await import('$lib/server/auth');
+
+		let seen: Headers | null = null;
+		const original = auth.handler.bind(auth);
+		auth.handler = ((request: Request) => {
+			seen = request.headers;
+			return original(request);
+		}) as typeof auth.handler;
+
+		try {
+			await signInViaHandler(
+				new Headers({
+					origin: 'https://enochnvps.tail29bbdb.ts.net',
+					referer: 'https://enochnvps.tail29bbdb.ts.net/login',
+					cookie: 'theme=dark'
+				}),
+				{ email: 'mechanism@test.local', password: 'irrelevant-value' }
+			);
+		} finally {
+			auth.handler = original;
+		}
+
+		expect(
+			seen?.get('origin'),
+			'without Origin, Better Auth rejects a cookie-bearing sign-in as cross-site'
+		).toBe('https://enochnvps.tail29bbdb.ts.net');
+		expect(seen?.get('referer')).toBe('https://enochnvps.tail29bbdb.ts.net/login');
+	});
+
+	it('forwards the cookie, and sign-out keeps its path to the session row', async () => {
+		const { forwardedHeaders } = await import('$lib/server/auth-proxy');
+		const built = forwardedHeaders(
+			new Headers({ origin: 'https://enochnvps.tail29bbdb.ts.net', cookie: 'theme=dark' }),
+			{ contentType: 'application/json' }
+		);
+
+		// Sign-in needs it so Better Auth's origin check runs rather than being
+		// skipped; sign-out needs it to know which session row to destroy.
+		expect(built.get('cookie')).toBe('theme=dark');
 	});
 });

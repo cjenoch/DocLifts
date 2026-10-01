@@ -1477,6 +1477,11 @@ Built on branch `feat/0.3.2`. Migration **0014**. Reference:
   "Hammer Strength Iso-Lateral Row (IL-ROW)", "Nautilus Leverage Row". Blank
   with no model is refused with a message. `gym_equipment.local_label` stays
   NOT NULL; no schema change for this. Existing labels are not touched.
+- **Edit a machine** (owner request, "Drop an edit option in"): an **Edit**
+  link per machine on `/gyms` opens `/gyms/[gymId]/machines/[id]/edit`, which
+  changes the label, stack and increment (not the model). Blank label: the
+  model's default, or refused with no model. Another user's machine, or one
+  under the wrong gym, is a 404. No schema change.
 - **The importer promotes instead of duplicating.** A coded CSV row with no
   global row for `(manufacturer, code)` updates the one global codeless row of
   the same `(manufacturer, product_line, name)` in place, so `gym_equipment`
@@ -1592,7 +1597,12 @@ sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
    "Notes: name from training data; code unknown — verify". "Add to a gym" with
    the label blank adds "Nautilus Leverage Row"; `/gyms` with no model and no
    label refuses with "Give the machine a label, or choose its model so the
-   label can be taken from it". Remove the scratch machine afterwards.
+   label can be taken from it". On `/gyms`, **Edit** on the scratch machine,
+   change its label and save: the list shows the new label. Remove the scratch
+   machine afterwards.
+9. **Then the owner** fixes his own first machine's label ("Make this
+   optional maybe? Next to deadlift platform") with **Edit** on `/gyms`. Not
+   done by an assistant.
 
 `pre-0.3.2` is deleted only after 6–8 pass.
 

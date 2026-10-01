@@ -247,6 +247,64 @@ run('equipment pages (production build)', () => {
 		await page.close();
 	});
 
+	// 0.3.2: "Drop an edit option in." Edit a machine from the /gyms list.
+	it('edit a machine from the /gyms list: new label shown, blank falls back to the model', async () => {
+		const db = harness.db;
+		const [gym] = await db.insert(s.gyms).values({ name: 'Edit Gym', userId }).returning();
+		const [model] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(
+				and(
+					eq(s.equipmentModels.manufacturer, 'Nautilus'),
+					eq(s.equipmentModels.name, 'Leverage Row')
+				)
+			);
+		const [machine] = await db
+			.insert(s.gymEquipment)
+			.values({
+				gymId: gym.id,
+				localLabel: 'Make this optional maybe? Next to deadlift platform',
+				equipmentType: 'machine-plate',
+				equipmentModelId: model.id
+			})
+			.returning();
+		const reread = async () =>
+			(await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, machine.id)))[0];
+
+		const page = await signedInPage();
+		await page.goto(`${origin}/gyms?gym=${gym.id}`, { waitUntil: 'networkidle' });
+		await page
+			.getByRole('link', { name: 'Edit Make this optional maybe? Next to deadlift platform' })
+			.click();
+		await page.waitForURL(`**/gyms/${gym.id}/machines/${machine.id}/edit`);
+		await page.getByLabel('Local label (optional)').fill('Next to deadlift platform');
+		await page.getByLabel('Increment (lb, optional)').fill('5');
+		await page.getByRole('button', { name: 'Save' }).click();
+		await page.waitForURL(`**/gyms?gym=${gym.id}`);
+		await expect
+			.poll(() => page.getByText('Next to deadlift platform · machine-plate').count())
+			.toBe(1);
+		expect(await page.getByText('Make this optional maybe?').count()).toBe(0);
+		expect(await reread()).toMatchObject({
+			localLabel: 'Next to deadlift platform',
+			incrementLb: 5
+		});
+
+		// Cleared label: the model's default label.
+		await page.getByRole('link', { name: 'Edit Next to deadlift platform' }).click();
+		await page.waitForURL('**/edit');
+		await page.getByLabel('Local label (optional)').fill('');
+		await page.getByRole('button', { name: 'Save' }).click();
+		await page.waitForURL(`**/gyms?gym=${gym.id}`);
+		await expect
+			.poll(() => page.getByText('Nautilus Leverage Row · machine-plate').count())
+			.toBe(1);
+		expect((await reread()).localLabel).toBe('Nautilus Leverage Row');
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
+
 	it('copy a catalog row into my own, then edit my copy, from the pages', async () => {
 		const db = harness.db;
 		const [global] = await db

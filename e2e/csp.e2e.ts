@@ -89,6 +89,8 @@ run('production build: CSP and page render', () => {
 	let programId: string;
 	let sessionId: string;
 	let modelId: string;
+	let gymId: string;
+	let machineId: string;
 
 	beforeAll(async () => {
 		harness = await freshTestDb();
@@ -217,6 +219,19 @@ run('production build: CSP and page render', () => {
 			})
 			.returning();
 		modelId = model.id;
+		// A gym with one machine, so /gyms/{gymId}/machines/{id}/edit resolves.
+		const [gym] = await db.insert(s.gyms).values({ name: 'CSP Gym', userId: user.id }).returning();
+		gymId = gym.id;
+		const [machine] = await db
+			.insert(s.gymEquipment)
+			.values({
+				gymId,
+				localLabel: 'CSP row',
+				equipmentType: 'machine-plate',
+				equipmentModelId: model.id
+			})
+			.returning();
+		machineId = machine.id;
 
 		const started = await startTestServer();
 		origin = started.origin;
@@ -323,6 +338,7 @@ run('production build: CSP and page render', () => {
 		'/history',
 		'/reports',
 		'/gyms',
+		'/gyms/{gymId}/machines/{id}/edit',
 		'/equipment',
 		'/equipment/{id}',
 		'/equipment/{id}/edit',
@@ -343,6 +359,8 @@ run('production build: CSP and page render', () => {
 		if (pattern === '/sessions/{id}') return `/sessions/${sessionId}`;
 		if (pattern === '/equipment/{id}') return `/equipment/${modelId}`;
 		if (pattern === '/equipment/{id}/edit') return `/equipment/${modelId}/edit`;
+		if (pattern === '/gyms/{gymId}/machines/{id}/edit')
+			return `/gyms/${gymId}/machines/${machineId}/edit`;
 		return pattern;
 	}
 

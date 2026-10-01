@@ -165,6 +165,76 @@ export async function createMachine(db: Database, userId: string, input: unknown
 		return machine;
 	});
 }
+const machineEditSchema = z.object({
+	localLabel: optionalLabel,
+	stackLb: optionalLb,
+	incrementLb: optionalLb
+});
+
+/**
+ * One machine for its edit page, with its gym and model. Ownership is in the
+ * query: the machine must be under `gymId`, and that gym must be this user's.
+ * Another user's machine, or a machine under a different gym, is null (D6).
+ */
+export async function loadMachine(db: Database, userId: string, gymId: string, machineId: string) {
+	const id = z.string().uuid();
+	if (!id.safeParse(gymId).success || !id.safeParse(machineId).success) return null;
+	const [row] = await db
+		.select({ machine: gymEquipment, gym: gyms, model: equipmentModels })
+		.from(gymEquipment)
+		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
+		.leftJoin(
+			equipmentModels,
+			and(eq(equipmentModels.id, gymEquipment.equipmentModelId), modelVisibleTo(userId))
+		)
+		.where(
+			and(eq(gymEquipment.id, machineId), eq(gymEquipment.gymId, gymId), eq(gyms.userId, userId))
+		);
+	return row ?? null;
+}
+
+/**
+ * Edit a machine's label, stack and increment (0.3.2). The model is not
+ * changed here. A blank label takes the model's default label, exactly as on
+ * create; with no model it is refused. Blank stack or increment clears it.
+ * Returns null, writing nothing, when the machine is not this user's or not
+ * under `gymId`: the owner chain gym_id -> gyms.user_id is in the UPDATE.
+ */
+export async function updateMachine(
+	db: Database,
+	userId: string,
+	gymId: string,
+	machineId: string,
+	input: unknown
+) {
+	const value = machineEditSchema.parse(input);
+	return db.transaction(async (tx) => {
+		const found = await loadMachine(tx, userId, gymId, machineId);
+		if (!found) return null;
+		const localLabel =
+			value.localLabel ?? (found.model ? defaultMachineLabel(found.model) : undefined);
+		if (!localLabel) throw new MachineInputError(LABEL_REQUIRED_MESSAGE);
+		const [row] = await tx
+			.update(gymEquipment)
+			.set({
+				localLabel,
+				stackLb: value.stackLb ?? null,
+				incrementLb: value.incrementLb ?? null
+			})
+			.where(
+				and(
+					eq(gymEquipment.id, machineId),
+					eq(gymEquipment.gymId, gymId),
+					inArray(
+						gymEquipment.gymId,
+						tx.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
+					)
+				)
+			)
+			.returning();
+		return row ?? null;
+	});
+}
 // Models are NOT part of this: with the 0.3.0 catalog that is 543+ rows, and
 // every live-session page serialized all of them to the client while using
 // none. The model list is modelChoices() in catalog.ts, narrowed per gym.

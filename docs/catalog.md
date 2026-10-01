@@ -193,7 +193,9 @@ where owner_user_id is null and catalog_snapshot = '2026-09-30'
 - `/gyms`: the known-model picker shows the models of manufacturers already in
   the selected gym, with "Show all manufacturers" and a search box. The label
   is optional there too when a model is chosen or typed in; with no model it
-  is required.
+  is required. Each machine has an **Edit** link
+  (`/gyms/[gymId]/machines/[id]/edit`): label, stack and increment; a blank
+  label falls back the same way.
 
 ## Known data questions
 

@@ -8,6 +8,9 @@
   example "Hammer Strength Iso-Lateral Row (IL-ROW)". A label you type still
   wins, and is the way to tell two of the same model apart. With no model, a
   label is still needed, and the page says so.
+- **Edit a machine's label, stack and increment.** Each machine on **Gyms and
+  machines** now has an **Edit** link. Clear the label and it goes back to
+  the model's name; logged history stays with the machine.
 - **Catalog notes on each model's page.** The catalog's own remarks (298
   models have one, such as "code unknown — verify") now show on the model's
   page, and come along when you create your own copy.

@@ -136,7 +136,12 @@
 						{#if machine.equipmentModelId}<a
 								href={`/equipment/${machine.equipmentModelId}`}
 								class="text-indigo-300">model</a
-							>{:else}Unknown model{/if}
+							>{:else}Unknown model{/if} ·
+						<a
+							href={`/gyms/${gym.id}/machines/${machine.id}/edit`}
+							aria-label={`Edit ${machine.localLabel}`}
+							class="text-indigo-300">Edit</a
+						>
 					</li>{/each}
 			</ul>
 		</section>

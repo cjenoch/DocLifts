@@ -8,7 +8,9 @@ import {
 	addSessionExercise,
 	bindSessionMachine,
 	machineChoices,
-	LABEL_REQUIRED_MESSAGE
+	LABEL_REQUIRED_MESSAGE,
+	loadMachine,
+	updateMachine
 } from './machines';
 import { startSessionForDay, endSession, updateSetInSession } from './sessions';
 import { modelChoices } from './catalog';
@@ -799,6 +801,100 @@ describe('optional machine label', () => {
 			})
 		).rejects.toThrow('Model loading type does not match machine');
 		expect(await f.labels()).toEqual([]);
+	});
+});
+
+// 0.3.2: editing a machine's label, stack and increment.
+describe('editing a machine', () => {
+	async function setup() {
+		const userId = await createTestUser(db, 'edit');
+		const gym = await createGym(db, userId, { name: 'Edit Gym' });
+		const [model] = await db
+			.insert(s.equipmentModels)
+			.values({ manufacturer: 'Nautilus', name: 'Leverage Row', loadingType: 'machine-plate' })
+			.returning();
+		const modelled = await createMachine(db, userId, {
+			gymId: gym.id,
+			localLabel: 'Make this optional maybe? Next to deadlift platform',
+			equipmentType: 'machine-plate',
+			equipmentModelId: model.id,
+			stackLb: '200'
+		});
+		const bare = await createMachine(db, userId, {
+			gymId: gym.id,
+			localLabel: 'Corner cable',
+			equipmentType: 'cable'
+		});
+		const reread = async (id: string) =>
+			(await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, id)))[0];
+		return { userId, gym, model, modelled, bare, reread };
+	}
+
+	it('updates the label, stack and increment; blank stack clears it', async () => {
+		const f = await setup();
+		const row = await updateMachine(db, f.userId, f.gym.id, f.modelled.id, {
+			localLabel: 'Next to deadlift platform',
+			stackLb: '',
+			incrementLb: '5'
+		});
+		expect(row).not.toBeNull();
+		expect(await f.reread(f.modelled.id)).toEqual({
+			...f.modelled,
+			localLabel: 'Next to deadlift platform',
+			stackLb: null,
+			incrementLb: 5
+		});
+	});
+
+	it("a blank label takes the model's default label", async () => {
+		const f = await setup();
+		await updateMachine(db, f.userId, f.gym.id, f.modelled.id, { localLabel: '  ' });
+		expect((await f.reread(f.modelled.id)).localLabel).toBe('Nautilus Leverage Row');
+	});
+
+	it('a blank label with no model is refused, and nothing changes', async () => {
+		const f = await setup();
+		await expect(
+			updateMachine(db, f.userId, f.gym.id, f.bare.id, { localLabel: '', stackLb: '90' })
+		).rejects.toThrow(LABEL_REQUIRED_MESSAGE);
+		expect(await f.reread(f.bare.id)).toEqual(f.bare);
+	});
+
+	it('stack and increment must be positive whole pounds', async () => {
+		const f = await setup();
+		for (const bad of ['0', '-5', '2.5', 'heavy'])
+			await expect(
+				updateMachine(db, f.userId, f.gym.id, f.bare.id, { localLabel: 'X', stackLb: bad })
+			).rejects.toThrow();
+		await expect(
+			updateMachine(db, f.userId, f.gym.id, f.bare.id, { localLabel: 'X', incrementLb: '0' })
+		).rejects.toThrow();
+		expect(await f.reread(f.bare.id)).toEqual(f.bare);
+	});
+
+	it('a machine under a different gym of the same user is not found, and unchanged', async () => {
+		const f = await setup();
+		const other = await createGym(db, f.userId, { name: 'Other' });
+		expect(await loadMachine(db, f.userId, other.id, f.bare.id)).toBeNull();
+		expect(
+			await updateMachine(db, f.userId, other.id, f.bare.id, { localLabel: 'Moved?' })
+		).toBeNull();
+		expect(await f.reread(f.bare.id)).toEqual(f.bare);
+	});
+
+	it("the owner edits their machine; another user's edit is not found and changes nothing", async () => {
+		const f = await setup();
+		// Positive first.
+		expect(await loadMachine(db, f.userId, f.gym.id, f.bare.id)).not.toBeNull();
+		await updateMachine(db, f.userId, f.gym.id, f.bare.id, { localLabel: 'Mine' });
+		const mine = await f.reread(f.bare.id);
+		expect(mine.localLabel).toBe('Mine');
+		const bob = await createTestUser(db, 'edit-bob');
+		expect(await loadMachine(db, bob, f.gym.id, f.bare.id)).toBeNull();
+		expect(
+			await updateMachine(db, bob, f.gym.id, f.bare.id, { localLabel: 'Bob was here' })
+		).toBeNull();
+		expect(await f.reread(f.bare.id)).toEqual(mine);
 	});
 });
 

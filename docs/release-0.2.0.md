@@ -1461,8 +1461,10 @@ branch   feat/0.3.2 from main 43490c3 (production runs 0.3.1 = fd916d3 + docs)
 status   NOT deployed. Nothing below has run against production.
 migrate  0014: equipment_models.notes (text, nullable). Verified on a restore
          of doclifts-2026-10-01.sql.gz, below
-catalog  re-import the SAME 2026-09-30 CSV: expect 0 inserted, ~298 updated
-         (notes), 0 promoted, 0 recoded
+catalog  import the 2026-10-01 snapshot (890 rows, researched): expect 354
+         inserted, 195 promoted, 9 recoded, 0 skipped, updated + unchanged =
+         332. Rehearsed on a production restore; see "The 2026-10-01 snapshot"
+         below
 ```
 
 Built on branch `feat/0.3.2`. Migration **0014**. Reference:
@@ -1567,14 +1569,44 @@ sudo -n scripts/migrate-prod.sh
 # 4. Deploy. 0.3.1 code ignores the new column, so 3 before 4 is safe.
 sudo -n scripts/compose-prod.sh up -d --build --wait web
 
-# 5. The SAME 2026-09-30 CSV again, to fill notes: verified dump, dry run
-#    printed, then type IMPORT. Expect the dry run to show ~298 updated (each
-#    update line ending ": notes"), 0 inserted, 0 promoted, 0 recoded, ~245
-#    unchanged, 0 skipped, and "(kept) notes: 298 row(s)". Anything inserted,
-#    promoted or recoded means production's catalog is not what 0.3.0
-#    imported: answer anything but IMPORT and stop.
-sudo -n scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-09-30.csv
+# 5. The 2026-10-01 snapshot: verified dump, dry run printed, then type
+#    IMPORT. Expect TOTAL: 354 inserted, 195 promoted, 9 recoded, 0 skipped,
+#    and updated + unchanged = 332 (production's 543 rows have no notes yet,
+#    so rows the rehearsal counted unchanged may read updated here). "7
+#    existing global row(s) are not in this CSV" is expected: the line_only
+#    placeholders the research replaced with models. Any skip, refusal,
+#    ambiguity or conflict: answer anything but IMPORT and stop.
+sudo -n scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-10-01.csv
+# 6a. Idempotent: run step 5 again; the dry run must show 0 inserted, 0
+#     updated, 0 promoted, 0 recoded, 890 unchanged. Answer anything but IMPORT.
+# 6b. The owner's machine kept its model and gained the code:
+#     select ge.local_label, m.code, m.name from gym_equipment ge
+#       join equipment_models m on m.id = ge.equipment_model_id;
+#     -> Nautilus 9NP-L3004 Leverage Row
 ```
+
+### The 2026-10-01 snapshot
+
+`data/catalog/equipment_models_seed_2026-10-01.csv`: 890 rows from five
+research agents, one per brand group, under `research-2026-10-01/BRIEF.md`
+(every new or changed code from a page fetched that day, cited in `source`;
+the per-brand change logs sit beside it). Against 2026-09-30: codeless 210 ->
+21, inferred 69 -> 10, line_only 8 -> 1, with starting resistance 11 -> 98.
+17 wrong codes corrected, 9 of them on rows that already had a code (carried
+by `replaces_code`). About 60 codes were spot-checked against their sources
+by fetching them again; all confirmed. Merge decisions: the two Hammer
+Strength smith machines dropped; Technogym Artis rows `reseller_or_manual`
+because Technogym's own pages pair Artis codes and names two ways; Precor's
+PD-xx codes noted as dealer SKUs; 11 starting weights without a stated basis
+(or stated only in kg) moved to `notes` rather than guessed.
+
+Rehearsal on a restore of `doclifts-2026-10-01.sql.gz`, migrated to 0014,
+2026-09-30 imported, two machines linked (to Nautilus Leverage Row, codeless,
+and Hammer Strength `IL-DY`, a corrected code): dry run and real run 354
+inserted / 155 updated / 195 promoted / 9 recoded / 177 unchanged / 0
+skipped; second dry run 890 unchanged; both machines on the same model ids,
+now `9NP-L3004` and `IL-DRW`; no duplicate codes; 31 sessions / 454 sets
+unchanged. Restore dropped afterwards.
 
 ### Checks
 

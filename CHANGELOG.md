@@ -2,6 +2,11 @@
 
 ## 0.3.2 — machine labels and catalog notes — not yet released
 
+- **The machine catalog grows from 543 to 890 models,** researched from the
+  manufacturers' own pages: all but 21 now have a model code (210 had none
+  before), 17 wrong codes are corrected, and 98 models now show the
+  manufacturer's starting weight. Machines you already added stay linked to
+  the same model.
 - **A machine's label is optional when you pick its model.** Adding a machine
   on **Gyms and machines**, or from a model's page, no longer makes you invent
   a name. Leave the label blank and the machine is named after its model, for

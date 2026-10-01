@@ -101,9 +101,22 @@ pnpm catalog:import data/catalog/equipment_models_seed_2026-09-30.csv
   `loading_type`, `laterality`, `body_region`, `starting_resistance*`,
   `confidence`, `source_url`, `catalog_snapshot`). `owner_user_id` is never
   touched, and a row with an owner is never matched.
+- **A code added to a codeless model is a promotion, not a new row** (since
+  0.3.2). When a CSV row has a code and no global row has that
+  `(manufacturer, code)`, the importer looks for a global **codeless** row
+  with the same `(manufacturer, product_line, name)`. Exactly one: that row is
+  updated in place — it gains the code, and the catalog columns change as on a
+  match — so its id, and every `gym_equipment` row pointing at it, stay put.
+  It is counted in the `promoted` column and listed as
+  `promote line N <manufacturer> <name>: codeless row gains code <code>, kept in place (<columns>)`.
+  More than one: the row is skipped as ambiguous and the run fails without
+  writing. Two CSV rows claiming the same codeless row (two codes for one
+  name, or the name both with and without a code) fail the same way. Owned
+  rows are never candidates. After the promotion the row matches on its code,
+  so the next run reports it `unchanged`.
 - **Ambiguous match** (a key matching two existing global rows): reported as
   skipped, and the run fails without writing.
-- **Idempotent:** a second run reports 0 inserted, 0 updated.
+- **Idempotent:** a second run reports 0 inserted, 0 updated, 0 promoted.
 - Global rows that are not in the CSV are left as they are, and counted.
 - The run holds `SHARE ROW EXCLUSIVE` on the table for its transaction, so two
   imports cannot interleave; app reads are not blocked.
@@ -117,8 +130,10 @@ pnpm catalog:import data/catalog/equipment_models_seed_2026-09-30.csv
 3. Commit, then in production `scripts/catalog-prod.sh <new csv>`: verified
    dump, dry run printed, real run only when you type `IMPORT`.
 
-Codes renamed between snapshots import as **new** rows; the old row stays,
-since a user's machine may point at it. Models dropped from a catalog stay too.
+A code added to a model that had none is a promotion (above): same row, now
+with the code. Codes **renamed** between snapshots (one code replaced by
+another) import as **new** rows; the old row stays, since a user's machine may
+point at it. Models dropped from a catalog stay too.
 
 ### Production
 

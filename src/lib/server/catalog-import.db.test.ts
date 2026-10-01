@@ -218,6 +218,129 @@ describe('catalog import of the 2026-09-30 seed', () => {
 	});
 });
 
+// 0.3.2: a snapshot that adds a code to a codeless model updates that row in
+// place. Production's first machine points at Nautilus "Leverage Row" (line
+// 360 of the seed, codeless); TEST-ROW is a made-up code for the test.
+describe('a code added to a codeless model (promotion)', () => {
+	const LINE = 360;
+	const coded = withCell('model_code', 'TEST-ROW', LINE);
+	const leverageRow = async () =>
+		db
+			.select()
+			.from(s.equipmentModels)
+			.where(
+				and(
+					eq(s.equipmentModels.manufacturer, 'Nautilus'),
+					eq(s.equipmentModels.name, 'Leverage Row'),
+					isNull(s.equipmentModels.ownerUserId)
+				)
+			);
+
+	it('updates the same row in place, keeps its gym_equipment link, and reports it', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		const [before] = await leverageRow();
+		expect(before.code).toBeNull();
+		const [gym] = await db.insert(s.gyms).values({ name: 'Gym', userId: alice }).returning();
+		const [machine] = await db
+			.insert(s.gymEquipment)
+			.values({
+				gymId: gym.id,
+				localLabel: 'Next to deadlift platform',
+				equipmentType: 'machine-plate',
+				equipmentModelId: before.id
+			})
+			.returning();
+
+		const dry = await importCatalog(db, coded, { dryRun: true });
+		expect(totals(dry)).toEqual({ inserted: 0, updated: 0, unchanged: 542, skipped: 0 });
+		expect(dry.byManufacturer.get('Nautilus')).toMatchObject({ promoted: 1, inserted: 0 });
+		const report = formatImportReport(dry);
+		expect(report).toMatch(/manufacturer\s+inserted\s+updated\s+promoted\s+unchanged\s+skipped/);
+		expect(report).toContain(
+			`promote line ${LINE} Nautilus Leverage Row: codeless row gains code TEST-ROW, kept in place (code)`
+		);
+		expect((await leverageRow())[0].code).toBeNull(); // dry run wrote nothing
+
+		const result = await importCatalog(db, coded, { dryRun: false });
+		expect(result.failed).toBe(false);
+		expect(await globals()).toBe(543);
+		const after = await leverageRow();
+		expect(after).toHaveLength(1);
+		expect(after[0]).toEqual({ ...before, code: 'TEST-ROW' });
+		const [link] = await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, machine.id));
+		expect(link.equipmentModelId).toBe(before.id);
+
+		// Idempotent afterwards: the row now matches on (manufacturer, code).
+		const again = await importCatalog(db, coded, { dryRun: false });
+		expect(totals(again)).toEqual({ inserted: 0, updated: 0, unchanged: 543, skipped: 0 });
+		expect(again.byManufacturer.get('Nautilus')!.promoted).toBe(0);
+	});
+
+	it('fails, writing nothing, when two codeless global rows share the line and name', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		const [codeless] = await leverageRow();
+		const { id: _id, ...copy } = codeless;
+		await db.insert(s.equipmentModels).values(copy);
+		const result = await importCatalog(db, coded, { dryRun: false });
+		expect(result.failed).toBe(true);
+		expect(totals(result).skipped).toBe(1);
+		expect(formatImportReport(result)).toContain(
+			`skipped line ${LINE} (Nautilus): adds a code to 2 existing codeless global rows`
+		);
+		expect((await leverageRow()).map((r) => r.code)).toEqual([null, null]);
+		expect(await globals()).toBe(544);
+
+		// And the CLI exits non-zero on it.
+		const dir = mkdtempSync(join(tmpdir(), 'catalog-'));
+		const file = join(dir, 'ambiguous.csv');
+		writeFileSync(file, coded);
+		const run = spawnSync('pnpm', ['exec', 'tsx', 'scripts/catalog-import.ts', file], {
+			env: { ...process.env, DATABASE_URL: process.env.TEST_DATABASE_URL },
+			encoding: 'utf8'
+		});
+		expect(run.stdout).toContain('FAILED');
+		expect(run.status).toBe(1);
+	});
+
+	it('fails when two coded CSV rows would promote the same codeless row', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		const lines = coded.trimEnd().split('\n');
+		const twin = lines[LINE - 1].replace('TEST-ROW', 'TEST-ROW-2');
+		const result = await importCatalog(db, [...lines, twin].join('\n'), { dryRun: false });
+		expect(result.failed).toBe(true);
+		expect(totals(result).skipped).toBe(2);
+		expect((await leverageRow()).map((r) => r.code)).toEqual([null]);
+	});
+
+	it("never promotes, or touches, a user's own codeless row", async () => {
+		const [mine] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Nautilus',
+				productLine: 'Leverage (plate loaded)',
+				name: 'Leverage Row',
+				loadingType: 'machine-plate',
+				ownerUserId: alice
+			})
+			.returning();
+		// No global row yet: the coded row is an insert, not a promotion of mine.
+		const first = await importCatalog(db, coded, { dryRun: false });
+		expect(totals(first).inserted).toBe(543);
+		expect(first.byManufacturer.get('Nautilus')!.promoted).toBe(0);
+		// A global codeless row beside mine: the global one is promoted, mine is not.
+		await db.delete(s.equipmentModels).where(isNull(s.equipmentModels.ownerUserId));
+		await importCatalog(db, csv, { dryRun: false });
+		const second = await importCatalog(db, coded, { dryRun: false });
+		expect(second.byManufacturer.get('Nautilus')!.promoted).toBe(1);
+		const [after] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(eq(s.equipmentModels.id, mine.id));
+		expect(after).toEqual(mine);
+		expect(await owned()).toBe(1);
+	});
+});
+
 describe('parseCsv', () => {
 	it('handles quoted commas, doubled quotes, embedded newlines and CRLF', () => {
 		expect(parseCsv('a,b\r\n"x, y","say ""hi"""\n"multi\nline",z\n')).toEqual([

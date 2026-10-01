@@ -14,7 +14,9 @@
  *   1. parse + map every CSV row. Any row that cannot be mapped is an error,
  *      and ANY error stops the run before a single write.
  *   2. plan against the existing global rows: insert / update / unchanged /
- *      skipped (ambiguous: the key matches more than one global row).
+ *      promote (a coded CSV row that names a codeless global row: the code
+ *      is added to that row in place) / skipped (ambiguous: the key matches
+ *      more than one global row).
  *   3. apply the plan in one transaction (skipped by --dry-run).
  */
 import { and, eq, isNull, sql } from 'drizzle-orm';
@@ -263,7 +265,13 @@ export type PlanItem =
 	| { kind: 'insert'; row: MappedRow }
 	| { kind: 'update'; row: MappedRow; id: string; changed: (keyof CatalogFields)[] }
 	| { kind: 'unchanged'; row: MappedRow; id: string }
+	/** A code added to a model the catalog had without one: that row, updated in place. */
+	| { kind: 'promote'; row: MappedRow; id: string; changed: (keyof CatalogFields)[] }
 	| { kind: 'skipped'; row: MappedRow; reason: string };
+
+/** The codeless key of a row, whatever its code: (manufacturer, product_line, name). */
+const lineKey = (r: { manufacturer: string; productLine: string | null; name: string }) =>
+	importKey({ ...r, code: null });
 
 export function planImport(rows: MappedRow[], existingGlobal: Existing[]): PlanItem[] {
 	const byKey = new Map<string, Existing[]>();
@@ -276,26 +284,54 @@ export function planImport(rows: MappedRow[], existingGlobal: Existing[]): PlanI
 		});
 		byKey.set(k, [...(byKey.get(k) ?? []), e]);
 	}
-	return rows.map((row): PlanItem => {
-		const matches = byKey.get(importKey(row.fields)) ?? [];
+	const plan = rows.map((row): PlanItem => {
+		let matches = byKey.get(importKey(row.fields)) ?? [];
+		let promote = false;
+		// A snapshot that adds a code to a model the catalog had without one
+		// must not insert a second row beside it: gym_equipment rows point at
+		// the codeless one. With no global row for (manufacturer, code), look
+		// for the codeless row of the same (manufacturer, product_line, name)
+		// and give it the code in place.
+		if (matches.length === 0 && row.fields.code) {
+			matches = byKey.get(lineKey(row.fields)) ?? [];
+			promote = matches.length > 0;
+		}
 		if (matches.length === 0) return { kind: 'insert', row };
 		if (matches.length > 1)
 			return {
 				kind: 'skipped',
 				row,
-				reason: `key matches ${matches.length} existing global rows; resolve by hand`
+				reason: promote
+					? `adds a code to ${matches.length} existing codeless global rows of the same line and name; resolve by hand`
+					: `key matches ${matches.length} existing global rows; resolve by hand`
 			};
 		const [e] = matches;
 		const changed = COMPARED.filter((f) => (e[f] ?? null) !== (row.fields[f] ?? null));
+		if (promote) return { kind: 'promote', row, id: e.id, changed: ['code', ...changed] };
 		return changed.length
 			? { kind: 'update', row, id: e.id, changed }
 			: { kind: 'unchanged', row, id: e.id };
+	});
+	// One existing row, one CSV row. Two coded rows promoting the same codeless
+	// row, or a promotion of a row the CSV also names without a code, cannot
+	// both be applied: every claimant is skipped, which fails the run.
+	const claims = new Map<string, number>();
+	for (const p of plan) if ('id' in p) claims.set(p.id, (claims.get(p.id) ?? 0) + 1);
+	return plan.map((p): PlanItem => {
+		// Keys are unique within the CSV, so only a promotion can make a claim twice.
+		if (!('id' in p) || claims.get(p.id) === 1) return p;
+		return {
+			kind: 'skipped',
+			row: p.row,
+			reason: `${claims.get(p.id)} CSV rows claim the same existing codeless global row; resolve by hand`
+		};
 	});
 }
 
 export type ManufacturerTally = {
 	inserted: number;
 	updated: number;
+	promoted: number;
 	unchanged: number;
 	skipped: number;
 };
@@ -344,9 +380,16 @@ export async function importCatalog(
 		const byManufacturer = new Map<string, ManufacturerTally>();
 		for (const item of plan) {
 			const m = item.row.fields.manufacturer;
-			const t = byManufacturer.get(m) ?? { inserted: 0, updated: 0, unchanged: 0, skipped: 0 };
+			const t = byManufacturer.get(m) ?? {
+				inserted: 0,
+				updated: 0,
+				promoted: 0,
+				unchanged: 0,
+				skipped: 0
+			};
 			if (item.kind === 'insert') t.inserted++;
 			else if (item.kind === 'update') t.updated++;
+			else if (item.kind === 'promote') t.promoted++;
 			else if (item.kind === 'unchanged') t.unchanged++;
 			else t.skipped++;
 			byManufacturer.set(m, t);
@@ -375,7 +418,7 @@ export async function importCatalog(
 				.insert(equipmentModels)
 				.values(inserts.slice(i, i + 200).map((f) => ({ ...f, ownerUserId: null })));
 		for (const p of plan) {
-			if (p.kind !== 'update') continue;
+			if (p.kind !== 'update' && p.kind !== 'promote') continue;
 			const f = p.row.fields;
 			// owner_user_id IS NULL in the WHERE, not just in the lookup above:
 			// this statement can never reach an owned row.
@@ -391,7 +434,9 @@ export async function importCatalog(
 					startingResistanceBasis: f.startingResistanceBasis,
 					confidence: f.confidence,
 					sourceUrl: f.sourceUrl,
-					catalogSnapshot: f.catalogSnapshot
+					catalogSnapshot: f.catalogSnapshot,
+					// A promotion adds the code; an update matched on it, or has none.
+					...(p.kind === 'promote' ? { code: f.code } : {})
 				})
 				.where(and(eq(equipmentModels.id, p.id), isNull(equipmentModels.ownerUserId)));
 		}
@@ -408,23 +453,27 @@ export function formatImportReport(r: ImportResult): string {
 		return out.join('\n');
 	}
 	out.push(r.dryRun ? 'DRY RUN — nothing written.' : 'Applied.');
-	const head = ['manufacturer', 'inserted', 'updated', 'unchanged', 'skipped'];
+	const head = ['manufacturer', 'inserted', 'updated', 'promoted', 'unchanged', 'skipped'];
 	const lines = [...r.byManufacturer.entries()].sort(([a], [b]) => a.localeCompare(b));
 	const total = lines.reduce(
 		(t, [, v]) => ({
 			inserted: t.inserted + v.inserted,
 			updated: t.updated + v.updated,
+			promoted: t.promoted + v.promoted,
 			unchanged: t.unchanged + v.unchanged,
 			skipped: t.skipped + v.skipped
 		}),
-		{ inserted: 0, updated: 0, unchanged: 0, skipped: 0 }
+		{ inserted: 0, updated: 0, promoted: 0, unchanged: 0, skipped: 0 }
 	);
 	const width = Math.max(12, ...lines.map(([m]) => m.length));
 	const fmt = (cells: (string | number)[]) =>
 		cells.map((c, i) => (i === 0 ? String(c).padEnd(width) : String(c).padStart(9))).join(' ');
 	out.push(fmt(head));
-	for (const [m, v] of lines) out.push(fmt([m, v.inserted, v.updated, v.unchanged, v.skipped]));
-	out.push(fmt(['TOTAL', total.inserted, total.updated, total.unchanged, total.skipped]));
+	for (const [m, v] of lines)
+		out.push(fmt([m, v.inserted, v.updated, v.promoted, v.unchanged, v.skipped]));
+	out.push(
+		fmt(['TOTAL', total.inserted, total.updated, total.promoted, total.unchanged, total.skipped])
+	);
 	for (const p of r.plan)
 		if (p.kind === 'skipped')
 			out.push(`  skipped line ${p.row.line} (${p.row.fields.manufacturer}): ${p.reason}`);
@@ -432,6 +481,11 @@ export function formatImportReport(r: ImportResult): string {
 		if (p.kind === 'update')
 			out.push(
 				`  update line ${p.row.line} ${p.row.fields.manufacturer} ${p.row.fields.code ?? p.row.fields.name}: ${p.changed.join(', ')}`
+			);
+	for (const p of r.plan)
+		if (p.kind === 'promote')
+			out.push(
+				`  promote line ${p.row.line} ${p.row.fields.manufacturer} ${p.row.fields.name}: codeless row gains code ${p.row.fields.code}, kept in place (${p.changed.join(', ')})`
 			);
 	if (r.untouchedGlobal)
 		out.push(

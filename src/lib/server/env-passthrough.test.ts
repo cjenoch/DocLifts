@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { THROTTLE_ENV } from './login-throttle';
 import { LLM_DEFAULTS, LLM_ENV } from './llm/config';
+import { PHOTO_DEFAULTS, PHOTO_ENV } from './photos/config';
 
 const CHECK = resolve('scripts/check-env-passthrough.sh');
 const COMPOSE_PROD = resolve('scripts/compose-prod.sh');
@@ -27,7 +28,10 @@ const PRODUCTION_KEYS = [
 	'PASSWORD_MIN_LENGTH',
 	...Object.values(THROTTLE_ENV),
 	// 0.3.1: the owner adds at least OPENROUTER_API_KEY and LLM_MODEL.
-	...Object.values(LLM_ENV)
+	...Object.values(LLM_ENV),
+	// 0.4.0: the S3 bucket and keys, PHOTO_STORE, the limits, BODY_SIZE_LIMIT.
+	...Object.values(PHOTO_ENV),
+	'BODY_SIZE_LIMIT'
 ];
 
 let dir: string;
@@ -95,6 +99,40 @@ describe('LLM variables in docker-compose.yml', () => {
 			expect(match, `${name} has no passthrough line in docker-compose.yml`).not.toBeNull();
 			expect(match![1], `${name}: compose default vs code default`).toBe(value);
 		}
+	});
+});
+
+describe('photo variables in docker-compose.yml (0.4.0)', () => {
+	it('each has a passthrough line whose default matches the code', () => {
+		const compose = readFileSync('docker-compose.yml', 'utf8');
+		const expected: Record<string, string> = {
+			[PHOTO_ENV.store]: PHOTO_DEFAULTS.store,
+			[PHOTO_ENV.s3Endpoint]: '',
+			[PHOTO_ENV.s3Region]: '',
+			[PHOTO_ENV.s3Bucket]: '',
+			[PHOTO_ENV.s3AccessKeyId]: '',
+			[PHOTO_ENV.s3SecretAccessKey]: '',
+			[PHOTO_ENV.maxBytes]: String(PHOTO_DEFAULTS.maxBytes),
+			[PHOTO_ENV.dailyLimit]: String(PHOTO_DEFAULTS.dailyLimit)
+		};
+		expect(Object.keys(expected).sort()).toEqual(Object.values(PHOTO_ENV).sort());
+		for (const [name, value] of Object.entries(expected)) {
+			const match = compose.match(new RegExp(`\\n\\s+${name}: \\$\\{${name}:-([^}]*)\\}`));
+			expect(match, `${name} has no passthrough line in docker-compose.yml`).not.toBeNull();
+			expect(match![1], `${name}: compose default vs code default`).toBe(value);
+		}
+	});
+
+	it('BODY_SIZE_LIMIT is 12M in the web service, above PHOTO_MAX_BYTES', () => {
+		// adapter-node's 512K default 413s every phone photo before the app
+		// sees it; the e2e harness sets the same 12M (test-auth-helpers.ts).
+		const compose = readFileSync('docker-compose.yml', 'utf8');
+		const match = compose.match(/\n\s+BODY_SIZE_LIMIT: \$\{BODY_SIZE_LIMIT:-([^}]*)\}/);
+		expect(match?.[1]).toBe('12M');
+		expect(12 * 1024 * 1024).toBeGreaterThan(PHOTO_DEFAULTS.maxBytes);
+		expect(readFileSync('src/lib/server/test-auth-helpers.ts', 'utf8')).toContain(
+			"BODY_SIZE_LIMIT: '12M'"
+		);
 	});
 });
 

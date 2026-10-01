@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, max, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, max } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	equipmentModels,
@@ -24,6 +24,7 @@ import {
 } from './progression';
 import { snapForEquipment } from './plates';
 import { mainPrefills } from './main-prefill';
+import { modelVisibleTo } from './catalog';
 
 const name = z.string().trim().min(1).max(120);
 const optionalText = z.preprocess((v) => (v === '' || v == null ? undefined : v), name.optional());
@@ -110,12 +111,7 @@ export async function createMachine(db: Database, userId: string, input: unknown
 			const [model] = await tx
 				.select()
 				.from(equipmentModels)
-				.where(
-					and(
-						eq(equipmentModels.id, modelId),
-						or(isNull(equipmentModels.ownerUserId), eq(equipmentModels.ownerUserId, userId))
-					)
-				);
+				.where(and(eq(equipmentModels.id, modelId), modelVisibleTo(userId)));
 			if (!model || model.loadingType !== value.equipmentType)
 				throw new MachineInputError('Model loading type does not match machine');
 		} else if (value.manufacturer && value.modelName) {
@@ -167,7 +163,7 @@ export async function machineChoices(db: Database, userId: string) {
 		models: await db
 			.select()
 			.from(equipmentModels)
-			.where(or(isNull(equipmentModels.ownerUserId), eq(equipmentModels.ownerUserId, userId)))
+			.where(modelVisibleTo(userId))
 			.orderBy(asc(equipmentModels.name)),
 		exercises: await db
 			.select()

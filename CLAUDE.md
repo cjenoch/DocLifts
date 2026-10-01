@@ -333,6 +333,19 @@ so 34 e2e tests passed while the owner could not sign in from any device that
 had ever visited. At least one auth e2e must run in a context that already holds
 an unrelated cookie before sign-in.
 
+**The served build runs in production's mode, not the test runner's.** Even
+with a cookie, the harness could not reproduce that 403 — because
+`startTestServer` spawned the build with `...process.env`, which carries
+Vitest's `NODE_ENV=test` and `TEST=true`, and Better Auth switches its origin
+check off in test mode (`skipOriginCheck` defaults to `isTest()`). So every e2e
+ran against a build with a security check the container always runs. The
+harness now sets `NODE_ENV=production` and drops `TEST`, keeping `VITEST` for
+the database-name guard. `e2e/sign-in-origin.e2e.ts` holds the canary: a
+cookie-bearing sign-in without `Origin` must be refused 403. Any library that
+branches on the environment is a place where the harness and production can
+silently differ; when a test cannot reproduce a production failure, diff the
+environment before concluding the bug is elsewhere.
+
 **Every handler status gets its own reason, and only 401 counts as a
 failure.** The 0.2.1 catch-all mapped every non-2xx to "that email and password
 do not match" and recorded all of them against the throttle, so a security

@@ -158,9 +158,35 @@ export async function startTestServer(
 	}
 	const port = await claimPort();
 	const origin = `http://127.0.0.1:${port}`;
+
+	// The served build runs as PRODUCTION, not as the test runner's child.
+	//
+	// Vitest sets NODE_ENV=test and TEST=true on its own process, and a plain
+	// `...process.env` handed both to the build. Better Auth reads them
+	// (@better-auth/core env-impl.mjs: `isTest = () => nodeENV === "test" ||
+	// toBoolean(env.TEST)`), and with `advanced.disableOriginCheck` unset it
+	// defaults `skipOriginCheck` to isTest() (create-context.mjs). So every e2e
+	// served a build whose origin/CSRF check was switched OFF, which the
+	// container never does: the Dockerfile and compose set NODE_ENV=production.
+	//
+	// That is why no harness run could reproduce the 0.2.3 lockout. Measured
+	// with the Origin forward reverted, one cookie-bearing, correct-password
+	// POST /login:
+	//   inherited env (TEST=true)          -> 200 ok:true
+	//   NODE_ENV=production, TEST=true     -> 200 ok:true
+	//   NODE_ENV=production, TEST unset    -> 403 MISSING_OR_NULL_ORIGIN
+	// The last line is production's answer. e2e/sign-in-origin.e2e.ts holds the
+	// canary that fails if the harness drifts back into test mode.
+	//
+	// VITEST is deliberately KEPT: db/index.ts applies the `_test` database-name
+	// guard only when it is set, and the spawned server must stay behind it.
+	const inherited: NodeJS.ProcessEnv = { ...process.env };
+	delete inherited.TEST;
+
 	const server = spawn(process.execPath, [BUILD_ENTRY], {
 		env: {
-			...process.env,
+			...inherited,
+			NODE_ENV: 'production',
 			HOST: '127.0.0.1',
 			PORT: String(port),
 			ORIGIN: origin,

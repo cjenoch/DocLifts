@@ -212,17 +212,21 @@ describe('the proxied sign-in request is what the browser sent (mechanism)', () 
 	 * ------------------------------------------------------
 	 * These assert CONSTRUCTION: what headers the proxied Request carries.
 	 *
-	 * They exist because the behavior could not be reproduced in the harness —
-	 * SvelteKit consumes the `cookie` header before the action runs, so an
-	 * end-to-end POST cannot trigger the 403, and calling the proxy directly
-	 * returned 401 rather than 403. The first version of this suite claimed to
-	 * cover the lockout and PASSED WITH THE FIX REVERTED, which is worse than
-	 * no test.
+	 * They were written when the behavior could not be reproduced in the
+	 * harness. The first version of this suite claimed to cover the lockout and
+	 * PASSED WITH THE FIX REVERTED, which is worse than no test.
 	 *
-	 * So these do not claim to prove sign-in works. They prove the thing the fix
-	 * changed, which is directly checkable, and they fail without the change.
-	 * The behavior-level reproduction is a separate task: finding why the
-	 * harness returns 401 where production returns 403 for the same request.
+	 * The explanation given at the time — that SvelteKit consumes the `cookie`
+	 * header before the action runs — was wrong; the cookie reaches the proxy
+	 * intact. The real cause was the harness: the served build inherited
+	 * Vitest's TEST=true, and Better Auth skips its origin check in test mode.
+	 * See `startTestServer`. The behavior-level reproduction now lives in
+	 * e2e/sign-in-origin.e2e.ts, and fails with the fix reverted.
+	 *
+	 * These stay because they pin the construction directly, and they still
+	 * fail without the change. The in-process `auth` they call runs under
+	 * Vitest, so it is in test mode and its origin check is off: that is why
+	 * these assert the headers and not the status.
 	 */
 
 	it('forwards Origin on sign-in, so Better Auth validates against the real origin', async () => {

@@ -23,9 +23,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupTestDb } from '$lib/server/test-db';
 import { seedTestUser, startTestServer, TEST_PASSWORD } from '$lib/server/test-auth-helpers';
 import { auth } from '$lib/server/auth';
-import type { ChildProcess } from 'node:child_process';
 
-let server: ChildProcess;
+let stopServer = async () => {};
 let origin: string;
 let serverLog: () => string = () => '';
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
@@ -35,11 +34,11 @@ beforeAll(async () => {
 	// a database whose auth schema already exists. Without it the server comes
 	// up against an empty database and never answers /login.
 	harness = await setupTestDb();
-	({ origin, server, log: serverLog } = await startTestServer());
+	({ origin, stop: stopServer, log: serverLog } = await startTestServer());
 }, 60_000);
 
 afterAll(async () => {
-	server?.kill();
+	await stopServer();
 	await harness?.end();
 });
 

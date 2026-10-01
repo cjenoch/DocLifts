@@ -29,9 +29,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { resetTestDb, setupTestDb, type TestDb } from '$lib/server/test-db';
 import { seedTestUser, startTestServer, TEST_PASSWORD } from '$lib/server/test-auth-helpers';
-import type { ChildProcess } from 'node:child_process';
 
-let server: ChildProcess;
+let stopServer = async () => {};
 let origin: string;
 let serverLog: () => string = () => '';
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
@@ -55,7 +54,7 @@ beforeAll(async () => {
 	harness = await setupTestDb();
 	({
 		origin,
-		server,
+		stop: stopServer,
 		log: serverLog
 	} = await startTestServer({
 		LOGIN_MAX_FAILURES: String(BURST),
@@ -66,7 +65,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	if (process.env.DOCLIFTS_E2E_LOG === '1') console.error('--- server log ---\n' + serverLog());
-	server?.kill();
+	await stopServer();
 	await harness?.end();
 });
 

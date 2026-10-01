@@ -22,7 +22,6 @@
  * exactly, with a fake clock, in login-throttle.test.ts.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { ChildProcess } from 'node:child_process';
 import { resetTestDb, setupTestDb, type TestDb } from '$lib/server/test-db';
 import { seedTestUser, startTestServer, TEST_PASSWORD } from '$lib/server/test-auth-helpers';
 
@@ -47,7 +46,7 @@ const freshVictimEmail = () => `victim-${(emailCounter += 1)}@test.local`;
 const WINDOW_SEC = '6';
 const MAX_FAILURES = '5';
 
-let server: ChildProcess;
+let stopServer = async () => {};
 let origin: string;
 let serverLog: () => string = () => '';
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
@@ -57,7 +56,7 @@ beforeAll(async () => {
 	harness = await setupTestDb();
 	({
 		origin,
-		server,
+		stop: stopServer,
 		log: serverLog
 	} = await startTestServer({
 		LOGIN_FAILURE_WINDOW_SEC: WINDOW_SEC,
@@ -71,7 +70,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	if (process.env.DOCLIFTS_E2E_LOG === '1') console.error('--- server log ---\n' + serverLog());
-	server?.kill();
+	await stopServer();
 	await harness?.end();
 });
 
@@ -354,11 +353,11 @@ describe('progressive delay', () => {
 	// LOGIN_DELAY_AFTER_FAILURES, and the suite above deliberately disables it
 	// (9999) so its assertions are not slowed. This spawns one with the delay
 	// on and a base small enough to measure in tens of milliseconds.
-	let delayServer: ChildProcess;
+	let stopDelayServer = async () => {};
 	let delayOrigin: string;
 
 	beforeAll(async () => {
-		({ origin: delayOrigin, server: delayServer } = await startTestServer({
+		({ origin: delayOrigin, stop: stopDelayServer } = await startTestServer({
 			LOGIN_FAILURE_WINDOW_SEC: WINDOW_SEC,
 			LOGIN_MAX_FAILURES: '100',
 			LOGIN_DELAY_AFTER_FAILURES: '3',
@@ -367,8 +366,8 @@ describe('progressive delay', () => {
 		}));
 	}, 60_000);
 
-	afterAll(() => {
-		delayServer?.kill();
+	afterAll(async () => {
+		await stopDelayServer();
 	});
 
 	it('makes the 4th wrong password measurably slower than the 1st', async () => {

@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as s from '$lib/server/db/schema';
 import { count, eq } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import type { ChildProcess } from 'node:child_process';
 import {
 	freshTestDb,
 	seedTestUser,
@@ -28,7 +27,7 @@ import {
  * with the e2e crawl so the two cannot drift.
  */
 
-let server: ChildProcess;
+let stopServer = async () => {};
 let origin: string;
 let cookie = '';
 let db: TestDb;
@@ -40,12 +39,12 @@ beforeAll(async () => {
 	db = harness.db;
 	await seedTestUser(harness.db);
 
-	({ origin, server } = await startTestServer());
+	({ origin, stop: stopServer } = await startTestServer());
 	cookie = await signInAs(origin);
 }, 180_000);
 
 afterAll(async () => {
-	server?.kill('SIGKILL');
+	await stopServer();
 });
 
 describe('anonymous requests', () => {

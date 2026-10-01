@@ -32,7 +32,6 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import type { ChildProcess } from 'node:child_process';
 import {
 	freshTestDb,
 	seedTestUser,
@@ -46,7 +45,7 @@ const EMAIL = 'origin-check@test.local';
 /** What a browser that has visited before carries. Its value is irrelevant. */
 const UNRELATED_COOKIE = 'theme=dark';
 
-let server: ChildProcess;
+let stopServer = async () => {};
 let origin: string;
 let db: TestDb;
 let userId: string;
@@ -63,11 +62,11 @@ beforeAll(async () => {
 	harness = await freshTestDb();
 	db = harness.db;
 	({ id: userId } = await seedTestUser(db, EMAIL, 'Origin Check'));
-	({ origin, server } = await startTestServer());
+	({ origin, stop: stopServer } = await startTestServer());
 }, 120_000);
 
 afterAll(async () => {
-	server?.kill('SIGKILL');
+	await stopServer();
 	await harness?.end();
 });
 

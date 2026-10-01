@@ -142,6 +142,9 @@ export default defineConfig({
 					name: 'e2e',
 					environment: 'node',
 					include: ['e2e/**/*.e2e.ts'],
+					// Fails the run if any server startTestServer spawned is still
+					// alive at the end. See the file's own comment.
+					globalSetup: ['./e2e/global-setup.ts'],
 					// Serves a production build and drives it with Playwright; one
 					// server + one test database, so strictly serial.
 					fileParallelism: false,

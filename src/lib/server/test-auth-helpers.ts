@@ -25,8 +25,9 @@
  * the HTTPS item in the T6 handoff rather than "fixing" it here.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { expect, inject } from 'vitest';
 import { setupTestDb, resetTestDb } from '$lib/server/test-db';
 import { createUser } from '$lib/server/users';
 import { auth } from './auth';
@@ -133,9 +134,63 @@ function tail(output: string, lines = 40): string {
 	return trimmed.split('\n').slice(-lines).join('\n');
 }
 
+declare module 'vitest' {
+	export interface ProvidedContext {
+		/** Set by e2e/global-setup.ts; see `registerTestServer`. */
+		e2eServerRegistry: string;
+	}
+}
+
+/**
+ * Record a spawned server where e2e/global-setup.ts can find it after the run.
+ *
+ * The record has to leave this process. Each test file runs in a Vitest
+ * worker, and a server the worker forgot outlives the worker: it is
+ * re-parented and keeps running after the suite reports green. Only the main
+ * process sees the whole run, so its teardown is the one place that can prove
+ * nothing survived.
+ */
+function registerTestServer(child: ChildProcess): void {
+	const registry = inject('e2eServerRegistry');
+	if (!registry || child.pid === undefined) return;
+	const file = expect.getState().testPath ?? '(unknown test file)';
+	appendFileSync(registry, JSON.stringify({ pid: child.pid, file }) + '\n');
+}
+
+/**
+ * SIGKILL the server, and resolve only once it has actually exited.
+ *
+ * Not SIGTERM. adapter-node answers SIGTERM by closing its HTTP server and
+ * then waiting for the event loop to drain, and it never drains: the
+ * postgres-js pool in db/index.ts keeps its connections open indefinitely.
+ * Measured 2026-10-01 in the CI-mirror container: the four e2e files that
+ * called `server.kill()` left five `node build/index.js` processes behind per
+ * run, each holding no listener and no HTTP connection, only sockets to
+ * Postgres. A further SIGTERM changed nothing; SIGKILL did.
+ *
+ * Awaiting 'exit' matters too. `kill()` only sends the signal, so a caller
+ * that moves on right after it can race the dying process.
+ */
+function stopChild(child: ChildProcess): Promise<void> {
+	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+	return new Promise((resolve) => {
+		child.once('exit', () => resolve());
+		child.kill('SIGKILL');
+	});
+}
+
+export type TestServer = {
+	origin: string;
+	log: () => string;
+	/** The only way to stop the server. Safe to call twice; call it in `afterAll`. */
+	stop: () => Promise<void>;
+};
+
 /**
  * Start the production build against the test database on a claimed port.
- * Returns the origin and the child's captured log accessor.
+ * Returns the origin, the child's captured log accessor, and `stop`.
+ *
+ * The child itself is not returned, so there is no second way to stop it.
  */
 export async function startTestServer(
 	/**
@@ -148,11 +203,7 @@ export async function startTestServer(
 	 * verified.
 	 */
 	extraEnv: Record<string, string> = {}
-): Promise<{
-	origin: string;
-	server: ChildProcess;
-	log: () => string;
-}> {
+): Promise<TestServer> {
 	if (!existsSync(BUILD_ENTRY)) {
 		throw new Error('build/index.js missing — run `pnpm build` first');
 	}
@@ -209,8 +260,18 @@ export async function startTestServer(
 	server.stdout?.on('data', (d) => (log += d));
 	server.stderr?.on('data', (d) => (log += d));
 
-	await waitForServer(origin, server, () => log);
-	return { origin, server, log: () => log };
+	registerTestServer(server);
+	const stop = () => stopChild(server);
+
+	try {
+		await waitForServer(origin, server, () => log);
+	} catch (err) {
+		// The caller gets no handle when this rejects, so nobody else can stop
+		// the child. A server that answers 500 forever is still running here.
+		await stop();
+		throw err;
+	}
+	return { origin, log: () => log, stop };
 }
 
 export type TestDb = Awaited<ReturnType<typeof setupTestDb>>['db'];

@@ -81,7 +81,7 @@ async function authenticatedPage(browser: Browser, cookie: string, _origin: stri
 
 run('production build: CSP and page render', () => {
 	let harness: Awaited<ReturnType<typeof setupTestDb>>;
-	let server: ChildProcess;
+	let stopServer = async () => {};
 	let serverLog = '';
 	let origin: string;
 	let cookie: string;
@@ -197,7 +197,7 @@ run('production build: CSP and page render', () => {
 
 		const started = await startTestServer();
 		origin = started.origin;
-		server = started.server;
+		stopServer = started.stop;
 		serverLog = started.log();
 
 		cookie = await signInAs(origin);
@@ -207,7 +207,7 @@ run('production build: CSP and page render', () => {
 
 	afterAll(async () => {
 		await browser?.close();
-		server?.kill();
+		await stopServer();
 		await harness?.end();
 	});
 

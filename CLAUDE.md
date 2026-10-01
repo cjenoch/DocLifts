@@ -346,6 +346,15 @@ branches on the environment is a place where the harness and production can
 silently differ; when a test cannot reproduce a production failure, diff the
 environment before concluding the bug is elsewhere.
 
+**A served build is stopped with the `stop()` that `startTestServer` returns,
+and nothing else.** SIGTERM does not stop it: adapter-node closes the HTTP
+server and waits for the event loop to drain, and the Postgres pool never lets
+it. Four files that called `server.kill()` left five `node build/index.js`
+processes per run while the suite stayed green. `stop()` SIGKILLs and awaits
+`exit`; `startTestServer` stops its own child when startup fails; and
+`e2e/global-setup.ts` fails the run, naming the file, if any spawned server is
+alive at the end.
+
 **Every handler status gets its own reason, and only 401 counts as a
 failure.** The 0.2.1 catch-all mapped every non-2xx to "that email and password
 do not match" and recorded all of them against the throttle, so a security

@@ -27,6 +27,19 @@ if [[ ! -f "$ENV_FILE" ]]; then
 	exit 1
 fi
 
+# The build sha, stamped into the image for /_app/version.json.
+#
+# Derived HERE rather than required from the operator, because the value is
+# knowable only from the checkout and forgetting it produces an image reporting
+# the framework's default 'dev' — which still serves, still passes a naive
+# check, and silently disables stale-build detection. An export an operator has
+# to remember is an export that will be forgotten once.
+if [[ -z "${DOCLIFTS_BUILD_SHA:-}" ]]; then
+	DOCLIFTS_BUILD_SHA="$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --short HEAD 2>/dev/null || echo unknown)"
+fi
+export DOCLIFTS_BUILD_SHA
+echo "==> building as ${DOCLIFTS_BUILD_SHA}"
+
 # The project name is pinned so this always addresses the production stack and
 # cannot collide with a `docker compose` run from the checkout.
 exec docker compose -p doclifts --env-file "$ENV_FILE" "$@"

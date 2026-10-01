@@ -21,6 +21,22 @@ ENV NODE_ENV=production
 # compose environment. Override with --build-arg if you build standalone.
 ARG DATABASE_URL=postgresql://doclifts:***@localhost:5432/doclifts
 ENV DATABASE_URL=$DATABASE_URL
+
+# The commit sha, baked into kit.version.name so /_app/version.json identifies
+# this build and a client can detect a newer deploy.
+#
+# It MUST be supplied. The build context is copied without .git, so the
+# git-rev-parse fallback in svelte.config.js has nothing to read here and every
+# image would report the framework's default 'dev' — a constant, which makes
+# stale-build detection silently useless. CI was caught by exactly that: the
+# non-vacuous version.json e2e passed locally (a checkout has .git) and failed
+# in CI (it does not).
+#
+# EARNED BY A RED BUILD — do not make this optional.
+ARG DOCLIFTS_BUILD_SHA=unknown
+ENV DOCLIFTS_BUILD_SHA=$DOCLIFTS_BUILD_SHA
+RUN test -n "$DOCLIFTS_BUILD_SHA" || test "$DOCLIFTS_BUILD_SHA" = "unknown" \
+  || (echo "DOCLIFTS_BUILD_SHA must be a real sha" >&2; exit 1)
 RUN pnpm build
 
 # Runtime: slim node + adapter-node output + production deps.

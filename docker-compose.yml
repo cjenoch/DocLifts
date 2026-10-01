@@ -39,6 +39,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Baked into /_app/version.json so a client can tell which build it is
+        # talking to. Without it the image reports the framework default 'dev'
+        # and stale-build detection never fires.
+        DOCLIFTS_BUILD_SHA: ${DOCLIFTS_BUILD_SHA:-unknown}
     # Parameterised so the step-4 abort path can name a previous image
     # concretely instead of describing it in prose. Roll back with:
     #   DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.2.0 scripts/compose-prod.sh up -d --wait web

@@ -26,6 +26,15 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # Baked into /_app/version.json. Set explicitly rather than left to the
+      # git fallback in svelte.config.js.
+      #
+      # EARNED BY A RED BUILD: the non-vacuous version.json e2e passed locally
+      # (a checkout has .git) and FAILED in CI, which reports the framework's
+      # default 'dev'. A constant build id still serves, still looks healthy,
+      # and silently disables stale-build detection.
+      DOCLIFTS_BUILD_SHA: ${{ github.sha }}
     services:
       postgres:
         image: postgres:16

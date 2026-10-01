@@ -252,8 +252,16 @@ line and a restart; `complete()` and the wire schema are model-neutral.
 - **The gym80 logo is misread** ("Dyumbo", "Gymbo") or the product line is
   given as the maker ("Pure Kraft", "FIRE KRAFT"). Codes still matched. A
   manufacturer-alias step before matching is the planned cheap fix.
-- **gym80 Pure Kraft is incomplete in the catalog** (4157 Booty Booster read
-  correctly, no catalog row).
+- **The model misreads small codes, confidently.** The owner's Booty Booster
+  placard (gym80 **4352**, https://gym80.de/en/product/4352/) was read as
+  `4157` at `model_code` confidence 1.0; gym80 lists 4157 as a POWER CURL
+  BARBELL RACK. The code is tiny in that photo. The matcher found nothing for
+  4157, fell back to the name and offered 4352 first, with nothing
+  preselected; 4352 was missing from the catalog until the 2026-10-01b
+  snapshot. A prompt rule ("an unclear character means no code") moved 5
+  reads of that photo from 3x `4157` to 4x null and 1x `4157` (at 1.0), so
+  confidence is not a guard. The photo is fixture 001 of a private hard-photos
+  set kept outside the repo.
 - **No placard, no reading.** A photo of the whole machine returns nothing
   useful; machine-only recognition is not built (see the handoff for the
   two-stage idea).

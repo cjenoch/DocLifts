@@ -44,13 +44,20 @@ const equipmentType = z.enum([
 	'band'
 ]);
 const convention = z.enum(['unknown', 'plates_per_side', 'total_plates', 'per_arm', 'displayed']);
+// Optional whole pounds for this gym's instance (0.3.0): blank is "unknown".
+const optionalLb = z.preprocess(
+	(v) => (v === '' || v == null ? undefined : v),
+	z.coerce.number().int().min(1).max(2000).optional()
+);
 const machineSchema = z.object({
 	gymId: z.string().uuid(),
 	localLabel: name,
 	equipmentType,
 	equipmentModelId: optionalId,
 	manufacturer: optionalText,
-	modelName: optionalText
+	modelName: optionalText,
+	stackLb: optionalLb,
+	incrementLb: optionalLb
 });
 const identitySchema = z.object({
 	gymId: z.string().uuid(),
@@ -132,7 +139,9 @@ export async function createMachine(db: Database, userId: string, input: unknown
 				gymId: gym.id,
 				localLabel: value.localLabel,
 				equipmentType: value.equipmentType,
-				equipmentModelId: modelId
+				equipmentModelId: modelId,
+				stackLb: value.stackLb,
+				incrementLb: value.incrementLb
 			})
 			.returning();
 		return machine;

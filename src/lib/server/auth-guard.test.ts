@@ -33,6 +33,8 @@ describe('isPublicPath', () => {
 			'/reports',
 			'/programs',
 			'/gyms',
+			'/equipment',
+			'/equipment/1',
 			'/imported-history',
 			'/sessions/1',
 			'/account/password'
@@ -148,6 +150,8 @@ describe('route inventory', () => {
 		const expectedGuarded = new Set([
 			'/',
 			'/account/password',
+			'/equipment',
+			'/equipment/x',
 			'/gyms',
 			'/history',
 			'/imported-history',

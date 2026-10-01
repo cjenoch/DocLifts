@@ -88,6 +88,7 @@ run('production build: CSP and page render', () => {
 	let browser: Browser;
 	let programId: string;
 	let sessionId: string;
+	let modelId: string;
 
 	beforeAll(async () => {
 		harness = await freshTestDb();
@@ -195,6 +196,28 @@ run('production build: CSP and page render', () => {
 			}
 		]);
 
+		// One global catalog row, so /equipment lists something and
+		// /equipment/{id} resolves. Global (owner_user_id NULL) on purpose:
+		// every signed-in user may read it.
+		const [model] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Hammer Strength',
+				productLine: 'Plate Loaded',
+				code: 'IL-ROW',
+				name: 'Iso-Lateral Row',
+				loadingType: 'machine-plate',
+				laterality: 'independent',
+				bodyRegion: 'back',
+				startingResistance: 12,
+				startingResistanceBasis: 'per_arm',
+				confidence: 'manufacturer_page',
+				sourceUrl: 'https://example.invalid/catalog',
+				catalogSnapshot: '2026-09-30'
+			})
+			.returning();
+		modelId = model.id;
+
 		const started = await startTestServer();
 		origin = started.origin;
 		stopServer = started.stop;
@@ -300,6 +323,8 @@ run('production build: CSP and page render', () => {
 		'/history',
 		'/reports',
 		'/gyms',
+		'/equipment',
+		'/equipment/{id}',
 		'/imported-history',
 		'/programs/new',
 		'/programs/{id}',
@@ -315,6 +340,7 @@ run('production build: CSP and page render', () => {
 		if (pattern === '/programs/{id}') return `/programs/${programId}`;
 		if (pattern === '/programs/{id}/edit') return `/programs/${programId}/edit`;
 		if (pattern === '/sessions/{id}') return `/sessions/${sessionId}`;
+		if (pattern === '/equipment/{id}') return `/equipment/${modelId}`;
 		return pattern;
 	}
 

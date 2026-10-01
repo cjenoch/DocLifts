@@ -116,6 +116,58 @@ export const EquipmentCandidate = z.object({
 	/** What was unclear. */
 	notes: text(2000).default('')
 });
+/**
+ * What the model is SENT (0.4.4): the same fields, types and allowed values
+ * as `EquipmentCandidate`, without its lengths, ranges and defaults, which
+ * the reply is still held to by the zod schema. A derived schema took 15-16 s
+ * per analysis on Claude Haiku 4.5 via OpenRouter and timed out on the owner's
+ * photos; this one 3.7-7 s. `candidate-wire.test.ts` keeps the two in step.
+ */
+const nullable = (type: string) => ({ type: [type, 'null'] });
+export const CANDIDATE_WIRE_SCHEMA = {
+	type: 'object',
+	additionalProperties: false,
+	required: [
+		'placard_text',
+		'manufacturer',
+		'product_line',
+		'model_code',
+		'name',
+		'loading_type',
+		'laterality',
+		'starting_resistance_lb',
+		'stack_lb',
+		'field_confidence',
+		'notes'
+	],
+	properties: {
+		placard_text: { type: 'string' },
+		manufacturer: nullable('string'),
+		product_line: nullable('string'),
+		model_code: nullable('string'),
+		name: nullable('string'),
+		loading_type: {
+			type: 'string',
+			enum: ['selectorized', 'plate_loaded', 'cable_stack', 'unknown']
+		},
+		laterality: { type: 'string', enum: ['independent', 'bilateral', 'unknown'] },
+		starting_resistance_lb: nullable('number'),
+		stack_lb: nullable('number'),
+		field_confidence: {
+			type: 'object',
+			additionalProperties: false,
+			required: ['manufacturer', 'model_code', 'name', 'loading_type'],
+			properties: {
+				manufacturer: { type: 'number' },
+				model_code: { type: 'number' },
+				name: { type: 'number' },
+				loading_type: { type: 'number' }
+			}
+		},
+		notes: { type: 'string' }
+	}
+} as const;
+
 export type EquipmentCandidate = z.infer<typeof EquipmentCandidate>;
 
 /** The system prompt, verbatim. Its rules are the contract the review page relies on. */
@@ -232,7 +284,8 @@ export async function analyzePhoto(
 					]
 				}
 			],
-			schema: EquipmentCandidate
+			schema: EquipmentCandidate,
+			wireSchema: CANDIDATE_WIRE_SCHEMA
 		});
 		await db
 			.update(equipmentPhotos)

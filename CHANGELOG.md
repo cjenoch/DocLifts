@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.4 — photo analysis about four times faster — not yet released
+
+- **Reading a placard takes seconds, not most of a minute.** The model was
+  being handed a description of the answer full of length limits and ranges,
+  and with strict output that alone took 15-19 seconds per photo, sometimes
+  past the time limit, which is why uploads felt stuck. It now gets a plain
+  description (3-7 seconds measured); the app still checks every answer just
+  as strictly before using it.
+
 ## 0.4.3 — photo analysis accepts the model's own wording — not yet released
 
 - **A placard read correctly is no longer refused for an odd word.** Your

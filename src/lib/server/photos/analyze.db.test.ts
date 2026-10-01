@@ -12,6 +12,7 @@ import { MemoryPhotoStore } from './store';
 import { PhotoLimitError, uploadPhoto } from './index';
 import {
 	analyzePhoto,
+	CANDIDATE_WIRE_SCHEMA,
 	EquipmentCandidate,
 	PHOTO_PURPOSE,
 	SYSTEM_PROMPT,
@@ -69,6 +70,12 @@ describe('analyzePhoto', () => {
 		});
 
 		// What was sent: the system prompt, the stored JPEG, and the note.
+		// What the model was asked for: the plain wire schema, not one derived
+		// from zod with every constraint (0.4.4: the derived one was 4x slower).
+		const format = model.doGenerateCalls[0].responseFormat as { type: string; schema?: unknown };
+		expect(format.type).toBe('json');
+		expect(format.schema).toEqual(CANDIDATE_WIRE_SCHEMA);
+
 		const prompt = model.doGenerateCalls[0].prompt;
 		expect(prompt[0]).toMatchObject({ role: 'system', content: SYSTEM_PROMPT });
 		const parts = (prompt[1] as { content: { type: string; mediaType?: string; text?: string }[] })

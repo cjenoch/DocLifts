@@ -195,3 +195,12 @@ deprecated in 7.x); the system prompt is `instructions`; usage is
 `NoObjectGeneratedError`. The provider is `createOpenRouter({ apiKey })` from
 `@openrouter/ai-sdk-provider@3.1.0`. Re-read the installed types before
 upgrading either; these names have changed across majors.
+
+## `wireSchema` (0.4.4)
+
+`CompleteRequest.wireSchema` is optional. When set, it is the JSON schema the
+provider receives (via the SDK's `jsonSchema(..., { validate })`), and the
+reply is validated with `schema.safeParse`, so defaults, synonyms and refusals
+are exactly those of the zod schema. Use it when the derived schema is heavy:
+strict structured output compiles every constraint, and on Anthropic that was
+the difference between ~4 s and ~16 s per call.

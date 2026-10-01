@@ -24,9 +24,11 @@
 import {
 	APICallError,
 	generateText,
+	jsonSchema,
 	NoObjectGeneratedError,
 	NoOutputGeneratedError,
-	Output
+	Output,
+	type JSONSchema7
 } from 'ai';
 import { z, type ZodType } from 'zod';
 import { llmCalls, type LlmCallStatus } from '../db/schema';
@@ -61,9 +63,33 @@ export type CompleteRequest<T> = {
 	system: string;
 	messages: LlmMessage[];
 	schema: ZodType<T>;
+	/**
+	 * The JSON schema SENT to the model, when it should differ from the one
+	 * derived from `schema`. The reply is still validated by `schema`.
+	 *
+	 * Why: a schema derived from zod carries every constraint (maxLength,
+	 * min/max, defaults, anyOf nullables), and strict structured output
+	 * compiles all of it. Measured 2026-10-01 on anthropic/claude-haiku-4.5 via
+	 * OpenRouter with the photo schema: derived 15-16 s, a plain schema of the
+	 * same fields 3.7-7 s; the slow path is where analyses hit the timeout.
+	 */
+	wireSchema?: Record<string, unknown>;
 	/** `vision` uses LLM_VISION_MODEL (falling back to LLM_MODEL). Default `text`. */
 	kind?: ModelKind;
 };
+
+/** The schema handed to the SDK: the wire schema validated by zod, or zod itself. */
+function outputSchema<T>(request: CompleteRequest<T>) {
+	if (!request.wireSchema) return request.schema;
+	return jsonSchema<T>(request.wireSchema as JSONSchema7, {
+		validate: (value) => {
+			const parsed = request.schema.safeParse(value);
+			return parsed.success
+				? { success: true, value: parsed.data }
+				: { success: false, error: parsed.error };
+		}
+	});
+}
 
 export type CompleteResult<T> = { output: T; callId: string };
 
@@ -147,7 +173,7 @@ export function createLlmClient(options: LlmClientOptions = {}) {
 					model,
 					instructions: request.system,
 					messages: request.messages,
-					output: Output.object({ schema: request.schema }),
+					output: Output.object({ schema: outputSchema(request) }),
 					maxRetries: 0,
 					abortSignal: controller.signal
 				}),

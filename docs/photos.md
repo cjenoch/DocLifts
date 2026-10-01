@@ -226,3 +226,15 @@ placard correctly and was refused as `schema_error` for omitting
 ignored. Any other string becomes `unknown`; a non-string is still a
 `schema_error`. Found on the owner's first two real placards, both read
 correctly and refused for `iso-lateral` and `weight_stack`.
+
+## What the model is sent (0.4.4)
+
+`complete()` takes an optional `wireSchema`: the JSON schema sent to the model,
+while `schema` (zod) still validates the reply. Photo analysis sends
+`CANDIDATE_WIRE_SCHEMA` (fields, types, enums; no lengths, ranges, defaults or
+`anyOf`). Measured 2026-10-01, Claude Haiku 4.5 via OpenRouter, the owner's
+prompt and a placard image: the zod-derived schema 15-16 s per call (routed to
+Anthropic, and the source of the 60 s timeouts), the plain schema 3.7-7 s,
+JSON mode without a schema 3.2-3.4 s. `candidate-wire.test.ts` fails if the
+two schemas disagree on fields or enum values, or if a constraint creeps back
+into the wire schema.

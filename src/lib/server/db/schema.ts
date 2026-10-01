@@ -269,7 +269,40 @@ export const exercises = pgTable(
 	})
 );
 
-// User-entered discovery metadata, not verified catalog claims.
+/**
+ * Machine models. Two kinds of row share this table, told apart by
+ * `owner_user_id`:
+ *
+ *   - GLOBAL (owner_user_id IS NULL): read-only catalog data, written only by
+ *     `pnpm catalog:import` from a dated manufacturer snapshot
+ *     (data/catalog/). Every user reads them; no app path writes them.
+ *   - OWNED (owner_user_id = a user): user data — a model a user typed in, or
+ *     their own corrected copy of a catalog row. Visible to that user only.
+ *
+ * Reads are `owner_user_id IS NULL OR owner_user_id = userId`. Writes only
+ * ever target owned rows. See CLAUDE.md "Every row is owned" and
+ * docs/catalog.md.
+ */
+export const CONFIDENCE_VALUES = [
+	'manufacturer_page',
+	'reseller_or_manual',
+	'inferred',
+	'line_only',
+	'user'
+] as const;
+export const BODY_REGIONS = [
+	'chest',
+	'back',
+	'shoulders',
+	'arms',
+	'legs',
+	'glutes',
+	'core',
+	'full_body',
+	'cable'
+] as const;
+export const RESISTANCE_BASES = ['total', 'per_arm'] as const;
+
 export const equipmentModels = pgTable(
 	'equipment_models',
 	{
@@ -281,6 +314,15 @@ export const equipmentModels = pgTable(
 		startingResistance: numeric('starting_resistance', { precision: 6, scale: 2, mode: 'number' }),
 		loadingType: text('loading_type').notNull(),
 		laterality: text('laterality').notNull().default('unknown'),
+		bodyRegion: text('body_region'),
+		/** `total` or `per_arm`; meaningful only when starting_resistance is set. */
+		startingResistanceBasis: text('starting_resistance_basis'),
+		/** Where the row's facts came from. `user` for every row a user creates. */
+		confidence: text('confidence').notNull().default('user'),
+		/** The page the catalog row was read from; null on `inferred` and `user` rows. */
+		sourceUrl: text('source_url'),
+		/** The catalog snapshot date a global row came from; null on user rows. */
+		catalogSnapshot: date('catalog_snapshot', { mode: 'string' }),
 		/**
 		 * Optional owner. NULLABLE and therefore not backfilled: NULL means
 		 * "global equipment catalogue entry" — a machine model is reference
@@ -296,6 +338,24 @@ export const equipmentModels = pgTable(
 		resistanceCheck: check(
 			'model_resistance_check',
 			sql`${t.startingResistance} IS NULL OR ${t.startingResistance} >= 0`
+		),
+		// The catalog join key. Partial: owned rows may repeat a catalog code
+		// (a user's corrected copy), and codeless catalog rows (Signature
+		// Series publishes none) are deduped by the importer instead.
+		catalogCodeUnique: uniqueIndex('equipment_models_catalog_code_unique')
+			.on(t.manufacturer, t.code)
+			.where(sql`${t.code} IS NOT NULL AND ${t.code} <> '' AND ${t.ownerUserId} IS NULL`),
+		confidenceCheck: check(
+			'equipment_models_confidence_check',
+			sql`${t.confidence} IN ('manufacturer_page', 'reseller_or_manual', 'inferred', 'line_only', 'user')`
+		),
+		bodyRegionCheck: check(
+			'equipment_models_body_region_check',
+			sql`${t.bodyRegion} IS NULL OR ${t.bodyRegion} IN ('chest', 'back', 'shoulders', 'arms', 'legs', 'glutes', 'core', 'full_body', 'cable')`
+		),
+		resistanceBasisCheck: check(
+			'equipment_models_resistance_basis_check',
+			sql`${t.startingResistanceBasis} IS NULL OR ${t.startingResistanceBasis} IN ('total', 'per_arm')`
 		)
 	})
 );
@@ -346,11 +406,26 @@ export const gymEquipment = pgTable(
 			.references(() => gyms.id),
 		equipmentModelId: uuid('equipment_model_id').references(() => equipmentModels.id),
 		localLabel: text('local_label').notNull(),
-		equipmentType: text('equipment_type').notNull()
+		equipmentType: text('equipment_type').notNull(),
+		/**
+		 * Stack size of THIS gym's instance. It lives here, not on the model,
+		 * because manufacturers sell heavier optional stacks under one code.
+		 */
+		stackLb: integer('stack_lb'),
+		/** Smallest load step on this instance (pin step or add-on weight). */
+		incrementLb: integer('increment_lb')
 	},
 	(t) => ({
 		gymIdx: index('gym_equipment_gym_idx').on(t.gymId),
-		modelIdx: index('gym_equipment_model_idx').on(t.equipmentModelId)
+		modelIdx: index('gym_equipment_model_idx').on(t.equipmentModelId),
+		stackCheck: check(
+			'gym_equipment_stack_lb_check',
+			sql`${t.stackLb} IS NULL OR ${t.stackLb} > 0`
+		),
+		incrementCheck: check(
+			'gym_equipment_increment_lb_check',
+			sql`${t.incrementLb} IS NULL OR ${t.incrementLb} > 0`
+		)
 	})
 );
 

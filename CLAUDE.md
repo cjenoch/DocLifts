@@ -221,9 +221,10 @@ were syntactically fine and semantically absent.
 
 ## Every row is owned
 
-Since T3, and enforced by the database since migration 0011, **every row belongs
-to exactly one user**. There are no shared or global rows in the application
-tables, and no exception carved out for any of them.
+Since T3, and enforced by the database since migration 0011, **every row of
+user data belongs to exactly one user**. There is exactly one exception, and it
+is not user data: the **global equipment catalog** in `equipment_models` (see
+below). No other table has shared or global rows, and none may gain them.
 
 The eight directly-owned tables, the ones 0011 makes `user_id NOT NULL`:
 `programs`, `gyms`, `exercises`, `sessions`, `sets`, `pain_events`,
@@ -239,8 +240,33 @@ Everything else is owned through a parent chain. Resolve it; never widen it.
 | `session_exercises`      | `session_id` → `sessions.user_id`                                 |
 | `imported_workouts`      | `import_id` → `workout_log_imports.user_id`                       |
 | `gym_equipment`          | `gym_id` → `gyms.user_id`                                         |
-| `equipment_models`       | `user_id` (direct)                                                |
+| `equipment_models`       | `owner_user_id` (direct, nullable — see the catalog exception)    |
 | `exercise_equipment_map` | through its parent exercise/gym rows                              |
+
+### The one exception: the global equipment catalog
+
+`equipment_models.owner_user_id` is nullable (it has been since 0009, and 0011
+deliberately left it so). Since 0.3.0 (migration 0012) the NULL rows are the
+manufacturer catalog. The rule is exact:
+
+- **Global rows (`owner_user_id IS NULL`) are read-only catalog data.** They are
+  written by exactly one path, `pnpm catalog:import` (`scripts/catalog-import.ts`),
+  from a dated snapshot in `data/catalog/`. No app route, action, or `lib/server`
+  function inserts, updates, or deletes one. A user who wants different numbers
+  gets an owned copy (`/equipment/[id]/edit` → "create my own copy").
+- **Owned rows (`owner_user_id = userId`) are user data**, under every rule in
+  this section: D5 signatures, D6 404s, cross-tenant tests.
+- **Reads are `owner_user_id IS NULL OR owner_user_id = userId`.** Another user's
+  owned row is a 404, exactly like a missing id; a global row is visible to all.
+- **Writes only ever target owned rows:** every UPDATE/DELETE from the app
+  carries `owner_user_id = userId` in its WHERE, never `IS NULL`.
+- The importer never touches a row whose `owner_user_id` is not null, and the
+  partial unique index `equipment_models_catalog_code_unique` covers only
+  global rows, so an owned copy may reuse a catalog code.
+
+Nothing about the catalog widens any other table: `gym_equipment` rows that
+point at a global model are still owned through `gym_id` → `gyms.user_id`.
+See `docs/catalog.md`.
 
 ### D5 — the signature rule
 
@@ -414,7 +440,9 @@ real person means loosen. Do not tune them from a reading of the code.
 
 `exercises` is owned, so the 23-exercise starter list is **copied per user**
 (`src/lib/server/starter-exercises.ts`), not referenced from a shared catalogue.
-Duplicating rows is the deliberate cost of having no cross-tenant table.
+Duplicating rows is the deliberate cost of having no cross-tenant table. (The
+equipment catalog is the single shared table, and it is reference data that no
+user can write; it is not a precedent for sharing user data.)
 
 `0001`/`0011`: migration 0011 backfills every pre-existing row to one
 placeholder owner, the sentinel `00000000-0000-4000-8000-000000000001`. It is

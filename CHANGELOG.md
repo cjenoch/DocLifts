@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.6 — the phone can't change your password behind your back — not yet released
+
+- **Password fields no longer autocapitalize or autocorrect.** With Show on, a
+  password field is plain text, and the iPhone capitalized or corrected what
+  was typed, the same way in both "new password" boxes, so a different
+  password from the one you meant was saved and signing in then failed.
+  Every password field now has the phone's typing assists turned off, shown
+  or hidden.
+
 ## 0.4.5 — fits a phone — not yet released
 
 - **The menu fits a phone screen.** "Gyms" was cut off at the left and "Sign

@@ -310,10 +310,28 @@ describe('LOGIN_MAX_FAILURES=0 disables the ceiling', () => {
 		expect(t.check(keys).kind).toBe('allow');
 	});
 
-	it('does not refuse after many failures either — it only slows', () => {
-		const t = new LoginThrottle(config, () => 1_000_000);
-		for (let i = 0; i < 50; i++) t.recordFailure(keys);
+	it('with LOGIN_MAX_FAILURES=0 from the env and 100 failures, no attempt is ever refused', () => {
+		// Through the PARSER, because that is how production gets the value. A
+		// parser that rejected '0' as invalid and fell back to the default of 10
+		// passed every test in this file before this one existed — measured by
+		// mutating `parsed < 0` to `parsed <= 0`. It is the same shape as the
+		// 0.2.2 deploy, where the env file said 0 and the container ran 10.
+		const fromEnv = throttleConfigFromEnv({ LOGIN_MAX_FAILURES: '0' });
+		expect(fromEnv.maxFailures, "LOGIN_MAX_FAILURES='0' must parse to 0, not a default").toBe(0);
 
+		// A frozen clock keeps every failure inside the window: the worst case.
+		const t = new LoginThrottle(fromEnv, () => 1_000_000);
+
+		// EVERY attempt, not just the last: "never refused" is a claim about each
+		// of them. Checked before each failure is recorded, as the action does.
+		const refusedAt: number[] = [];
+		for (let i = 0; i < 100; i++) {
+			if (t.check(keys).kind === 'refuse') refusedAt.push(i);
+			t.recordFailure(keys);
+		}
+		expect(refusedAt, 'attempts refused despite the ceiling being disabled').toEqual([]);
+
+		// And it still slows: disabled ceiling, live delay curve.
 		const decision = t.check(keys);
 		expect(decision.kind).toBe('delay');
 		expect(decision.kind === 'delay' && decision.delayMs).toBeGreaterThan(0);

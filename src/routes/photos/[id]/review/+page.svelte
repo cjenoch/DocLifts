@@ -22,6 +22,8 @@
 	};
 	const METHOD_TEXT: Record<string, string> = {
 		exact: 'Exact match on manufacturer and model code.',
+		leading_digit:
+			'Leading-digit match on the model code: the codes differ only by one leading digit (Nautilus lists 9NP-L3004 where placards print NP-L3004). Check it is the same machine.',
 		prefix:
 			'Prefix match on the model code: the catalog lists a base code and the placard prints a longer one. Check it is the same machine.',
 		name: 'No model code matched. These are the closest names; none is chosen for you.',
@@ -144,7 +146,8 @@
 											m,
 											data.userId
 										).label}{#if data.matching.method === 'prefix'}
-											· prefix match{/if}</span
+											· prefix match{:else if data.matching.method === 'leading_digit'}
+											· leading-digit match{/if}</span
 									></span
 								>
 							</label>

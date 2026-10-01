@@ -139,24 +139,30 @@ and catalog rows a later snapshot retired, never match), first hit wins:
    whitespace and hyphens (`IL ROW` = `IL-ROW`). Preselected. If both the
    catalog row and your own copy match, both are shown and your copy is
    preselected.
-2. **Prefix** (owner addition, 2026-10-01): catalogs often list a base code
+2. **Leading digit** (owner-approved, 2026-10-01): within the manufacturer,
+   the two normalized codes differ only by ONE leading digit on one side —
+   Nautilus lists `9NP-L3004` where the placard prints `NP-L3004`, or the
+   reverse. The shared part must be at least 4 characters. One match is
+   preselected and labelled "leading-digit match"; several are listed with
+   none preselected.
+3. **Prefix** (owner addition, 2026-10-01): catalogs often list a base code
    where the placard prints the full SKU — Technogym `MB20` vs placard
    `MB200N0-ANV0GGGP`, Pure `MG3000` vs `MG3000-NBGJV0`. Within the
    manufacturer, a code whose normalized form is a prefix of the other's, the
    shorter at least 4 characters, matches. One match is preselected and
    labelled "prefix match"; several are listed with none preselected.
-3. **Name**: the candidate name's words of 3+ characters, each matched with
+4. **Name**: the candidate name's words of 3+ characters, each matched with
    `ILIKE` against model names, ranked by how many match and then by the
    shorter name (so "Iso-Lateral Row" outranks "Iso-Lateral High Row" for
    "Iso Lateral Row"); within the manufacturer when it is one you can see,
    otherwise across all; top 5; nothing preselected.
-4. **None**: the page says so, and "Create my own model" is the way on.
+5. **None**: the page says so, and "Create my own model" is the way on.
 
-**Known gap.** Nautilus lists `9NP-L3004` where a placard can print
-`NP-L3004`. That is a leading region digit, not a longer SKU, so neither code
-is a prefix of the other; the photo falls through to the name step (which
-finds "Leverage Row" when the name was read). This is tested as current
-behaviour, not fixed.
+**If a photo is preselected to the wrong model, suspect the leading-digit
+rule first.** It is the loosest rule that still preselects: a catalog with two
+codes one digit apart that are genuinely different machines would put the
+wrong one first when the placard's digit is missing or misread. The review page
+labels such a match "leading-digit match", so it is visible before linking.
 
 ## Re-running analysis
 

@@ -9,6 +9,8 @@
 - **You choose what is added.** The page lists matching models from the
   catalog and your own: an exact code match is chosen for you, a catalog base
   code that the placard prints as a longer code is offered as a prefix match,
+  a code that differs only by a leading digit (Nautilus 9NP-L3004 vs NP-L3004)
+  as a leading-digit match,
   and otherwise the closest names are listed. Link one, create your own model
   from what was read (every field editable), or discard the photo. Nothing is
   added until you do.

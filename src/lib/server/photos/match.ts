@@ -15,6 +15,11 @@
  *     the full SKU: Technogym `MB20` vs placard `MB200N0-ANV0GGGP`, Pure
  *     `MG3000` vs `MG3000-NBGJV0`. One match is preselected and labelled a
  *     prefix match; several are shown with none preselected.
+ *  2b. (checked between 1 and 2) leading digit — owner-approved: within the
+ *     manufacturer, the two normalized codes differ only by one leading digit
+ *     on one side (Nautilus `9NP-L3004` vs placard `NP-L3004`, either way
+ *     round), the shared part at least 4 characters. One match is
+ *     preselected and labelled a leading-digit match; several, none.
  *  3. name — the candidate name's tokens (length >= 3), each an ILIKE on the
  *     model name, ranked by how many appear, then by the shorter name (so
  *     "Iso-Lateral Row" outranks "Iso-Lateral High Row" for "Iso Lateral
@@ -22,10 +27,8 @@
  *     otherwise across all; top 5; nothing preselected.
  *  4. none.
  *
- * Note what prefix matching does NOT do: Nautilus lists `9NP-L3004` where
- * the placard may print `NP-L3004`. That is a leading digit, not a longer
- * SKU, so neither code is a prefix of the other and it falls through to the
- * name step. See docs/photos.md.
+ * Order: exact, leading digit, prefix, name, none. If a photo is preselected
+ * to the wrong model, suspect the leading-digit rule first. See docs/photos.md.
  */
 import { and, asc, eq, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { equipmentModels } from '../db/schema';
@@ -34,7 +37,7 @@ import { likePattern, modelVisibleTo } from '../catalog';
 import type { EquipmentCandidate } from './analyze';
 
 export type EquipmentModel = typeof equipmentModels.$inferSelect;
-export type MatchMethod = 'exact' | 'prefix' | 'name' | 'none';
+export type MatchMethod = 'exact' | 'leading_digit' | 'prefix' | 'name' | 'none';
 export type CandidateMatches = {
 	method: MatchMethod;
 	/** The match to preselect, or null when the user must choose. */
@@ -53,6 +56,21 @@ export const normalizeCode = (code: string): string => code.toLowerCase().replac
 const normalizedCodeSql = sql`regexp_replace(lower(${equipmentModels.code}), '[[:space:]-]+', '', 'g')`;
 const sameManufacturer = (m: string): SQL =>
 	sql`lower(btrim(${equipmentModels.manufacturer})) = ${m.trim().toLowerCase()}`;
+
+/**
+ * True when two normalized codes differ only by ONE leading digit on one side:
+ * Nautilus lists `9NP-L3004` where the placard prints `NP-L3004` (or the
+ * reverse). The shared part must be at least 4 characters, like a prefix.
+ */
+export function isLeadingDigitMatch(a: string, b: string): boolean {
+	const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+	return (
+		longer.length === shorter.length + 1 &&
+		shorter.length >= MIN_PREFIX_LENGTH &&
+		/^[0-9]$/.test(longer[0]) &&
+		longer.slice(1) === shorter
+	);
+}
 
 /** True when one normalized code is a prefix of the other, the shorter >= 4 chars. */
 export function isPrefixMatch(a: string, b: string): boolean {
@@ -105,6 +123,18 @@ export async function matchCandidate(
 				and(modelVisibleTo(userId), sameManufacturer(manufacturer), isNotNull(equipmentModels.code))
 			)
 			.orderBy(asc(equipmentModels.code), asc(equipmentModels.id));
+		// Leading digit (owner-approved, 0.4.0), before prefix: the more
+		// specific rule. If a photo is preselected to the wrong model, this
+		// rule is the first suspect (docs/photos.md).
+		const leading = coded.filter((m) => isLeadingDigitMatch(normalizeCode(m.code!), code));
+		if (leading.length) {
+			return {
+				method: 'leading_digit',
+				preselectedId: leading.length === 1 ? leading[0].id : null,
+				matches: leading
+			};
+		}
+
 		const prefix = coded.filter((m) => isPrefixMatch(normalizeCode(m.code!), code));
 		if (prefix.length) {
 			return {

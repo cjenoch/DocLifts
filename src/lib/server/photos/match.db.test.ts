@@ -7,7 +7,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDbWithUsers, type TestDb } from '../test-db';
 import * as s from '../db/schema';
-import { isPrefixMatch, matchCandidate, nameTokens, normalizeCode } from './match';
+import {
+	isLeadingDigitMatch,
+	isPrefixMatch,
+	matchCandidate,
+	nameTokens,
+	normalizeCode
+} from './match';
 
 let db: TestDb;
 let handle: Awaited<ReturnType<typeof setupTestDb>>;
@@ -90,6 +96,14 @@ describe('normalization helpers', () => {
 		expect(isPrefixMatch('mb2', 'mb200')).toBe(false);
 		expect(isPrefixMatch('9npl3004', 'npl3004')).toBe(false);
 	});
+	it('a leading digit is one digit, on one side, over at least 4 shared characters', () => {
+		expect(isLeadingDigitMatch('9npl3004', 'npl3004')).toBe(true);
+		expect(isLeadingDigitMatch('npl3004', '9npl3004')).toBe(true);
+		expect(isLeadingDigitMatch('99npl3004', 'npl3004')).toBe(false);
+		expect(isLeadingDigitMatch('xnpl3004', 'npl3004')).toBe(false);
+		expect(isLeadingDigitMatch('9abc', 'abc')).toBe(false);
+		expect(isLeadingDigitMatch('npl3004', 'npl3004')).toBe(false);
+	});
 	it('name tokens are 3+ alphanumerics, lowercased', () => {
 		expect(nameTokens('Iso-Lateral Row')).toEqual(['iso', 'lateral', 'row']);
 		expect(nameTokens('A 45° Leg')).toEqual(['leg']);
@@ -155,22 +169,50 @@ describe('matchCandidate', () => {
 		expect(r.method).toBe('none');
 	});
 
-	it('Nautilus 9NP-L3004 vs placard NP-L3004 is NOT a prefix match; the name step finds it', async () => {
+	it('leading digit (Nautilus): placard NP-L3004 matches catalog 9NP-L3004, preselected and labelled', async () => {
 		const r = await matchCandidate(db, alice, {
 			manufacturer: 'Nautilus',
 			model_code: 'NP-L3004',
-			name: 'Leverage Row'
+			name: 'Something Else Entirely'
 		});
-		expect(r.method).toBe('name');
-		expect(r.preselectedId).toBeNull();
-		expect(ids(r)[0]).toBe(models.nlRow.id);
-		// Without a name there is nothing to fall back to.
-		const codeOnly = await matchCandidate(db, alice, {
+		expect(r).toMatchObject({ method: 'leading_digit', preselectedId: models.nlRow.id });
+		expect(ids(r)).toEqual([models.nlRow.id]);
+	});
+
+	it('leading digit, the reverse way: placard 9GI-HT10 matches my own GI-HT10', async () => {
+		await model('aliceHt10', {
+			manufacturer: 'Garage Iron',
+			name: 'Hip Thrust 10',
+			code: 'GI-HT10',
+			owner: alice
+		});
+		const r = await matchCandidate(db, alice, {
+			manufacturer: 'Garage Iron',
+			model_code: '9GI-HT10',
+			name: null
+		});
+		expect(r).toMatchObject({ method: 'leading_digit', preselectedId: models.aliceHt10.id });
+	});
+
+	it('leading digit with two catalog codes matching: both shown, none preselected', async () => {
+		await model('nl1', { manufacturer: 'Nautilus', name: 'Leverage Row Alt', code: '1NP-L3004' });
+		const r = await matchCandidate(db, alice, {
 			manufacturer: 'Nautilus',
 			model_code: 'NP-L3004',
 			name: null
 		});
-		expect(codeOnly.method).toBe('none');
+		expect(r.method).toBe('leading_digit');
+		expect(r.preselectedId).toBeNull();
+		expect(ids(r).sort()).toEqual([models.nl1.id, models.nlRow.id].sort());
+	});
+
+	it('leading digit stays within the manufacturer', async () => {
+		const r = await matchCandidate(db, alice, {
+			manufacturer: 'Hammer Strength',
+			model_code: 'NP-L3004',
+			name: null
+		});
+		expect(r.method).toBe('none');
 	});
 
 	it('name fallback ranks Iso-Lateral Row above Iso-Lateral High Row for "Iso Lateral Row"', async () => {

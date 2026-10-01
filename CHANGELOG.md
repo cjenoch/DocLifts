@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.2 — machine labels and catalog notes — not yet released
+
+- **A machine's label is optional when you pick its model.** Adding a machine
+  on **Gyms and machines**, or from a model's page, no longer makes you invent
+  a name. Leave the label blank and the machine is named after its model, for
+  example "Hammer Strength Iso-Lateral Row (IL-ROW)". A label you type still
+  wins, and is the way to tell two of the same model apart. With no model, a
+  label is still needed, and the page says so.
+- **Catalog notes on each model's page.** The catalog's own remarks (298
+  models have one, such as "code unknown — verify") now show on the model's
+  page, and come along when you create your own copy.
+- **A catalog update that adds a model code keeps your machines attached.**
+  When a newer catalog gives a code to a model that had none, the existing
+  model gains the code instead of a duplicate appearing beside it, so machines
+  you already added stay linked to it.
+
 ## 0.3.1 — LLM adapter foundation — 2026-10-01
 
 LLM adapter foundation (no user-visible features yet).

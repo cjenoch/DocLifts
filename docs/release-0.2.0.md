@@ -1453,3 +1453,151 @@ The env file may keep the LLM keys: this rollback still uses the checkout's
 and the 0.3.0 image simply ignores them. Only if the checkout itself is moved
 back to 0.3.0 does `check-env-passthrough.sh` refuse the `up` and name them;
 comment them out of the env file then.
+
+## 20. 0.3.2 — optional machine label, catalog promotion, model notes — NOT DEPLOYED
+
+```
+branch   feat/0.3.2 from main 43490c3 (production runs 0.3.1 = fd916d3 + docs)
+status   NOT deployed. Nothing below has run against production.
+migrate  0014: equipment_models.notes (text, nullable). Verified on a restore
+         of doclifts-2026-10-01.sql.gz, below
+catalog  re-import the SAME 2026-09-30 CSV: expect 0 inserted, ~298 updated
+         (notes), 0 promoted
+```
+
+Built on branch `feat/0.3.2`. Migration **0014**. Reference:
+`docs/catalog.md`. **Nothing in this section runs without the owner's explicit
+"go" in the current session.**
+
+### What changes
+
+- **The machine label is optional** on `/gyms` and on `/equipment/[id]` "add
+  to a gym" when a model is chosen (or typed in). Blank stores
+  `<manufacturer> <name>` plus ` (<code>)` when the model has one, e.g.
+  "Hammer Strength Iso-Lateral Row (IL-ROW)", "Nautilus Leverage Row". Blank
+  with no model is refused with a message. `gym_equipment.local_label` stays
+  NOT NULL; no schema change for this. Existing labels are not touched.
+- **The importer promotes instead of duplicating.** A coded CSV row with no
+  global row for `(manufacturer, code)` updates the one global codeless row of
+  the same `(manufacturer, product_line, name)` in place, so `gym_equipment`
+  links (production has one, to Nautilus "Leverage Row") keep pointing at it.
+  Reported in a new `promoted` column. Two candidates, or two CSV rows claiming
+  one: the run fails, nothing written. The 2026-09-30 CSV adds no codes, so
+  this release's re-import promotes nothing; it matters for the next snapshot.
+- **`equipment_models.notes`** (migration 0014, additive). The importer maps
+  the CSV `notes` column as a catalog column; `/equipment/[id]` shows it;
+  "create my own copy" carries it.
+- No new env var, so no compose passthrough change.
+
+### Migration 0014, verified on a restore of production
+
+The newest dump on 2026-10-01 was `/srv/backups/doclifts/doclifts-2026-10-01.sql.gz`
+(03:00, so before 0012/0013 and before the catalog import and the owner's
+first machine). Restored into a throwaway database (`doclifts_restore_032`) on
+the disposable test container, the full chain 0012 → 0014 applied with
+`drizzle-kit migrate`, then the importer. The database was dropped afterwards.
+Counts only:
+
+| table                           | before | after 0012–0014 | after import |
+| ------------------------------- | -----: | --------------: | -----------: |
+| `auth.account`                  |      2 |               2 |            2 |
+| `auth.session`                  |      2 |               2 |            2 |
+| `auth.user`                     |      2 |               2 |            2 |
+| `auth.verification`             |      0 |               0 |            0 |
+| `drizzle.__drizzle_migrations`  |     12 |              15 |           15 |
+| `public.day_exercises`          |     61 |              61 |           61 |
+| `public.days`                   |     12 |              12 |           12 |
+| `public.equipment_models`       |      0 |               0 |          543 |
+| `public.exercise_equipment_map` |      0 |               0 |            0 |
+| `public.exercises`              |     94 |              94 |           94 |
+| `public.gym_equipment`          |      0 |               0 |            0 |
+| `public.gyms`                   |      2 |               2 |            2 |
+| `public.imported_workouts`      |    107 |             107 |          107 |
+| `public.llm_calls`              |      — |               0 |            0 |
+| `public.pain_events`            |      0 |               0 |            0 |
+| `public.prescribed_sets`        |    140 |             140 |          140 |
+| `public.program_draft_requests` |      1 |               1 |            1 |
+| `public.programs`               |      4 |               4 |            4 |
+| `public.session_exercises`      |     22 |              22 |           22 |
+| `public.sessions`               |     31 |              31 |           31 |
+| `public.sets`                   |    454 |             454 |          454 |
+| `public.workout_log_imports`    |      1 |               1 |            1 |
+
+New column, as Postgres reports it:
+
+| column                   | type | nullable | default |
+| ------------------------ | ---- | -------- | ------- |
+| `equipment_models.notes` | text | yes      | —       |
+
+`equipment_models` keeps its constraints and indexes by name
+(`equipment_models_catalog_code_unique`, `equipment_models_owner_user_id_idx`,
+the confidence, body region, resistance basis and resistance checks, the owner
+FK). The import wrote 543 rows, 298 with notes; a second dry run read 543
+unchanged. Then, to reproduce production's state (catalog imported by 0.3.1,
+so every `notes` NULL), notes were nulled and the dry run read **0 inserted,
+298 updated, 0 promoted, 245 unchanged, 0 skipped**, every `update` line
+naming `notes` only: Cybex 36, gym80 24, Hammer Strength 30, Life Fitness 32,
+Matrix 35, Nautilus 41, Precor 38, Technogym 62.
+
+### Before deploying
+
+```bash
+# 1. CI green on main at the release sha (gh run list --branch main).
+
+# 2. Preserve the running image.
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.3.2
+```
+
+### Migrate, deploy, re-import
+
+```bash
+# 3. Migration 0014 (verified dump first; refuses to migrate without one).
+sudo -n scripts/migrate-prod.sh
+
+# 4. Deploy. 0.3.1 code ignores the new column, so 3 before 4 is safe.
+sudo -n scripts/compose-prod.sh up -d --build --wait web
+
+# 5. The SAME 2026-09-30 CSV again, to fill notes: verified dump, dry run
+#    printed, then type IMPORT. Expect the dry run to show ~298 updated (each
+#    update line ending ": notes"), 0 inserted, 0 promoted, ~245 unchanged,
+#    0 skipped, and "(kept) notes: 298 row(s)". Anything inserted or promoted
+#    means production's catalog is not what 0.3.0 imported: answer anything
+#    but IMPORT and stop.
+sudo -n scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-09-30.csv
+```
+
+### Checks
+
+```bash
+# 6. Notes present, catalog size unchanged, the owner's machine still linked.
+sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
+  "select count(*) filter (where notes is not null), count(*)
+   from equipment_models where owner_user_id is null"
+#   298|543
+sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
+  "select m.manufacturer, m.name from gym_equipment g
+   join equipment_models m on m.id = g.equipment_model_id"
+#   Nautilus|Leverage Row  (and any machines added since)
+
+# 7. Idempotent: run step 5 again; the dry run must show 0 inserted,
+#    0 updated, 0 promoted. Answer anything but IMPORT to stop there.
+```
+
+8. On the scratch account: `/equipment/<Leverage Row id>` shows
+   "Notes: name from training data; code unknown — verify". "Add to a gym" with
+   the label blank adds "Nautilus Leverage Row"; `/gyms` with no model and no
+   label refuses with "Give the machine a label, or choose its model so the
+   label can be taken from it". Remove the scratch machine afterwards.
+
+`pre-0.3.2` is deleted only after 6–8 pass.
+
+### Rollback
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.3.2 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+0014 is additive and 0.3.1 runs against it unchanged, so the column and its
+notes stay. Machines added with a derived label keep it; to 0.3.1 it is an
+ordinary label.

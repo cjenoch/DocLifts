@@ -1028,3 +1028,81 @@ earlier explanation — SvelteKit consuming the `cookie` header — was wrong. T
 harness now runs the build as `NODE_ENV=production` without `TEST`, the check
 is pinned on in code, and `e2e/sign-in-origin.e2e.ts` holds the
 behaviour-level test, which fails with the `Origin` forward reverted.
+
+## 17. 0.2.5 — login delay notice
+
+**NOT deployed.** Branch `feat/0.2.5-throttle-notice`; no step below has been
+run. No migration, no new env key, no compose change. Spec:
+`docs/handoffs/REPLY-login-spec.md` §1 item 4 — "When the throttle delays or
+refuses, the page says so with the number of seconds. Never a silent wait."
+0.2.2 shipped the refusal half; this is the delay half. **Nothing in this
+section runs without the owner's explicit "go" in the current session.**
+
+### What changes for the user
+
+With `LOGIN_MAX_FAILURES=0` the delay curve is the only live throttle, and
+since 0.2.4 it runs 1, 2, 4, 8, 16, then 30 s per attempt after the 5th
+failure. Until now each of those attempts was a submit that hung with nothing
+on the page.
+
+- **The wait is announced before it happens.** The failure that crosses the
+  threshold (the 5th, at defaults) still says "That email and password do not
+  match.", and beside it, in a separate notice: "Several sign-in attempts have
+  failed recently, so each new attempt is held before your password is
+  checked. The next will be held for 1 second."
+- **A held attempt says how long it was held**, and how long the next one
+  will be: "This one was held for 2 seconds. The next will be held for 4
+  seconds." On every failure that went through the throttle check — 401, 403
+  and the handler's 429 — each still with its own message.
+- **With JavaScript, the hang counts down**: "Held: your password will be
+  checked in 16 seconds." … "Checking your password…". The form still posts
+  natively; without JavaScript the server-rendered notice already gave the
+  number.
+- **Nothing about the throttle itself changed**: same keys, same curve, only
+  401 counts. The numbers come from the same IP and email keys, which count
+  failures for any address, so an address with no account gets the same
+  notice as one with — no new enumeration signal. The refusal (ceiling on)
+  is unchanged and still says how long to wait.
+
+### Before deploying
+
+```bash
+# 1. CI green on main at the release sha (gh run list --branch main).
+
+# 2. Preserve the running image.
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.2.5
+```
+
+Rollback:
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.2.5 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+### Deploy
+
+```bash
+sudo -n scripts/compose-prod.sh up -d --build --wait web
+```
+
+### Checks — scratch account only
+
+```bash
+# 1. The build id.
+curl -s https://enochnvps.tail29bbdb.ts.net/_app/version.json
+#   {"version":"<release sha>"}
+```
+
+2. From a browser that has visited before, sign in as
+   `scratch-test@doclifts.invalid` with a wrong password five times. The 5th
+   page shows the mismatch **and** "The next will be held for 1 second."
+3. A 6th wrong password: the notice counts down while it hangs, then reads
+   "This one was held for 1 second. The next will be held for 2 seconds."
+4. The correct password: held 2 s, then signed in. The log shows one
+   `login_throttle` `delay` line per held attempt and `ok:true` last.
+
+Never the owner's account: the email key is per address, and the owner's
+would carry the delay into his next sign-in. A restart clears the counters.
+
+`pre-0.2.5` is deleted only after all four pass.

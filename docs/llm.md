@@ -8,8 +8,10 @@ the app calls a provider SDK** (CLAUDE.md; `llm-seam.test.ts` fails the build
 if anything outside `src/lib/server/llm/` imports `ai`, `ai/*`, `@ai-sdk/*` or
 `@openrouter/*`).
 
-0.3.1 has no consumer. The deliverable is the module, its table, its tests and
-`pnpm llm:ping`.
+0.3.1 had no consumer. The first is 0.4.0's equipment photo analysis
+(`purpose: 'equipment_from_photo'`, `kind: 'vision'`; `docs/photos.md`). Tests
+outside this directory get an offline model from `llm/test-models.ts`, since
+`llm-seam.test.ts` forbids `ai/test` imports anywhere else.
 
 **The API key never appears in logs, commits, docs, chat or a command line.**
 It lives only in production's env file. The module logs it as `set`/`unset`,

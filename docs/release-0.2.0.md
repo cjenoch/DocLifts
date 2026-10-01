@@ -1606,3 +1606,233 @@ DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.3.2 \
 0014 is additive and 0.3.1 runs against it unchanged, so the column and its
 notes stay. Machines added with a derived label keep it; to 0.3.1 it is an
 ordinary label.
+
+## 21. 0.4.0 — equipment from a photo — NOT DEPLOYED
+
+```
+branch   feat/0.4.0-photo from feat/0.3.2 2041136 (0.3.2, itself NOT deployed)
+status   NOT deployed. Nothing below has run against production.
+migrate  0015: equipment_photos (new table). Verified on a restore of
+         doclifts-2026-10-01.sql.gz, below
+env      PHOTO_STORE=s3, the five S3_* names, BODY_SIZE_LIMIT=12M;
+         PHOTO_MAX_BYTES and PHOTO_DAILY_LIMIT default
+```
+
+Built on branch `feat/0.4.0-photo`. Migration **0015**. Spec:
+`SPEC-0.4.0-equipment-photo.md`. Reference: `docs/photos.md`. **0.4.0 ships
+after 0.3.2: §20 is done first, and its migration 0014 is part of this
+chain.** **Nothing in this section runs without the owner's explicit "go" in
+the current session.**
+
+Deviations from the spec, all decided before the build: the migration is
+0015, not 0014 (0.3.2 took 0014); no `secrets-apply.sh` and no allowlist (the
+new keys are enforced by `check-env-passthrough.sh` like every other); a model
+created from a photo may carry the reader's notes in 0.3.2's
+`equipment_models.notes`; matching gained a prefix step (catalog base code vs
+placard SKU); a blank machine label takes 0.3.2's default label. Found while
+building: adapter-node answers an over-limit body with a **500**, not a 413
+(see `docs/photos.md`).
+
+### What changes
+
+- **New page** `/gyms/<id>/equipment/photo` (upload), **new page**
+  `/photos/<id>/review` (link / create my own / re-analyze / discard), **new
+  route** `GET /photos/<id>/image` (owner-only image proxy). Thumbnails on
+  `/gyms` and `/equipment/<id>`. CSP unchanged.
+- **New table `equipment_photos`** (0015), additive. Written only by the photo
+  routes.
+- **The first `complete()` consumer**: `purpose = 'equipment_from_photo'`,
+  `kind = 'vision'`. Uses `LLM_VISION_MODEL`, falling back to `LLM_MODEL`; the
+  model must accept images.
+- **New dependencies** `sharp` 0.35.5 (native; the runtime stage now loads it
+  at build time and fails the build if the musl binary is missing) and
+  `@aws-sdk/client-s3` 3.1138.0. CI gains a `docker` job that builds the
+  runtime image and runs sharp inside it.
+- **Nine new env vars**, all optional for boot (read on first use):
+  `PHOTO_STORE`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`,
+  `S3_SECRET_ACCESS_KEY`, `PHOTO_MAX_BYTES`, `PHOTO_DAILY_LIMIT`,
+  `BODY_SIZE_LIMIT`. Every one has a `docker-compose.yml` passthrough line in
+  this release; `BODY_SIZE_LIMIT` defaults to `12M` there.
+
+### Migration 0015, verified on a restore of production
+
+The newest dump was `/srv/backups/doclifts/doclifts-2026-10-01.sql.gz` (03:00,
+at 0011). Restored into a throwaway database (`doclifts_scratch_040`) on the
+disposable test container, the full chain 0012 → 0015 applied with
+`drizzle-kit migrate`; the database was dropped afterwards. Counts only:
+
+| table                           | before | after 0012–0015 |
+| ------------------------------- | -----: | --------------: |
+| `auth.account`                  |      2 |               2 |
+| `auth.session`                  |      2 |               2 |
+| `auth.user`                     |      2 |               2 |
+| `auth.verification`             |      0 |               0 |
+| `drizzle.__drizzle_migrations`  |     12 |              16 |
+| `public.day_exercises`          |     61 |              61 |
+| `public.days`                   |     12 |              12 |
+| `public.equipment_models`       |      0 |               0 |
+| `public.equipment_photos`       |      — |               0 |
+| `public.exercise_equipment_map` |      0 |               0 |
+| `public.exercises`              |     94 |              94 |
+| `public.gym_equipment`          |      0 |               0 |
+| `public.gyms`                   |      2 |               2 |
+| `public.imported_workouts`      |    107 |             107 |
+| `public.llm_calls`              |      — |               0 |
+| `public.pain_events`            |      0 |               0 |
+| `public.prescribed_sets`        |    140 |             140 |
+| `public.program_draft_requests` |      1 |               1 |
+| `public.programs`               |      4 |               4 |
+| `public.session_exercises`      |     22 |              22 |
+| `public.sessions`               |     31 |              31 |
+| `public.sets`                   |    454 |             454 |
+| `public.workout_log_imports`    |      1 |               1 |
+
+New objects, by name, as Postgres reports them: table `equipment_photos` (16
+columns; `user_id` text NOT NULL, `candidate` jsonb, `created_at` timestamptz);
+`equipment_photos_pkey`; FKs, all NO ACTION:
+`equipment_photos_user_id_fk` (→ `auth."user"(id)`),
+`equipment_photos_gym_id_fk` (→ `gyms`),
+`equipment_photos_llm_call_id_fk` (→ `llm_calls`),
+`equipment_photos_matched_model_id_fk` and
+`equipment_photos_created_model_id_fk` (→ `equipment_models`),
+`equipment_photos_gym_equipment_id_fk` (→ `gym_equipment`); unique
+`equipment_photos_storage_key_unique`; CHECKs `equipment_photos_status_check`
+(`uploaded`, `analyzed`, `confirmed`, `discarded`) and
+`equipment_photos_size_check`; indexes `equipment_photos_user_created_idx`
+(`user_id, created_at`), `equipment_photos_gym_equipment_idx`, and one on each
+other FK column (`_gym_idx`, `_llm_call_idx`, `_matched_model_idx`,
+`_created_model_idx`). Longest name 36 bytes. `drizzle-kit check` is green.
+
+### Before deploying
+
+```bash
+# 1. §20 (0.3.2) deployed and its checks passed. CI green on main at the
+#    release sha, INCLUDING the docker job (gh run list --branch main).
+
+# 2. Preserve the running image.
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.4.0
+```
+
+3. **Create the bucket private** (Linode Cloud Manager → Object Storage), and
+   an access key limited to that bucket.
+4. **Add these lines to `/srv/doclifts/.env`** with an editor, not with `echo`
+   (shell history) and not by pasting into a chat. Names and meanings only
+   here; the values never leave the env file. Keep each comment on its own
+   line:
+
+   ```dotenv
+   # store photos in S3-compatible storage
+   PHOTO_STORE=s3
+   # the region's endpoint URL (https://...)
+   S3_ENDPOINT=
+   # the region name that endpoint expects
+   S3_REGION=
+   # the private bucket's name
+   S3_BUCKET=
+   # the bucket-limited access key's id, and its secret
+   S3_ACCESS_KEY_ID=
+   S3_SECRET_ACCESS_KEY=
+   # adapter-node's body ceiling; its 512K default refuses every phone photo
+   BODY_SIZE_LIMIT=12M
+   ```
+
+   `PHOTO_MAX_BYTES` (10485760) and `PHOTO_DAILY_LIMIT` (20) default; add them
+   only to change them. `LLM_VISION_MODEL` must name a model that accepts
+   images if `LLM_MODEL` does not.
+
+5. **The passthrough check**, before anything is started:
+
+   ```bash
+   scripts/check-env-passthrough.sh /srv/doclifts/.env
+   #   env passthrough check: all N key(s) in /srv/doclifts/.env are read by docker-compose.yml
+   ```
+
+### Migrate, deploy
+
+```bash
+# 6. Migration 0015 (verified dump first; refuses to migrate without one).
+sudo -n scripts/migrate-prod.sh
+
+# 7. BODY_SIZE_LIMIT is in the rendered compose config. One line only: the
+#    rendered config carries every value, secrets included, so never print it whole.
+sudo -n scripts/compose-prod.sh config | grep -E '^\s+BODY_SIZE_LIMIT:'
+#       BODY_SIZE_LIMIT: 12M
+
+# 8. Deploy. 0.3.2 code ignores equipment_photos, so 6 before 8 is safe. The
+#    passthrough check runs again inside compose-prod.sh.
+sudo -n scripts/compose-prod.sh up -d --build --wait web
+```
+
+### Checks
+
+```bash
+# 9. The variables reached the container — presence only, never the values.
+sudo -n docker exec doclifts-web sh -c \
+  'for v in PHOTO_STORE S3_ENDPOINT S3_REGION S3_BUCKET S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY BODY_SIZE_LIMIT; do
+     test -n "$(printenv $v)" && echo "$v set" || echo "$v MISSING"; done'
+#   seven "set" lines
+```
+
+10. On the **scratch** account (`scratch-test@doclifts.invalid`, never the
+    owner's), in a gym of its own: **Add a machine from a photo**, upload one
+    real placard photo, review it, **link** it to the catalog model it shows.
+    The page says "Added to <gym>"; the gym's machine list shows the
+    thumbnail.
+
+```bash
+# 11. The row, and the machine it made.
+sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -c \
+  "select p.status, p.width, p.height, c.status as llm, c.model,
+          ge.local_label, m.manufacturer, m.code
+   from equipment_photos p
+   join auth.\"user\" u on u.id = p.user_id
+   left join llm_calls c on c.id = p.llm_call_id
+   left join gym_equipment ge on ge.id = p.gym_equipment_id
+   left join equipment_models m on m.id = p.matched_model_id
+   where u.email = 'scratch-test@doclifts.invalid'
+   order by p.created_at"
+#   confirmed | <=1600 | <=1600 | ok | <vision model> | <label> | <maker> | <code>
+
+# 12. The object is under the scratch user's prefix and nowhere else. Run in
+#     the web container, which already holds the credentials (nothing secret
+#     on the command line).
+sudo -n docker exec -w /app doclifts-web node -e "
+  const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+  const e = process.env;
+  new S3Client({ endpoint: e.S3_ENDPOINT, region: e.S3_REGION,
+    credentials: { accessKeyId: e.S3_ACCESS_KEY_ID, secretAccessKey: e.S3_SECRET_ACCESS_KEY },
+    requestChecksumCalculation: 'WHEN_REQUIRED', responseChecksumValidation: 'WHEN_REQUIRED' })
+    .send(new ListObjectsV2Command({ Bucket: e.S3_BUCKET }))
+    .then((r) => console.log((r.Contents ?? []).map((o) => o.Key + ' ' + o.Size).join('\n') || '(empty)'));"
+#   users/<scratch user id>/equipment-photos/<photo id>.jpg <bytes>   (exactly one line)
+sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc \
+  "select id from auth.\"user\" where email = 'scratch-test@doclifts.invalid'"
+#   the same <scratch user id>
+```
+
+13. Still on the scratch account: upload a second photo and **discard** it.
+    The page says "Discarded"; step 12 again still lists only the first
+    object; the second row is `discarded` in step 11's query.
+14. Pages still load (`/`, `/gyms`, `/equipment`, `/history`).
+
+`pre-0.4.0` is deleted only after 9–14 pass. Then the owner does the first
+real one at his gym, on his own account: that is the acceptance.
+
+A page saying photo storage is not set up means an S3 variable is missing (the
+web log names it). A 500 on upload with `exceeds limit of 524288 bytes` in the
+log means `BODY_SIZE_LIMIT` did not reach the container. "Analysis failed"
+with a `refused`/`not_configured` row means the LLM variables;
+`provider_error` with an `http_4xx` code usually means the model does not
+accept images. Each is fixed in the env file and a restart, not a release.
+
+### Rollback
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.4.0 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+0015 is additive and 0.3.2 runs against it unchanged, so the table and the
+bucket's objects stay. The env file may keep the new keys while the checkout
+stays at 0.4.0 (its compose reads them); if the checkout moves back to 0.3.2,
+`check-env-passthrough.sh` will name them, so comment them out first.

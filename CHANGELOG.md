@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0 — equipment from a photo — not yet released
+
+- **Add a machine by photographing its placard.** Under each gym on **Gyms
+  and machines**, "Add a machine from a photo" opens the camera. The photo is
+  read for the maker, model code and name, and you see what was read next to
+  the photo, with anything uncertain marked "check".
+- **You choose what is added.** The page lists matching models from the
+  catalog and your own: an exact code match is chosen for you, a catalog base
+  code that the placard prints as a longer code is offered as a prefix match,
+  and otherwise the closest names are listed. Link one, create your own model
+  from what was read (every field editable), or discard the photo. Nothing is
+  added until you do.
+- **The photo stays with the machine.** A machine added from a photo shows it
+  as a thumbnail on **Gyms and machines** and on the model's page.
+- **Private by design.** Location, camera and time details are removed from
+  the photo before it is stored or read; the photo is stored privately and
+  shown only to you. Up to 20 photos a day, 10 MB each.
+
 ## 0.3.2 — machine labels and catalog notes — not yet released
 
 - **A machine's label is optional when you pick its model.** Adding a machine

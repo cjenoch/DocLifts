@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.7 — Home shows only your programs — not yet released
+
+- **Home lists only your own programs.** It listed every account's active
+  programs, so a second user would have seen your program names (opening one
+  already said "not found"). Fixed before the first invited tester gets an
+  account. Every other list and lookup was audited and is owner-scoped.
+
 ## 0.4.6 — the phone can't change your password behind your back — 2026-10-01
 
 - **Password fields no longer autocapitalize or autocorrect.** With Show on, a

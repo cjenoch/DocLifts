@@ -23,8 +23,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	}
 
 	// Ownership in the query: another user's program is a 404, the same as an
-	// id that never existed (D6). The session helpers called below still read
-	// unscoped — they are threaded in the sessions.ts commit, the last of T3.
+	// id that never existed (D6). The session queries below also filter on the
+	// owner themselves (0.4.7), so none of them depends on this check alone.
 	const [program] = await db
 		.select()
 		.from(programs)
@@ -53,7 +53,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				.select({ id: sessions.id, dayId: sessions.dayId })
 				.from(sessions)
 				.where(
-					and(inArray(sessions.dayId, dayIds), isNull(sessions.endedAt), isNull(sessions.deletedAt))
+					and(
+						eq(sessions.userId, program.userId),
+						inArray(sessions.dayId, dayIds),
+						isNull(sessions.endedAt),
+						isNull(sessions.deletedAt)
+					)
 				)
 		: [];
 	const openByDay = new Map(openSessions.map((s) => [s.dayId, s.id]));
@@ -69,7 +74,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
-		.where(and(eq(sessions.programId, program.id), isNull(sessions.deletedAt)))
+		.where(
+			and(
+				eq(sessions.userId, program.userId),
+				eq(sessions.programId, program.id),
+				isNull(sessions.deletedAt)
+			)
+		)
 		.orderBy(desc(sessions.startedAt))
 		.limit(20);
 
@@ -94,7 +105,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const trashCountRow = await db
 		.select({ count: sql<number>`count(*)::int` })
 		.from(sessions)
-		.where(and(eq(sessions.programId, program.id), isNotNull(sessions.deletedAt)));
+		.where(
+			and(
+				eq(sessions.userId, program.userId),
+				eq(sessions.programId, program.id),
+				isNotNull(sessions.deletedAt)
+			)
+		);
 	const trashCount = trashCountRow[0]?.count ?? 0;
 
 	return {

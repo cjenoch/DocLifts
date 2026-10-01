@@ -10,6 +10,27 @@
 	// and the values match the defaults in src/lib/server/demo.ts.
 	const demoEmail = 'demo@doclifts.local';
 	const demoPassword = 'doclifts-demo-2026';
+
+	const seconds = (n: number) => `${n} second${n === 1 ? '' : 's'}`;
+
+	/**
+	 * The throttle's wait, stated (spec item 4: never a silent wait). Kept
+	 * apart from the error: "do not match" says what was wrong with the
+	 * attempt, this says why the submit hung and that the next one will too.
+	 * Rendered on the server, so it reads the same without JavaScript.
+	 */
+	const waitNotice = $derived.by(() => {
+		const held = form?.heldSeconds ?? null;
+		const next = form?.nextDelaySeconds ?? null;
+		if (held === null && next === null) return null;
+		return [
+			'Several sign-in attempts have failed recently, so each new attempt is held before your password is checked.',
+			held !== null ? `This one was held for ${seconds(held)}.` : null,
+			next !== null ? `The next will be held for ${seconds(next)}.` : null
+		]
+			.filter(Boolean)
+			.join(' ');
+	});
 </script>
 
 <svelte:head><title>Sign in — DocLifts</title></svelte:head>
@@ -35,6 +56,16 @@
 					Try again in about {form.retryAfter} second{form.retryAfter === '1' ? '' : 's'}.
 				</span>
 			{/if}
+		</p>
+	{/if}
+
+	{#if waitNotice}
+		<p
+			class="mb-4 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+			role="status"
+			id="login-wait-notice"
+		>
+			{waitNotice}
 		</p>
 	{/if}
 

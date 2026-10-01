@@ -182,6 +182,33 @@ run('equipment from a photo (production build)', () => {
 		await page.close();
 	});
 
+	it('on a phone-width screen every nav control is fully on screen', async () => {
+		// The owner's iPhone, 2026-10-01: "Gyms" cut off at the left and
+		// "Sign out" at the right, because the nav was one row that never
+		// wrapped. 390 px is an iPhone 12-15 viewport.
+		const page = await signedInPage();
+		await page.setViewportSize({ width: 390, height: 844 });
+		for (const path of ['/', '/gyms', `/gyms/${gymA}/equipment/photo`]) {
+			await page.goto(`${origin}${path}`, { waitUntil: 'networkidle' });
+			const nav = page.getByRole('navigation', { name: 'Main navigation' });
+			const controls = [
+				...(await nav.getByRole('link').all()),
+				nav.getByRole('button', { name: 'Sign out' })
+			];
+			expect(controls.length, path).toBeGreaterThanOrEqual(6);
+			for (const control of controls) {
+				const box = await control.boundingBox();
+				const name = await control.innerText();
+				expect(box, `${path}: ${name}`).not.toBeNull();
+				expect(box!.x, `${path}: ${name} starts on screen`).toBeGreaterThanOrEqual(0);
+				expect(box!.x + box!.width, `${path}: ${name} ends on screen`).toBeLessThanOrEqual(390);
+				// One line each: a label broken across lines reads as two links.
+				expect(box!.height, `${path}: ${name} on one line`).toBeLessThan(32);
+			}
+		}
+		await page.close();
+	});
+
 	it('upload from the page (a 2.5 MB phone photo) -> review shows the image; analysis not configured is recorded', async () => {
 		expect(phone.byteLength).toBeGreaterThan(512 * 1024);
 		const page = await signedInPage();
@@ -231,6 +258,10 @@ run('equipment from a photo (production build)', () => {
 		await expect
 			.poll(() => page.getByTestId('photo-status').textContent())
 			.toContain('Added to Photo Gym');
+		// As rendered, not as in source: the owner saw "Friendswoodas" (0.4.5).
+		expect((await page.getByTestId('photo-status').innerText()).replace(/\s+/g, ' ')).toMatch(
+			/^Added to Photo Gym as \S/
+		);
 
 		const row = await photoRow(id);
 		expect(row).toMatchObject({ status: 'confirmed', matchedModelId: catalogRow.id });

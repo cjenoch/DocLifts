@@ -12,8 +12,10 @@
 	</div>{/if}
 <nav
 	aria-label="Main navigation"
-	class="mx-auto flex max-w-lg items-center gap-4 px-4 pt-3 text-sm text-indigo-300"
+	class="mx-auto flex max-w-lg flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3 text-sm whitespace-nowrap text-indigo-300"
 >
+	<!-- flex-wrap + nowrap: on a phone the row wraps between controls instead
+	     of pushing them off screen or breaking a label across lines (0.4.5). -->
 	<a href="/">Home</a><a href="/gyms">Gyms and machines</a><a href="/equipment">Equipment</a><a
 		href="/reports">Reports</a
 	>

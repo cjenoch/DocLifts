@@ -52,8 +52,8 @@
 
 	{#if data.photo.status === 'confirmed'}
 		<p data-testid="photo-status">
-			Added to {data.gym.name}{#if data.resultModel}
-				as <a href={`/equipment/${data.resultModel.id}`} class="text-indigo-300"
+			Added to {data.gym.name}{#if data.resultModel}{' '}as
+				<a href={`/equipment/${data.resultModel.id}`} class="text-indigo-300"
 					>{defaultMachineLabel(data.resultModel)}</a
 				>{/if}.
 		</p>

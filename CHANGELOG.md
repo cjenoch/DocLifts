@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.5 — fits a phone — not yet released
+
+- **The menu fits a phone screen.** "Gyms" was cut off at the left and "Sign
+  out" at the right; the menu now wraps onto a second row instead.
+- **"Added to Gold's Gym Friendswood as …"** has its space back (it read
+  "Friendswoodas").
+
 ## 0.4.4 — photo analysis about four times faster — not yet released
 
 - **Reading a placard takes seconds, not most of a minute.** The model was

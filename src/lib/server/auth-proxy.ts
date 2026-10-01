@@ -246,6 +246,41 @@ export async function signInViaHandler(
 	);
 }
 
+export const CHANGE_PASSWORD_ROUTE = '/api/auth/change-password';
+
+/**
+ * Change the signed-in user's password through Better Auth's own handler.
+ *
+ * `revokeOtherSessions: true` is the whole point. In better-auth 1.7.6
+ * (dist/api/routes/update-user.mjs, `changePassword`) it does, in order:
+ *
+ *   verify currentPassword -> update the hash -> deleteUserSessions(userId)
+ *   -> createSession(userId) -> setSessionCookie
+ *
+ * So every `auth.session` row for the user is deleted — including the one
+ * making this request — and the device in use gets a fresh session on the new
+ * password, which is spec §2 item 1 exactly. The internal `updatePassword`
+ * (what `user:set-password` uses) revokes nothing; this endpoint is the one
+ * that does.
+ *
+ * Through the handler, not `auth.api`, for the same reasons as sign-in: the
+ * rate limiter and the origin check both live in the handler, and the session
+ * is resolved from the forwarded cookie.
+ */
+export async function changePasswordViaHandler(
+	incoming: Headers,
+	passwords: { currentPassword: string; newPassword: string }
+): Promise<Response> {
+	const url = new URL(CHANGE_PASSWORD_ROUTE, authOrigin());
+	return auth.handler(
+		new Request(url, {
+			method: 'POST',
+			headers: forwardedHeaders(incoming, { contentType: 'application/json' }),
+			body: JSON.stringify({ ...passwords, revokeOtherSessions: true })
+		})
+	);
+}
+
 /** The same shape for sign-out, so there is one code path and not two. */
 export async function signOutViaHandler(incoming: Headers): Promise<Response> {
 	const url = new URL(SIGN_OUT_ROUTE, authOrigin());

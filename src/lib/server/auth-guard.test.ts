@@ -34,7 +34,8 @@ describe('isPublicPath', () => {
 			'/programs',
 			'/gyms',
 			'/imported-history',
-			'/sessions/1'
+			'/sessions/1',
+			'/account/password'
 		]) {
 			expect(isPublicPath(p), p).toBe(false);
 		}
@@ -146,6 +147,7 @@ describe('route inventory', () => {
 		// segments are walked as the placeholder `x`.
 		const expectedGuarded = new Set([
 			'/',
+			'/account/password',
 			'/gyms',
 			'/history',
 			'/imported-history',

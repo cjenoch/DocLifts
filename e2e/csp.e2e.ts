@@ -305,6 +305,7 @@ run('production build: CSP and page render', () => {
 		'/programs/{id}',
 		'/programs/{id}/edit',
 		'/sessions/{id}',
+		'/account/password',
 		'/login'
 	] as const;
 	type RoutePattern = (typeof ROUTE_PATTERNS)[number];

@@ -31,7 +31,10 @@
 		already done it for every non-public request.
 	-->
 	{#if data.user}
-		<form method="POST" action="/logout" class="ml-auto">
+		<!-- The change-password control. Same reasoning as sign-out: an action
+		     with no rendered control is unreachable from the UI. -->
+		<a href="/account/password" class="ml-auto text-xs">Password</a>
+		<form method="POST" action="/logout">
 			<button
 				type="submit"
 				class="rounded border border-indigo-700 px-2 py-0.5 text-xs font-semibold text-indigo-200 active:bg-indigo-900"

@@ -99,6 +99,13 @@
       "when": 1790832122794,
       "tag": "0013_llm_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790855643799,
+      "tag": "0014_equipment_model_notes",
+      "breakpoints": true
     }
   ]
 }

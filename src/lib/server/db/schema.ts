@@ -325,6 +325,12 @@ export const equipmentModels = pgTable(
 		/** The catalog snapshot date a global row came from; null on user rows. */
 		catalogSnapshot: date('catalog_snapshot', { mode: 'string' }),
 		/**
+		 * The catalog's own remark on the row (CSV `notes`), e.g. "code unknown —
+		 * verify". Catalog data on global rows; carried onto an owned copy. Since
+		 * 0.3.2 (migration 0014).
+		 */
+		notes: text('notes'),
+		/**
 		 * Optional owner. NULLABLE and therefore not backfilled: NULL means
 		 * "global equipment catalogue entry" — a machine model is reference
 		 * data, not user data, so the existing rows stay shared. A non-NULL

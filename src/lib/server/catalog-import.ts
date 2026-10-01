@@ -53,6 +53,7 @@ const REQUIRED_COLUMNS = [
 	'starting_resistance_basis',
 	'stack_lb',
 	'confidence',
+	'notes',
 	'source',
 	'catalog_snapshot'
 ] as const;
@@ -71,6 +72,8 @@ export type CatalogFields = {
 	confidence: string;
 	sourceUrl: string | null;
 	catalogSnapshot: string;
+	/** The catalog's remark on the row (0.3.2, migration 0014); empty becomes NULL. */
+	notes: string | null;
 };
 const COMPARED: (keyof CatalogFields)[] = [
 	'name',
@@ -82,7 +85,8 @@ const COMPARED: (keyof CatalogFields)[] = [
 	'startingResistanceBasis',
 	'confidence',
 	'sourceUrl',
-	'catalogSnapshot'
+	'catalogSnapshot',
+	'notes'
 ];
 
 export type MappedRow = {
@@ -234,7 +238,8 @@ export function mapCatalogCsv(text: string): {
 				startingResistanceBasis: lb ? basis : null,
 				confidence,
 				sourceUrl,
-				catalogSnapshot: snapshot
+				catalogSnapshot: snapshot,
+				notes: opt(r.notes)
 			},
 			stackLb,
 			stackNote: opt(r.stack_note)
@@ -435,6 +440,7 @@ export async function importCatalog(
 					confidence: f.confidence,
 					sourceUrl: f.sourceUrl,
 					catalogSnapshot: f.catalogSnapshot,
+					notes: f.notes,
 					// A promotion adds the code; an update matched on it, or has none.
 					...(p.kind === 'promote' ? { code: f.code } : {})
 				})
@@ -500,10 +506,13 @@ export function formatImportReport(r: ImportResult): string {
 		out.push(
 			`    ${s.fields.manufacturer} ${s.fields.code ?? s.fields.name}: ${s.stackLb} lb${s.stackNote ? ` (${s.stackNote})` : ''}`
 		);
-	out.push(`  notes: ${r.ignored.notes} row(s) carry a note; notes have no column.`);
 	out.push(
 		`  starting_resistance_kg: ${r.ignored.startingResistanceKg} row(s); the lb value is stored, kg is derived.`
 	);
+	if (r.ignored.notes)
+		out.push(
+			`  (kept) notes: ${r.ignored.notes} row(s) carry a note; stored on the model (equipment_models.notes) and shown on its page.`
+		);
 	if (r.ignored.sourceNotUrl)
 		out.push(
 			`  (kept) source: ${r.ignored.sourceNotUrl} row(s) name their source in words, not a URL; stored as written, shown unlinked.`

@@ -110,6 +110,51 @@ describe('catalog import of the 2026-09-30 seed', () => {
 		});
 	});
 
+	it('imports the CSV notes onto the model (0.3.2)', async () => {
+		const dry = await importCatalog(db, csv, { dryRun: true });
+		const report = formatImportReport(dry);
+		expect(report).toContain('(kept) notes: 298 row(s) carry a note; stored on the model');
+		expect(report).not.toContain('notes have no column');
+		await importCatalog(db, csv, { dryRun: false });
+		const [{ n }] = await db
+			.select({ n: count() })
+			.from(s.equipmentModels)
+			.where(isNotNull(s.equipmentModels.notes));
+		expect(n).toBe(298);
+		const [row] = await db
+			.select()
+			.from(s.equipmentModels)
+			.where(
+				and(
+					eq(s.equipmentModels.manufacturer, 'Nautilus'),
+					eq(s.equipmentModels.name, 'Leverage Row')
+				)
+			);
+		expect(row.notes).toBe('name from training data; code unknown — verify');
+	});
+
+	it('a catalog imported before 0014 gains its notes as 298 updates, 0 inserts', async () => {
+		await importCatalog(db, csv, { dryRun: false });
+		// Production's state after migrating to 0014: every notes value NULL.
+		await db.update(s.equipmentModels).set({ notes: null });
+		const dry = await importCatalog(db, csv, { dryRun: true });
+		expect(totals(dry)).toEqual({ inserted: 0, updated: 298, unchanged: 245, skipped: 0 });
+		expect(
+			dry.plan.filter((p) => p.kind === 'update').every((p) => p.changed.join() === 'notes')
+		).toBe(true);
+		await importCatalog(db, csv, { dryRun: false });
+		const again = await importCatalog(db, csv, { dryRun: false });
+		expect(totals(again)).toEqual({ inserted: 0, updated: 0, unchanged: 543, skipped: 0 });
+	});
+
+	it('a CSV without a notes column is refused, so notes are never wiped by omission', async () => {
+		const table = parseCsv(csv);
+		const at = table[0].indexOf('notes');
+		const without = table.map((r) => r.filter((_, i) => i !== at).join(',')).join('\n');
+		const result = await importCatalog(db, without, { dryRun: false });
+		expect(result.errors).toEqual([{ line: 1, message: 'missing columns: notes' }]);
+	});
+
 	it('is idempotent: the second run changes nothing', async () => {
 		await importCatalog(db, csv, { dryRun: false });
 		const second = await importCatalog(db, csv, { dryRun: false });

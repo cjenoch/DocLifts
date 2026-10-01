@@ -68,6 +68,7 @@ rather than a URL; they are stored as written and shown without a link.
 | `starting_resistance_lb`               | `starting_resistance`          | with `starting_resistance_basis` (`total` / `per_arm`)   |
 | `confidence`, `source`                 | `confidence`, `source_url`     |                                                          |
 | `catalog_snapshot`                     | `catalog_snapshot`             |                                                          |
+| `notes`                                | `notes`                        | since 0.3.2 (migration 0014); empty becomes NULL         |
 
 **Not imported, on purpose**, and listed in every import report so nothing is
 dropped silently:
@@ -76,7 +77,11 @@ dropped silently:
   `gym_equipment.stack_lb`, because manufacturers sell heavier optional stacks
   under the same code. Enter it when adding the machine to a gym.
 - `starting_resistance_kg`. Derived from the lb value.
-- `notes` (298 rows). There is no column for them.
+
+`notes` (298 rows) was in this list until 0.3.2; it is now imported into
+`equipment_models.notes`, and the report counts the rows that carry one as
+`(kept) notes`. The importer requires the column, so a CSV without it is
+refused rather than clearing every note.
 
 ## The importer
 
@@ -99,7 +104,7 @@ pnpm catalog:import data/catalog/equipment_models_seed_2026-09-30.csv
   `equipment_models_catalog_code_unique`.
 - **On a match**, only the catalog columns change (`name`, `product_line`,
   `loading_type`, `laterality`, `body_region`, `starting_resistance*`,
-  `confidence`, `source_url`, `catalog_snapshot`). `owner_user_id` is never
+  `confidence`, `source_url`, `catalog_snapshot`, `notes`). `owner_user_id` is never
   touched, and a row with an owner is never matched.
 - **A code added to a codeless model is a promotion, not a new row** (since
   0.3.2). When a CSV row has a code and no global row has that
@@ -156,12 +161,18 @@ where owner_user_id is null and catalog_snapshot = '2026-09-30'
 
 - `/equipment`: GET-form filters (manufacturer, then product line as a second
   step; loading type; body region; `q` against name and code), 50 per page.
-- `/equipment/[id]`: every field, your gyms that have one, and "add to a gym"
-  (gym, local label, optional stack and increment in lb).
+- `/equipment/[id]`: every field including the catalog's notes, your gyms
+  that have one, and "add to a gym" (gym, optional local label, optional stack
+  and increment in lb). A blank label stores `<manufacturer> <name>` plus
+  ` (<code>)` when there is one, e.g. "Hammer Strength Iso-Lateral Row
+  (IL-ROW)"; the field's placeholder shows it.
 - `/equipment/[id]/edit`: your own model's starting resistance, basis and
-  laterality; or, on a catalog row, "create my own copy".
+  laterality; or, on a catalog row, "create my own copy" (it carries the
+  notes).
 - `/gyms`: the known-model picker shows the models of manufacturers already in
-  the selected gym, with "Show all manufacturers" and a search box.
+  the selected gym, with "Show all manufacturers" and a search box. The label
+  is optional there too when a model is chosen or typed in; with no model it
+  is required.
 
 ## Known data questions
 

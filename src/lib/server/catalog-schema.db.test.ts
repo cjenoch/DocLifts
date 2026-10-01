@@ -22,6 +22,18 @@ beforeEach(async () => {
 	[{ id: userId }] = await resetTestDbWithUsers(db, handle.client, 1, 'catalog-schema');
 });
 
+describe('0014 equipment model notes', () => {
+	it('adds a nullable text notes column with no default', async () => {
+		const cols = await handle.client<
+			{ is_nullable: string; column_default: string | null; data_type: string }[]
+		>`
+			SELECT is_nullable, column_default, data_type
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'equipment_models' AND column_name = 'notes'`;
+		expect(cols).toEqual([{ is_nullable: 'YES', column_default: null, data_type: 'text' }]);
+	});
+});
+
 describe('0012 equipment catalog schema', () => {
 	it('adds the catalog columns with their defaults and nullability', async () => {
 		const cols = await handle.client<

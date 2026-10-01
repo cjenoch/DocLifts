@@ -260,6 +260,9 @@ run('equipment pages (production build)', () => {
 			);
 		const page = await signedInPage();
 		await page.goto(`${origin}/equipment/${global.id}`, { waitUntil: 'networkidle' });
+		// 0.3.2: the catalog's notes are on the page, and travel with the copy.
+		expect(global.notes).toBe('reseller spec');
+		expect(await page.getByTestId('model-notes').textContent()).toBe('reseller spec');
 		await page.getByRole('link', { name: 'Numbers wrong? Create your own copy' }).click();
 		await page.waitForURL('**/edit');
 		await page.getByLabel('Starting resistance (lb)').fill('15');
@@ -275,7 +278,13 @@ run('equipment pages (production build)', () => {
 			.select()
 			.from(s.equipmentModels)
 			.where(eq(s.equipmentModels.id, copyId));
-		expect(copy).toMatchObject({ ownerUserId: userId, confidence: 'user', startingResistance: 15 });
+		expect(copy).toMatchObject({
+			ownerUserId: userId,
+			confidence: 'user',
+			startingResistance: 15,
+			notes: 'reseller spec'
+		});
+		expect(await page.getByTestId('model-notes').textContent()).toBe('reseller spec');
 
 		await page.getByRole('link', { name: 'Edit starting resistance and laterality' }).click();
 		await page.waitForURL('**/edit');

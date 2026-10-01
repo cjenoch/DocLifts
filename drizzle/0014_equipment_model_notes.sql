@@ -1,0 +1,1 @@
+ALTER TABLE "equipment_models" ADD COLUMN "notes" text;

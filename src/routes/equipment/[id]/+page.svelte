@@ -48,6 +48,8 @@
 		</dd>
 		<dt class="text-zinc-400">Catalog date</dt>
 		<dd>{m.catalogSnapshot ?? '—'}</dd>
+		<dt class="text-zinc-400">Notes</dt>
+		<dd data-testid="model-notes">{m.notes || '—'}</dd>
 	</dl>
 	<a href={`/equipment/${m.id}/edit`} class="inline-block text-sm text-indigo-300"
 		>{mine ? 'Edit starting resistance and laterality' : 'Numbers wrong? Create your own copy'}</a

@@ -26,6 +26,8 @@ import {
 	startTestServer
 } from '$lib/server/test-auth-helpers';
 import * as s from '$lib/server/db/schema';
+import sharp from 'sharp';
+import { photoClientSettings } from '$lib/photo-client';
 import { FIXTURE_CANDIDATE, phonePhoto, smallPng } from '$lib/server/photos/test-fixtures';
 import { postPhoto, reviewedPhotoId } from './photo-upload';
 
@@ -53,6 +55,7 @@ if (missing.length) console.warn(`[e2e] skipped — missing ${missing.join('; ')
 declare global {
 	interface Window {
 		__cspViolations: string[];
+		__buttonLabels: string[];
 	}
 }
 
@@ -62,6 +65,7 @@ const B_EMAIL = 'photo-scratch-b@test.local';
 run('equipment from a photo (production build)', () => {
 	let harness: Awaited<ReturnType<typeof setupTestDb>>;
 	let stopServer = async () => {};
+	let serverLog: () => string = () => '';
 	let origin: string;
 	let cookieA: string;
 	let cookieB: string;
@@ -99,6 +103,7 @@ run('equipment from a photo (production build)', () => {
 		const started = await startTestServer();
 		origin = started.origin;
 		stopServer = started.stop;
+		serverLog = started.log;
 		cookieA = await signInAs(origin, { email: A_EMAIL });
 		cookieB = await signInAs(origin, { email: B_EMAIL });
 		browser = await chromium.launch({ executablePath });
@@ -110,8 +115,8 @@ run('equipment from a photo (production build)', () => {
 		await harness?.end();
 	});
 
-	async function signedInPage(cookie = cookieA): Promise<Page> {
-		const page = await browser.newPage();
+	async function signedInPage(cookie = cookieA, { javaScriptEnabled = true } = {}): Promise<Page> {
+		const page = await (await browser.newContext({ javaScriptEnabled })).newPage();
 		const at = cookie.indexOf('=');
 		await page.context().addCookies([
 			{
@@ -154,6 +159,37 @@ run('equipment from a photo (production build)', () => {
 			.update(s.equipmentPhotos)
 			.set({ status: 'analyzed', candidate })
 			.where(eq(s.equipmentPhotos.id, id));
+
+	/** The server's `photo_upload` log line(s) for one photo id, or for a refusal. */
+	const uploadLines = () =>
+		serverLog()
+			.split('\n')
+			.filter((l) => l.startsWith('{"event":"photo_upload"'))
+			.map((l) => JSON.parse(l) as Record<string, unknown>);
+	const uploadLine = async (photoId: string) => {
+		await expect.poll(() => uploadLines().filter((l) => l.photoId === photoId)).toHaveLength(1);
+		return uploadLines().find((l) => l.photoId === photoId)!;
+	};
+	/** Mean red and blue of the top and bottom quarter of a stored image. */
+	async function bands(jpeg: Buffer) {
+		const { data, info } = await sharp(jpeg).raw().toBuffer({ resolveWithObject: true });
+		const mean = (fromRow: number, toRow: number) => {
+			let r = 0;
+			let b = 0;
+			let n = 0;
+			for (let y = fromRow; y < toRow; y++) {
+				for (let x = 0; x < info.width; x++) {
+					const i = (y * info.width + x) * info.channels;
+					r += data[i];
+					b += data[i + 2];
+					n++;
+				}
+			}
+			return { r: r / n, b: b / n };
+		};
+		const q = Math.floor(info.height / 4);
+		return { top: mean(0, q), bottom: mean(info.height - q, info.height) };
+	}
 
 	async function uploadFromPage(page: Page, bytes: Buffer, note = ''): Promise<string> {
 		await page.goto(`${origin}/gyms`, { waitUntil: 'networkidle' });
@@ -238,6 +274,85 @@ run('equipment from a photo (production build)', () => {
 		expect((await photoRow(id)).status).toBe('uploaded');
 		expect(await violations(page)).toEqual([]);
 		await page.close();
+	});
+
+	it('resized on the phone: a 4000x3000 photo arrives smaller and upright, measured in the log, and reaches review', async () => {
+		// 0.5.0 Part A, from the rendered page in Chromium: the enhanced submit
+		// swaps the photo for the browser's resize before the POST.
+		expect(phone.byteLength).toBeGreaterThan(2 * 1024 * 1024);
+		const page = await signedInPage();
+		await page.goto(`${origin}/gyms/${gymA}/equipment/photo`, { waitUntil: 'networkidle' });
+		await page
+			.getByLabel('Photo')
+			.setInputFiles({ name: 'IMG_0420.JPG', mimeType: 'image/jpeg', buffer: phone });
+		// Every label the button shows on the way. The enhanced submit moves to
+		// review without a page load, so the record survives the navigation.
+		await page.getByRole('button', { name: 'Upload photo' }).evaluate((button) => {
+			window.__buttonLabels = [];
+			new MutationObserver(() => window.__buttonLabels.push(button.textContent ?? '')).observe(
+				button,
+				{ childList: true, characterData: true, subtree: true }
+			);
+		});
+		await page.getByRole('button', { name: 'Upload photo' }).click();
+		await page.waitForURL('**/photos/*/review**');
+		const id = new URL(page.url()).pathname.split('/')[2];
+		const { preparing, uploading } = photoClientSettings.labels;
+		const shown = await page.evaluate(() => window.__buttonLabels);
+		expect(shown.slice(0, 2)).toEqual([preparing, uploading]);
+
+		const line = await uploadLine(id);
+		expect(line).toMatchObject({
+			outcome: 'stored',
+			clientOriginalBytes: phone.byteLength,
+			clientResized: true
+		});
+		const received = line.receivedBytes as number;
+		// What crossed the wire: well under half the original, and under the
+		// spec's 1.5 MB for a 4 MB phone photo.
+		expect(received).toBeLessThan(phone.byteLength / 2);
+		expect(received).toBeLessThan(1.5 * 1024 * 1024);
+
+		// The server still did its whole job on what arrived: 1600 px, upright
+		// (the fixture is stored sideways with EXIF orientation 6, red on the
+		// left as stored, so upright means red on TOP).
+		const row = await photoRow(id);
+		expect(row).toMatchObject({ status: 'uploaded', width: 1200, height: 1600 });
+		expect(line.storedBytes).toBe(row.bytes);
+		const image = await fetch(`${origin}/photos/${id}/image`, { headers: { cookie: cookieA } });
+		const { top, bottom } = await bands(Buffer.from(await image.arrayBuffer()));
+		expect(top.r).toBeGreaterThan(150);
+		expect(top.b).toBeLessThan(80);
+		expect(bottom.b).toBeGreaterThan(150);
+		expect(bottom.r).toBeLessThan(80);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
+
+	it('with JavaScript off, the form posts the original photo, as before 0.5.0', async () => {
+		const page = await signedInPage(cookieA, { javaScriptEnabled: false });
+		const id = await uploadFromPage(page, phone);
+		expect(await uploadLine(id)).toMatchObject({
+			outcome: 'stored',
+			receivedBytes: phone.byteLength,
+			clientOriginalBytes: null,
+			clientResized: null
+		});
+		expect(await photoRow(id)).toMatchObject({ status: 'uploaded', width: 1200, height: 1600 });
+		await page.close();
+	});
+
+	it('the client measurement fields are never trusted: nonsense is logged as null and changes nothing', async () => {
+		const res = await postPhoto(origin, cookieB, gymB, await smallPng(), {
+			fields: { clientOriginalBytes: '99999999999999', clientResized: 'yes' }
+		});
+		const id = reviewedPhotoId(res);
+		expect(await uploadLine(id)).toMatchObject({
+			outcome: 'stored',
+			clientOriginalBytes: null,
+			clientResized: null
+		});
+		expect((await photoRow(id)).status).toBe('uploaded');
 	});
 
 	it('link from the page: the gym_equipment row exists with the photo attached, and thumbnails show', async () => {

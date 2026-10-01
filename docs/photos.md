@@ -247,6 +247,94 @@ the gym80 maker correctly where Claude Haiku 4.5 took the product line for it.
 The comparison is in `docs/release-0.2.0.md` §22. Changing model is one env
 line and a restart; `complete()` and the wire schema are model-neutral.
 
+## Resize on the phone (0.5.0)
+
+Before the POST, the browser shrinks the photo, so a 3-5 MB camera photo
+crosses the network as a few hundred KB. It is a speed-up only: the server
+still validates, orients, resizes to 1600 px, re-encodes and strips every
+upload (`processPhoto`, unchanged), and trusts nothing the browser did.
+`PHOTO_MAX_BYTES` and `BODY_SIZE_LIMIT` are unchanged, because the fallback
+still sends full-size photos.
+
+**The settings are one object**, `photoClientSettings` in
+`src/lib/photo-client.ts`. Changing a value there is the whole
+reconfiguration; no value is repeated anywhere else, tests included.
+
+| Setting            | Value                  | Meaning                                                        |
+| ------------------ | ---------------------- | -------------------------------------------------------------- |
+| `enabled`          | `true`                 | `false` sends the original file untouched                      |
+| `maxEdgePx`        | `2000`                 | Longest edge after resizing; never upscaled                    |
+| `jpegQuality`      | `0.88`                 | Canvas JPEG quality, 0 to 1                                    |
+| `skipBelowBytes`   | `700000`               | Files smaller than this are sent as they are                   |
+| `timeoutMs`        | `4000`                 | Give up resizing after this and send the original              |
+| `labels.preparing` | `Preparing photo`      | Upload button while the photo is resized                       |
+| `labels.uploading` | `Identifying machine…` | Upload button from the POST until review (upload and the read) |
+
+2000 rather than 1600 gives the server one clean downscale instead of a
+second JPEG pass at the same size (spec 0.5.0). Try 1600 once the placard
+comparison has passed.
+
+**How it works.** `resizeForUpload(file, settings?)` decodes with
+`createImageBitmap(file, { imageOrientation: 'from-image' })`, so the EXIF
+orientation is applied to the pixels; draws onto a canvas that is never put
+in the page; and exports with `toBlob('image/jpeg', jpegQuality)`. The
+canvas JPEG carries no metadata. The second argument overrides any setting
+for one call (the tests use it; nothing in the app does).
+
+**When the original is sent instead** — always the very same `File`, with no
+message:
+
+- `enabled` is `false`, or the file is under `skipBelowBytes`;
+- the photo is already within `maxEdgePx` (nothing is upscaled);
+- the browser has no `createImageBitmap` or canvas, cannot decode the file
+  (a non-image, or HEIC on a browser that cannot read it), or will not
+  export a JPEG;
+- the resized JPEG is not smaller than the original;
+- `timeoutMs` passes first.
+
+The server's own checks and messages, HEIC included, then apply to the
+original as before.
+
+**Wiring.** The photo form uses `use:enhance`. Its submit callback runs
+`resizeForUpload` and replaces the `photo` entry in the `FormData` before the
+POST; the action's redirect to review then happens as a client-side
+navigation, and a refusal shows its message as before. With JavaScript off,
+`use:enhance` never runs and the form posts the original as it always has.
+
+**Measurement.** The enhanced form also sends `clientOriginalBytes` (the
+chosen file's size) and `clientResized` (`1` or `0`). The upload action writes
+one JSON line per upload:
+
+```
+{"event":"photo_upload","clientOriginalBytes":2513122,"clientResized":true,"receivedBytes":663080,"outcome":"stored","storedBytes":350700,"photoId":"…"}
+```
+
+`receivedBytes` is what actually arrived; `storedBytes` is what `processPhoto`
+kept. The two client fields are what the browser says, parsed defensively
+(`photos/upload-log.ts`: anything but a plain integer, or `1`/`0`, is `null`)
+and used for this line only. Validation and storage read the received file
+alone. A no-JS upload logs both as `null`. `outcome` is `refused` (no photo
+id) when the upload was turned away.
+
+```sh
+scripts/compose-prod.sh logs web | grep '"event":"photo_upload"'
+```
+
+**Turning it off:** set `enabled: false` in `src/lib/photo-client.ts` and
+deploy. Every photo is then sent as chosen, exactly as before 0.5.0 (the
+button labels and the two measurement fields remain; `clientResized` is `0`).
+
+**Tests:** `photo-client.test.ts` (the size math, Node's missing
+`createImageBitmap`), `photo-client.svelte.test.ts` (Chromium: a generated
+4000 × 3000 JPEG comes back a smaller JPEG at 2000 × 1500; a sideways EXIF-6
+JPEG comes back upright; a non-image, `enabled: false`, small files, photos
+within the limit and the timeout all return the original),
+`photos/upload-log.test.ts` (the defensive parse), and `e2e/photos.e2e.ts` on
+the served build (the 2.5 MB fixture, uploaded from the page, arrives as
+about 0.65 MB with `clientResized` logged, upright, and reaches review; with
+JavaScript off the full file arrives; nonsense client fields are logged as
+`null` and change nothing).
+
 ## Known gaps (first real use, 2026-10-01)
 
 - **The gym80 logo is misread** ("Dyumbo", "Gymbo") or the product line is

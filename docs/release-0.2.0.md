@@ -2023,3 +2023,19 @@ google/gemini-3.5-flash-lite   1.9 s / 1.3 s / $0.0011  one 9 s outlier
 
 Production after 0.4.6 (21:05 UTC): 15 photos (8 confirmed, 5 analyzed and
 waiting on the owner's review, 2 discarded); flash-lite analyses 2.4-2.7 s.
+
+## 24. 0.5.0 Part A — resize photos on the phone — NOT deployed
+
+Code only. No migration, no new environment variable, no change to
+`docker-compose.yml`, `PHOTO_MAX_BYTES` or `BODY_SIZE_LIMIT`. Deploying it is
+the ordinary build and `up`, like §22, with no extra step.
+
+The settings live in `src/lib/photo-client.ts` (`photoClientSettings`); to
+turn the resize off, set `enabled: false` there and redeploy. The upload log
+line is `{"event":"photo_upload",…}`; see `docs/photos.md`, "Resize on the
+phone".
+
+Before tagging, per the spec's "accept when", on a real iPhone and a real
+Android phone: a ~4 MB photo arrives under 1.5 MB (`receivedBytes` in the log
+line) and upright; at least five of the owner's placards read the same with
+`enabled` true and false.

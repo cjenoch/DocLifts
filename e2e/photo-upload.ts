@@ -9,11 +9,17 @@ export async function postPhoto(
 	cookie: string,
 	gymId: string,
 	bytes: Uint8Array,
-	{ type = 'image/jpeg', name = 'placard.jpg', note = '' } = {}
+	{
+		type = 'image/jpeg',
+		name = 'placard.jpg',
+		note = '',
+		fields = {} as Record<string, string>
+	} = {}
 ): Promise<Response> {
 	const form = new FormData();
 	form.append('photo', new Blob([bytes], { type }), name);
 	form.append('note', note);
+	for (const [k, v] of Object.entries(fields)) form.append(k, v);
 	return fetch(new URL(`/gyms/${gymId}/equipment/photo?/upload`, origin), {
 		method: 'POST',
 		headers: { cookie, origin, accept: 'text/html' },

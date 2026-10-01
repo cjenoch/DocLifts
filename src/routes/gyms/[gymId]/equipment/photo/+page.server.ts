@@ -8,6 +8,7 @@ import { analyzePhoto } from '$lib/server/photos/analyze';
 import { photoFailure } from '$lib/server/photos/http';
 import { resolvePhotoLimits } from '$lib/server/photos/config';
 import { photoStore } from '$lib/server/photos/store';
+import { clientMeasurement, logUpload } from '$lib/server/photos/upload-log';
 import type { Actions, PageServerLoad } from './$types';
 
 // The gym must be the caller's: another user's gym is a 404, identical to an
@@ -45,8 +46,12 @@ export const actions: Actions = {
 			return fail(400, { message: 'Choose a photo to upload.' });
 		}
 		const note = String(form.get('note') ?? '').slice(0, 200);
+		// What the browser says it did, for the log line only. Never trusted:
+		// nothing below reads it, and validation and storage see only `file`.
+		const measured = { ...clientMeasurement(form), receivedBytes: file.size };
 		const store = photoStore;
 		let target: string;
+		let stored = false;
 		try {
 			const limits = resolvePhotoLimits();
 			const photo = await uploadPhoto(
@@ -61,6 +66,8 @@ export const actions: Actions = {
 				{ store: store(), limits }
 			);
 			if (!photo) error(404, 'Gym not found');
+			stored = true;
+			logUpload({ ...measured, outcome: 'stored', storedBytes: photo.bytes, photoId: photo.id });
 			// Analysis runs inline: one request from photo to review. A failed
 			// analysis leaves the photo `uploaded` (llm_calls records why) and
 			// is not a failed upload; the review page says so and offers a retry.
@@ -77,6 +84,7 @@ export const actions: Actions = {
 				target += '?analysis=limit';
 			}
 		} catch (e) {
+			if (!stored) logUpload({ ...measured, outcome: 'refused', storedBytes: null, photoId: null });
 			return photoFailure(e);
 		}
 		redirect(303, target);

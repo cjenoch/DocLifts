@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 — photos upload faster — not yet released
+
+- **Photos shrink on your phone before they upload.** A camera photo is 3 to
+  5 MB; the browser now resizes it (longest side 2000 px) before sending, so
+  far less goes over gym Wi-Fi or cellular. In testing a 2.5 MB photo went up
+  as about 0.65 MB. The server still checks and processes every photo exactly
+  as before, so what is stored and read is unchanged.
+- **If resizing doesn't work, nothing breaks.** A format the phone can't
+  resize, an old browser, or a resize that takes more than 4 seconds just
+  sends the original photo, as before. With JavaScript off the original is
+  sent, as before.
+- **The button says what is happening:** "Preparing photo" while it is
+  resized, then "Identifying machine…" while it uploads and the placard is
+  read.
+
 ## 0.4.7 — Home shows only your programs — not yet released
 
 - **Home lists only your own programs.** It listed every account's active

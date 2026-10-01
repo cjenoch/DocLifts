@@ -11,7 +11,9 @@ import { readFileSync } from 'node:fs';
 import {
 	DEFAULT_THROTTLE_CONFIG,
 	LoginThrottle,
+	nextLoginDelayMs,
 	normalizeEmail,
+	recordLoginFailure,
 	THROTTLE_ENV,
 	throttleConfigFromEnv,
 	throttleConfigLogLine,
@@ -394,5 +396,54 @@ describe('LOGIN_MAX_FAILURES=0 disables the ceiling', () => {
 	it('a negative ceiling is refused at startup rather than silently meaning 0', () => {
 		// The constructor takes the config positionally, not as an object.
 		expect(() => new LoginThrottle({ ...DEFAULT_THROTTLE_CONFIG, maxFailures: -1 })).toThrow();
+	});
+});
+
+describe('nextLoginDelayMs — the wait the page announces before it happens', () => {
+	// Production's shape: ceiling off, so the delay curve is the only control.
+	const config = { ...DEFAULT_THROTTLE_CONFIG, maxFailures: 0 };
+	const keys = { ip: '203.0.113.7', email: 'scratch-test@doclifts.invalid' };
+
+	it('is the delay the next check will serve, at every step of the curve', () => {
+		const t = new LoginThrottle(config, fakeClock().now);
+		const announced: number[] = [];
+		const served: number[] = [];
+		for (let i = 0; i < 12; i++) {
+			announced.push(nextLoginDelayMs(t, keys));
+			const d = t.check([
+				{ type: 'email', value: keys.email },
+				{ type: 'ip', value: keys.ip }
+			]);
+			served.push(d.kind === 'delay' ? d.delayMs : 0);
+			recordLoginFailure(t, keys);
+		}
+		// What the user is told is what they then wait — 1, 2, 4, 8, 16, 30 s.
+		expect(announced).toEqual(served);
+		expect(announced).toEqual([0, 0, 0, 0, 0, 1000, 2000, 4000, 8000, 16000, 30000, 30000]);
+	});
+
+	it('records nothing: asking twice does not make the next attempt slower', () => {
+		const t = new LoginThrottle(config, fakeClock().now);
+		for (let i = 0; i < 5; i++) recordLoginFailure(t, keys);
+		expect(nextLoginDelayMs(t, keys)).toBe(1000);
+		expect(nextLoginDelayMs(t, keys)).toBe(1000);
+	});
+
+	it('is the same for an address with no account as for one with — keyed only on failures', () => {
+		const t = new LoginThrottle(config, fakeClock().now);
+		const real = { ip: '198.51.100.1', email: 'scratch-test@doclifts.invalid' };
+		const fake = { ip: '198.51.100.2', email: 'nobody-at-all@doclifts.invalid' };
+		for (let i = 0; i < 6; i++) {
+			recordLoginFailure(t, real);
+			recordLoginFailure(t, fake);
+		}
+		expect(nextLoginDelayMs(t, real)).toBe(2000);
+		expect(nextLoginDelayMs(t, fake)).toBe(nextLoginDelayMs(t, real));
+	});
+
+	it('is 0 when the next attempt will be refused outright, which answers at once', () => {
+		const t = new LoginThrottle(DEFAULT_THROTTLE_CONFIG, fakeClock().now);
+		for (let i = 0; i < DEFAULT_THROTTLE_CONFIG.maxFailures; i++) recordLoginFailure(t, keys);
+		expect(nextLoginDelayMs(t, keys)).toBe(0);
 	});
 });

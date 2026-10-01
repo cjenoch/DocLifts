@@ -206,10 +206,17 @@ export type ThrottleKeys = { ip: string | null; email: string };
  * The pre-check the login action runs before touching Better Auth.
  *
  * Returns `refuse` (do not call the proxy at all) or `delay` (wait, then
- * proceed). The delay is server-side on purpose: a refused request is a clean
- * 429 the page can explain, but a delay before the 6th wrong guess is
- * indistinguishable from a slow network, which is the point — it costs the
- * guesser time without telling them they are being counted.
+ * proceed). The delay is server-side on purpose: it costs a guesser the time
+ * whether or not their client cooperates.
+ *
+ * It is NOT silent (spec item 4, 0.2.5). Before 0.2.5 a delayed attempt was
+ * indistinguishable from a slow network, on the theory that a guesser should
+ * not learn they are being counted. With the ceiling off in production the
+ * delay is the only control, and at 30 s a silent wait reads as a hung page to
+ * the person it is most likely to hit — the owner, mistyping. So the login
+ * action reports the wait it just served and, via `nextLoginDelayMs`, the wait
+ * the next attempt will be held for. Neither depends on whether the account
+ * exists: both keys count failures for any address, real or not.
  */
 export async function checkLoginThrottle(
 	throttle: LoginThrottle,
@@ -248,6 +255,20 @@ export function buildKeys({ ip, email }: ThrottleKeys): ThrottleKey[] {
 	const keys: ThrottleKey[] = [{ type: 'email', value: normalizeEmail(email) }];
 	if (ip) keys.push({ type: 'ip', value: ip });
 	return keys;
+}
+
+/**
+ * The delay the NEXT attempt with these keys would be held for, in ms, without
+ * serving it, logging it, or recording anything. 0 when the next attempt is
+ * allowed straight through — and also when it would be REFUSED, because a
+ * refusal answers at once with its own message, so there is no wait to warn of.
+ *
+ * Read after a failure is recorded, so the page can say how long the next
+ * submit will hang before it hangs.
+ */
+export function nextLoginDelayMs(throttle: LoginThrottle, keys: ThrottleKeys): number {
+	const decision = throttle.check(buildKeys(keys));
+	return decision.kind === 'delay' ? decision.delayMs : 0;
 }
 
 /** Record a failed attempt against every key. */

@@ -37,6 +37,18 @@ LLM adapter foundation (no user-visible features yet).
 - Live workout pages no longer carry the whole model list, which they never
   used.
 
+## Unreleased — 0.2.5
+
+- **The sign-in page says when it is making you wait.** After five failed
+  sign-ins each further attempt is held before the password is checked — 1,
+  2, 4, 8, 16, then 30 seconds — and until now the page just hung. The
+  failure that starts the delay now says how long the next attempt will be
+  held; a held attempt says how long it was held and how long the next will
+  be; and while a held attempt is in flight the page counts down. The message
+  sits beside "That email and password do not match", not in place of it, and
+  works without JavaScript. Nothing about the throttle itself changed, and an
+  address with no account sees exactly the same notice as one with.
+
 ## Unreleased — 0.2.2
 
 Three changes, all from one incident: being locked out of your own account with

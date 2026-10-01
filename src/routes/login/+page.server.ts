@@ -6,12 +6,23 @@ import {
 	checkLoginThrottle,
 	clearLoginFailures,
 	loginThrottle,
+	nextLoginDelayMs,
 	recordLoginFailure,
 	type ThrottleKeys
 } from '$lib/server/login-throttle';
 import { isSafeNext } from '$lib/server/request-user';
 import { errorCodeFrom, logLoginAttempt } from '$lib/server/login-attempt-log';
 import type { Actions, PageServerLoad } from './$types';
+
+/**
+ * The throttle's wait, as the page states it (spec item 4: never a silent
+ * wait). Whole seconds, rounded UP, so a sub-second hold reads "1 second" and
+ * never "0 seconds"; null when there was no wait at all.
+ */
+const toSeconds = (ms: number): number | null => (ms > 0 ? Math.ceil(ms / 1000) : null);
+
+/** No throttle wait to report: validation and the refusal never sleep. */
+const NO_WAIT = { heldSeconds: null, nextDelaySeconds: null };
 
 export const load: PageServerLoad = async ({ request }) => {
 	// `locals.user` is NOT set on this route: the guard resolves the session
@@ -41,7 +52,12 @@ export const actions: Actions = {
 				email,
 				password
 			});
-			return fail(400, { email, error: 'Enter your email and password.', retryAfter: null });
+			return fail(400, {
+				email,
+				error: 'Enter your email and password.',
+				retryAfter: null,
+				...NO_WAIT
+			});
 		}
 
 		// Failure-only throttle, BEFORE the proxy call. See login-throttle.ts for
@@ -53,6 +69,17 @@ export const actions: Actions = {
 		// nothing about whether the account exists or the password is right.
 		const throttleKeys: ThrottleKeys = { ip: clientIpFrom(request.headers), email };
 		const decision = await checkLoginThrottle(loginThrottle, throttleKeys);
+		// How long THIS attempt was held, and — read after the outcome is known —
+		// how long the next will be. Every failure below reports both, whatever
+		// its own reason, so the page can say why the submit hung and that the
+		// next one will too. Keyed on the same IP and email hashes as the
+		// throttle itself, so an address with no account gets exactly the same
+		// numbers as one with: the notice is no enumeration oracle.
+		const heldMs = decision.kind === 'delay' ? decision.delayMs : 0;
+		const waits = () => ({
+			heldSeconds: toSeconds(heldMs),
+			nextDelaySeconds: toSeconds(nextLoginDelayMs(loginThrottle, throttleKeys))
+		});
 		if (decision.kind === 'refuse') {
 			logLoginAttempt(request, {
 				ok: false,
@@ -66,7 +93,8 @@ export const actions: Actions = {
 			return fail(429, {
 				email,
 				error: `Too many failed sign-in attempts. Try again in about ${decision.retryAfterSeconds} seconds.`,
-				retryAfter: String(decision.retryAfterSeconds)
+				retryAfter: String(decision.retryAfterSeconds),
+				...NO_WAIT
 			});
 		}
 
@@ -122,7 +150,8 @@ export const actions: Actions = {
 				// header is null), so fall back to the limiter's own window. The
 				// header is still preferred if a future version adds it, because
 				// then the library is authoritative and this is not.
-				retryAfter: result.headers.get('retry-after') ?? String(SIGN_IN_WINDOW_SECONDS)
+				retryAfter: result.headers.get('retry-after') ?? String(SIGN_IN_WINDOW_SECONDS),
+				...waits()
 				// Every fail() above returns the same key with null, so the
 				// action's return type is one shape rather than a union the page
 				// component then has to narrow.
@@ -149,7 +178,8 @@ export const actions: Actions = {
 				email,
 				error:
 					'Sign-in was blocked by a security check before your password was checked. This is a bug, not a wrong password.',
-				retryAfter: null
+				retryAfter: null,
+				...waits()
 			});
 		}
 
@@ -169,7 +199,12 @@ export const actions: Actions = {
 				email,
 				password
 			});
-			return fail(400, { email, error: 'That email and password do not match.', retryAfter: null });
+			return fail(400, {
+				email,
+				error: 'That email and password do not match.',
+				retryAfter: null,
+				...waits()
+			});
 		}
 
 		// Forward Better Auth's own Set-Cookie, PARSED. `cookies.set` takes a

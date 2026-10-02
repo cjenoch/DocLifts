@@ -130,8 +130,7 @@
 							<button
 								class="min-h-11 w-full rounded px-2 text-left text-indigo-200 active:bg-zinc-800"
 								disabled={model.id === m.equipmentModelId}
-								>{modelLabel(model)}<span class="text-zinc-500">
-									· {model.loadingType}</span
+								>{modelLabel(model)}<span class="text-zinc-500">{` · ${model.loadingType}`}</span
 								></button
 							>
 						</form>

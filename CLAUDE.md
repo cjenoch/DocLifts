@@ -145,6 +145,29 @@ like a scoping bug. It is neither. Pass
 - **The gate is `pnpm test:e2e`** (`e2e/csp.e2e.ts`). It serves the production build, loads every route plus a client-side navigation in Chromium, and fails on any CSP violation or any app element carrying a `style` attribute. **"Every route" is enforced, not assumed:** `ROUTE_PATTERNS` lists every pattern and a test fails by name if any is listed but never reached — that assertion is what caught a shipping `unsafe-eval` violation on the two program-editor routes, which the earlier five-route crawl never visited. Add a route to that table when you add a route. Run it after any change to the CSP, to `app.html`, or to dependencies that render UI. It needs `pnpm build` first and a Chromium Playwright can launch (`PW_EXECUTABLE_PATH` if not the bundled one). **Locally it skips itself, with one warning line, when either is missing; set `CI=1` to make that a failure.** CI always runs it in required mode.
 - **One tolerated exception, by name:** SvelteKit's own `#svelte-announcer` live region raises a `style-src-attr` violation on every page. The framework hides it through the CSS object model anyway, so it has no visible effect. The e2e test ignores that single violation and asserts the announcer stays visually hidden after navigation. Do not widen the CSP for it, and do not add a second exception without the same proof.
 
+### The phone is the primary device
+
+The owner uses DocLifts on an iPhone at the gym, one-handed, between sets. Five
+of the first day's bugs (2026-10-01) passed every test and were found in his
+first ten minutes of real use. So (SPEC 0.5.0 Part E):
+
+- **Every route works at 390 px wide:** no sideways scroll, and the tab bar is
+  one row at the bottom. `e2e/csp.e2e.ts` crawls every route at 390 px and
+  fails on either; a new route joins `ROUTE_PATTERNS` and gets both crawls.
+- **Tap targets are at least 44 px high.**
+- **One bar at the bottom at a time.** An open workout's own bar replaces the
+  tabs (`workoutBar` from the session load); never stack two fixed bars.
+- **Inputs carry the attributes a phone keyboard reads:** `autocomplete`,
+  `autocapitalize`, `inputmode` (numeric keypads for loads and reps) and
+  `spellcheck` where they matter.
+- **A file input never forces the camera:** no `capture` attribute, so the
+  phone offers the camera, the photo library and files.
+- **Check text as rendered** (`innerText`, a screenshot), not `textContent`:
+  Svelte drops whitespace at the start of an `{#if}` block.
+- **Safe areas:** the page uses `viewport-fit=cover`; anything fixed to an
+  edge pads itself with `env(safe-area-inset-*)`.
+- **Specs carry a "how this is used on a phone" line.**
+
 ### No `$env/dynamic/*` reads at module scope in server code
 
 On adapter-node, `$env/dynamic/private` is populated by SvelteKit's
@@ -662,6 +685,9 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `scripts/catalog-prod.sh` — runs the importer against production (verified dump, dry run, typed confirmation). Mirrors `migrate-prod.sh`. Takes a committed CSV by a path relative to the repo root, or (0.5.1) a readable CSV outside the repo by absolute path, bind-mounted read-only at `/import/catalog.csv`; anything else is refused. The path rules are `resolve_catalog_csv` in `scripts/catalog-csv-path.sh`, tested by sourcing only that file (`catalog-prod.test.ts`); the wrapper is never run by a test.
 - `src/lib/server/llm/` — the LLM seam: `complete()` and `usageForUser()` (`index.ts`, `usage.ts`), lazy env config (`config.ts`), the provider switch (`provider.ts`), the per-user cap (`cap.ts`). The only importer of `ai` / provider SDKs. `scripts/llm-ping.ts` (`pnpm llm:ping`) is its smoke test. See `docs/llm.md`.
 - `src/lib/server/photos/` — equipment from a photo (0.4.0): `store.ts` (S3 or memory, `PHOTO_STORE`), `process.ts` (sharp: orient, 1600 px, metadata stripped; since 0.5.3 refuses over `MAX_INPUT_PIXELS` (50 MP) from the header and decodes at most `MAX_CONCURRENT_PROCESSING` (2) at once through `processingGate`), `analyze.ts` (`EquipmentCandidate`, `CANDIDATE_WIRE_SCHEMA`, the one `complete()` call), `match.ts` (exact, leading-digit, prefix, name; through `modelVisibleTo`), `confirm.ts` (link / create / discard), `timings.ts` + `upload-log.ts` (0.5.3: the stage timings and the one `photo_upload` log line per upload; `scripts/photo-timings-report.sh [days]` prints per-stage medians, run as yourself, not under sudo). Images are served only by the guarded `/photos/[id]/image` route. See `docs/photos.md`.
+- `src/lib/app-shell.ts` — the app shell (0.5.5): `appShell` is the only place the tab list, the account button label, the first-run lines, the empty states and the sign-in tagline live; `pageTitle()` gives every page "Page · DocLifts"; `activeTab()`. Tests read the strings from it. `src/routes/+layout.svelte` renders the header, the account button and the tabs; `src/lib/server/home.ts` (`homeState`) tells Home and History whether an account has any workout or imported history.
+- `scripts/make-icons.mjs` — draws the app icon and writes `static/favicon.svg` and the PNGs `static/manifest.webmanifest` and iOS use. Rerun it after changing the drawing; commit its output.
+- `src/lib/server/data-dir.ts` — `dataDir()`, the private data directory named by `DOCLIFTS_DATA_DIR`, for scripts and private tests only; `private-data.test.ts` skips when it is unset, as in public CI. See `docs/private-data.md`.
 - `src/lib/photo-client.ts` — resize on the phone before upload (0.5.0): `photoClientSettings` is the only place its numbers and progress labels live (`enabled`, `maxEdgePx`, `jpegQuality`, `skipBelowBytes`, `timeoutMs`, `labels`). `resizeForUpload` never throws and falls back to the original file; the server's `processPhoto` stays the authority.
 - `compose.demo.yml` — isolated, localhost-only temporary demo; does not mount production data or read `.env`.
 - `src/lib/server/db/index.ts` — Drizzle client singleton

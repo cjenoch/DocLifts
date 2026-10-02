@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.4 — security updates from the first code scan — not yet released
+## 0.5.4 — security updates from the first code scan — 2026-10-02
 
 - **SvelteKit 2.61.1 → 2.70.3**, which also brings `devalue` 5.8.1 → 5.9.4.
   This closes a slow-request flaw any visitor could trigger, signed in or not

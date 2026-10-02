@@ -2508,3 +2508,34 @@ upload and no ids.
 **Due one week after deploy:** run `scripts/photo-timings-report.sh 7` and
 give the owner the medians; he decides from them whether the put and the
 model call run in parallel. Nothing is parallelized before that.
+
+## 28. 0.5.4 — security updates from the first code scan — DEPLOYED 2026-10-02, acceptance pending
+
+From the first CodeQL and Dependabot report (owner OK, 2026-10-02). Code
+only: no migration, no env change.
+
+```
+0.5.4    bdaf706, tagged 0.5.4; branch CI green (test + docker); full local
+         gate 753 / 3 / 31 / 104
+change   @sveltejs/kit 2.61.1 -> 2.70.3 (latest 2.x; 3.0 is a separate
+         decision); devalue 5.8.1 -> 5.9.4; ci.yml permissions: contents:
+         read. Both confirmed inside the new image.
+alerts   CodeQL 1-2 (missing-workflow-permissions) fixed by the push;
+         CodeQL 3-5 (test files) left for the owner to dismiss as "used in
+         tests"; Dependabot 26 -> 16 open: every kit and devalue alert
+         closed; left: dev and test tools the server never loads, and
+         cookie 0.6.0 (kit pins ^0.6.0)
+quiet    suspended by the owner (2026-10-02: no users yet)
+image    pre-0.5.4 kept until the owner signs off
+web      rebuilt 09:51 UTC, healthy; version.json bdaf706
+check    scratch account, 390x844: sign-in form action lands on Home;
+         /, /history, /gyms, /equipment, /reports and the photo upload
+         page 200; a cross-origin form POST is refused 403 (CSRF check);
+         sign-out, then /history redirects to /login; no 5xx, 0 page
+         errors; no error lines in the web log
+owed     the owner's own look
+```
+
+CodeQL does not read `.svelte` files: its run on `main` scanned 181/181
+TypeScript, 2/2 JavaScript, 1/1 HTML and 1/1 Actions files, and none of
+the 26 components. None of them uses `{@html}`.

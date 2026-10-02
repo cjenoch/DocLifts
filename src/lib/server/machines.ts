@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, max } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, max } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	equipmentModels,
@@ -116,7 +116,7 @@ export async function createMachine(db: Database, userId: string, input: unknown
 		const [gym] = await tx
 			.select()
 			.from(gyms)
-			.where(and(eq(gyms.id, value.gymId), eq(gyms.userId, userId)));
+			.where(and(eq(gyms.id, value.gymId), eq(gyms.userId, userId), isNull(gyms.archivedAt)));
 		if (!gym) throw new MachineInputError('Gym not found');
 		let modelId = value.equipmentModelId;
 		if (modelId && value.modelName)
@@ -250,7 +250,13 @@ export async function machineChoices(db: Database, userId: string) {
 	// the gym, so it is reached by an INNER JOIN on an already-scoped gyms row
 	// rather than by a separate filter.
 	return {
-		gyms: await db.select().from(gyms).where(eq(gyms.userId, userId)).orderBy(asc(gyms.name)),
+		// Archived gyms and machines are never offered (0.7.0); an archived gym
+		// hides its machines without touching them.
+		gyms: await db
+			.select()
+			.from(gyms)
+			.where(and(eq(gyms.userId, userId), isNull(gyms.archivedAt)))
+			.orderBy(asc(gyms.name)),
 		// Membership in the user's gyms, expressed as a subquery rather than a
 		// join. A drizzle multi-table select returns rows NESTED BY TABLE
 		// ({gym_equipment: {...}, gyms: {...}}), which would silently break the
@@ -261,9 +267,15 @@ export async function machineChoices(db: Database, userId: string) {
 			.select()
 			.from(gymEquipment)
 			.where(
-				inArray(
-					gymEquipment.gymId,
-					db.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
+				and(
+					isNull(gymEquipment.archivedAt),
+					inArray(
+						gymEquipment.gymId,
+						db
+							.select({ id: gyms.id })
+							.from(gyms)
+							.where(and(eq(gyms.userId, userId), isNull(gyms.archivedAt)))
+					)
 				)
 			)
 			.orderBy(asc(gymEquipment.localLabel)),
@@ -299,7 +311,10 @@ async function machineSnapshot(db: Database, userId: string, input: unknown) {
 			and(
 				eq(gymEquipment.id, value.gymEquipmentId),
 				eq(gymEquipment.gymId, value.gymId),
-				eq(gyms.userId, userId)
+				eq(gyms.userId, userId),
+				// An archived machine or gym cannot be chosen for a workout (0.7.0).
+				isNull(gymEquipment.archivedAt),
+				isNull(gyms.archivedAt)
 			)
 		);
 	if (!row) throw new MachineInputError('Machine not found in selected gym');

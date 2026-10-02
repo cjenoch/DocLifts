@@ -44,6 +44,8 @@ export type StarterExercise = {
 		| 'band';
 	/** N3: lower-body movements progress by +10, everything else by +5. */
 	isLowerBody?: boolean;
+	/** The picker's group (0.7.0); migration 0019 backfills the same values by name. */
+	bodyRegion: 'legs' | 'back' | 'chest' | 'arms' | 'shoulders' | 'glutes' | 'core' | 'full body';
 };
 
 /**
@@ -58,33 +60,33 @@ export type StarterExercise = {
  */
 export const STARTER_EXERCISES: readonly StarterExercise[] = [
 	// Push
-	{ name: 'Barbell bench press', equipmentType: 'barbell' },
-	{ name: 'Incline dumbbell press', equipmentType: 'dumbbell' },
-	{ name: 'Dumbbell press', equipmentType: 'dumbbell' },
-	{ name: 'Cable fly', equipmentType: 'cable' },
-	{ name: 'Triceps pushdown', equipmentType: 'cable' },
-	{ name: 'Overhead press', equipmentType: 'barbell' },
-	{ name: 'Lat pulldown', equipmentType: 'machine-stack' },
+	{ name: 'Barbell bench press', equipmentType: 'barbell', bodyRegion: 'chest' },
+	{ name: 'Incline dumbbell press', equipmentType: 'dumbbell', bodyRegion: 'chest' },
+	{ name: 'Dumbbell press', equipmentType: 'dumbbell', bodyRegion: 'chest' },
+	{ name: 'Cable fly', equipmentType: 'cable', bodyRegion: 'chest' },
+	{ name: 'Triceps pushdown', equipmentType: 'cable', bodyRegion: 'arms' },
+	{ name: 'Overhead press', equipmentType: 'barbell', bodyRegion: 'shoulders' },
+	{ name: 'Lat pulldown', equipmentType: 'machine-stack', bodyRegion: 'back' },
 
 	// Pull
-	{ name: 'Barbell row', equipmentType: 'barbell' },
-	{ name: 'Seated cable row', equipmentType: 'cable' },
-	{ name: 'Dumbbell curl', equipmentType: 'dumbbell' },
-	{ name: 'Barbell curl', equipmentType: 'barbell' },
-	{ name: 'Face pull', equipmentType: 'cable' },
+	{ name: 'Barbell row', equipmentType: 'barbell', bodyRegion: 'back' },
+	{ name: 'Seated cable row', equipmentType: 'cable', bodyRegion: 'back' },
+	{ name: 'Dumbbell curl', equipmentType: 'dumbbell', bodyRegion: 'arms' },
+	{ name: 'Barbell curl', equipmentType: 'barbell', bodyRegion: 'arms' },
+	{ name: 'Face pull', equipmentType: 'cable', bodyRegion: 'shoulders' },
 
 	// Legs
-	{ name: 'Back squat', equipmentType: 'barbell', isLowerBody: true },
-	{ name: 'Deadlift', equipmentType: 'barbell', isLowerBody: true },
-	{ name: 'Leg press', equipmentType: 'machine-plate', isLowerBody: true },
-	{ name: 'Leg curl', equipmentType: 'machine-stack', isLowerBody: true },
-	{ name: 'Leg extension', equipmentType: 'machine-stack', isLowerBody: true },
-	{ name: 'Calf raise', equipmentType: 'machine-stack', isLowerBody: true },
-	{ name: 'Goblet squat', equipmentType: 'dumbbell', isLowerBody: true },
-	{ name: 'Romanian deadlift', equipmentType: 'barbell', isLowerBody: true },
+	{ name: 'Back squat', equipmentType: 'barbell', isLowerBody: true, bodyRegion: 'legs' },
+	{ name: 'Deadlift', equipmentType: 'barbell', isLowerBody: true, bodyRegion: 'legs' },
+	{ name: 'Leg press', equipmentType: 'machine-plate', isLowerBody: true, bodyRegion: 'legs' },
+	{ name: 'Leg curl', equipmentType: 'machine-stack', isLowerBody: true, bodyRegion: 'legs' },
+	{ name: 'Leg extension', equipmentType: 'machine-stack', isLowerBody: true, bodyRegion: 'legs' },
+	{ name: 'Calf raise', equipmentType: 'machine-stack', isLowerBody: true, bodyRegion: 'legs' },
+	{ name: 'Goblet squat', equipmentType: 'dumbbell', isLowerBody: true, bodyRegion: 'legs' },
+	{ name: 'Romanian deadlift', equipmentType: 'barbell', isLowerBody: true, bodyRegion: 'legs' },
 
 	// Core
-	{ name: 'Plank', equipmentType: 'bodyweight' },
-	{ name: 'Cable crunch', equipmentType: 'cable' },
-	{ name: 'Pallof press', equipmentType: 'cable' }
+	{ name: 'Plank', equipmentType: 'bodyweight', bodyRegion: 'core' },
+	{ name: 'Cable crunch', equipmentType: 'cable', bodyRegion: 'core' },
+	{ name: 'Pallof press', equipmentType: 'cable', bodyRegion: 'core' }
 ] as const;

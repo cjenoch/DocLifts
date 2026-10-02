@@ -94,7 +94,8 @@ export async function uploadPhoto(
 	deps: { store: PhotoStore; limits: PhotoLimits; timings?: PhotoTimings }
 ): Promise<UploadedPhoto | null> {
 	const gym = await ownGym(db, userId, input.gymId);
-	if (!gym) return null;
+	// An archived gym takes no new photos (0.7.0); its old photos still show.
+	if (!gym || gym.archivedAt) return null;
 	const { limits, store } = deps;
 	// Size first: processPhoto checks it too, but a refused upload should not
 	// cost a count query, and the cap message must not mask a size message.

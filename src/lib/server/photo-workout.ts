@@ -274,6 +274,7 @@ export async function identifySessionExercise(
 					eq(gymEquipment.gymId, placeholder.gymId),
 					eq(gymEquipment.equipmentModelId, model.id),
 					ne(gymEquipment.id, placeholder.id),
+					isNull(gymEquipment.archivedAt),
 					value.gymEquipmentId ? eq(gymEquipment.id, value.gymEquipmentId) : undefined
 				)
 			)
@@ -562,6 +563,7 @@ export async function autoIdentifyRepeatVisit(
 				sql`${sessions.endedAt} IS NOT NULL`,
 				eq(gymEquipment.gymId, row.photo.gymId),
 				eq(gymEquipment.equipmentModelId, found.preselectedId),
+				isNull(gymEquipment.archivedAt),
 				sql`${sets.executedLoad} IS NOT NULL AND ${sets.executedReps} IS NOT NULL`
 			)
 		)

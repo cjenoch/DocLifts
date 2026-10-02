@@ -67,3 +67,27 @@ once nothing references it.
 A repeat visit (0.6.1) names a photo block without a tap, on an exact code for a
 model this gym has a machine for and has been logged on; Undo reverses any
 photo naming on an open workout, onto a new placeholder, deleting nothing.
+
+## Removing, changing and merging machines (0.7.0)
+
+Machines spec Parts G, H and K (`src/lib/server/machine-admin.ts`):
+
+- **Remove** never breaks history. A machine (or gym) that nothing points at is
+  deleted; anything else is archived (`archived_at`) and leaves every list and
+  picker while past workouts keep pointing at it. An archived gym hides its
+  machines without touching them. History for an archived machine stays its
+  own: it never feeds another machine's suggestions.
+- **Change model** keeps the machine id, so history carries on, but only within
+  one loading type. A model of another loading type means a different load
+  meaning, so it is a **replace**: the old machine is removed (archived with
+  history) and a new one starts fresh.
+- **Merge** moves sets, session exercises and photos from one machine to
+  another in the same gym and of the same type. Session exercises keep the
+  names they recorded. Sets in different load conventions stay separate
+  histories after the merge, because the convention is part of the key.
+  `machine_merges` lists every moved id, and undo moves back exactly those.
+
+The photo flow (`identifySessionExercise`) still merges a placeholder into an
+existing machine and deletes the placeholder directly, as in 0.6.0; it does
+not yet go through `mergeMachines`, which would leave an archived "Photo …"
+row behind each time.

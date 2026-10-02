@@ -247,7 +247,8 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 										userId: user.id,
 										name: e.name,
 										equipmentType: e.equipmentType,
-										isLowerBody: e.isLowerBody ?? false
+										isLowerBody: e.isLowerBody ?? false,
+										bodyRegion: e.bodyRegion
 									}))
 								)
 								.onConflictDoNothing({

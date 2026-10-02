@@ -60,7 +60,8 @@ async function ownedGym(db: Database, userId: string, gymId: string) {
 	const [gym] = await db
 		.select({ id: gyms.id })
 		.from(gyms)
-		.where(and(eq(gyms.id, gymId), eq(gyms.userId, userId)));
+		// An archived gym cannot start a workout (0.7.0).
+		.where(and(eq(gyms.id, gymId), eq(gyms.userId, userId), isNull(gyms.archivedAt)));
 	return gym ?? null;
 }
 
@@ -121,7 +122,14 @@ export async function lastUsedGymId(db: Database, userId: string): Promise<strin
 		.select({ id: gyms.id })
 		.from(sessions)
 		.innerJoin(gyms, eq(gyms.id, sessions.gymId))
-		.where(and(eq(sessions.userId, userId), eq(gyms.userId, userId), isNull(sessions.deletedAt)))
+		.where(
+			and(
+				eq(sessions.userId, userId),
+				eq(gyms.userId, userId),
+				isNull(gyms.archivedAt),
+				isNull(sessions.deletedAt)
+			)
+		)
 		.orderBy(desc(sessions.startedAt))
 		.limit(1);
 	if (bySession) return bySession.id;
@@ -135,6 +143,7 @@ export async function lastUsedGymId(db: Database, userId: string): Promise<strin
 			and(
 				eq(sessions.userId, userId),
 				eq(gyms.userId, userId),
+				isNull(gyms.archivedAt),
 				isNotNull(sessionExercises.gymEquipmentId)
 			)
 		)
@@ -148,7 +157,7 @@ export async function quickStartChoices(db: Database, userId: string) {
 	const list = await db
 		.select({ id: gyms.id, name: gyms.name })
 		.from(gyms)
-		.where(eq(gyms.userId, userId))
+		.where(and(eq(gyms.userId, userId), isNull(gyms.archivedAt)))
 		.orderBy(asc(gyms.name));
 	const last = await lastUsedGymId(db, userId);
 	return { gyms: list, defaultGymId: last ?? list[0]?.id ?? null };
@@ -185,7 +194,7 @@ export async function startQuickSessionFromForm(
 		const [existing] = await db
 			.select({ id: gyms.id })
 			.from(gyms)
-			.where(and(eq(gyms.userId, userId), eq(gyms.name, name)))
+			.where(and(eq(gyms.userId, userId), eq(gyms.name, name), isNull(gyms.archivedAt)))
 			.limit(1);
 		gymId = existing?.id ?? (await createGym(db, userId, { name })).id;
 	} else gymId = parsed.data.gymId;

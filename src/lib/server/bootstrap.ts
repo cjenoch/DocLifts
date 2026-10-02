@@ -137,7 +137,8 @@ export async function bootstrap(
 				userId: SENTINEL_USER_ID,
 				name: e.name,
 				equipmentType: e.equipmentType,
-				isLowerBody: e.isLowerBody ?? false
+				isLowerBody: e.isLowerBody ?? false,
+				bodyRegion: e.bodyRegion
 			}))
 		)
 		.onConflictDoNothing({ target: [exercises.userId, exercises.name] });

@@ -178,13 +178,25 @@ export async function instancesOfModel(db: Database, userId: string, modelId: st
 		})
 		.from(gymEquipment)
 		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
-		.where(and(eq(gymEquipment.equipmentModelId, modelId), eq(gyms.userId, userId)))
+		.where(
+			and(
+				eq(gymEquipment.equipmentModelId, modelId),
+				eq(gyms.userId, userId),
+				// Archived machines and gyms leave every list (0.7.0).
+				isNull(gymEquipment.archivedAt),
+				isNull(gyms.archivedAt)
+			)
+		)
 		.orderBy(asc(gyms.name), asc(gymEquipment.localLabel));
 }
 
 /** This user's gyms, for the add-to-gym select. */
 export async function gymsOf(db: Database, userId: string) {
-	return db.select().from(gyms).where(eq(gyms.userId, userId)).orderBy(asc(gyms.name));
+	return db
+		.select()
+		.from(gyms)
+		.where(and(eq(gyms.userId, userId), isNull(gyms.archivedAt)))
+		.orderBy(asc(gyms.name));
 }
 
 const pickerSchema = z.object({
@@ -224,7 +236,14 @@ export async function modelChoices(
 					.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
 					.innerJoin(equipmentModels, eq(equipmentModels.id, gymEquipment.equipmentModelId))
 					// The gym's machines name its manufacturers, retired models included.
-					.where(and(eq(gyms.id, params.gym), eq(gyms.userId, userId), modelReadableBy(userId)))
+					.where(
+						and(
+							eq(gyms.id, params.gym),
+							eq(gyms.userId, userId),
+							isNull(gymEquipment.archivedAt),
+							modelReadableBy(userId)
+						)
+					)
 					.orderBy(asc(equipmentModels.manufacturer))
 			).map((r) => r.v)
 		: [];

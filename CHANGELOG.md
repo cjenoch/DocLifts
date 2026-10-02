@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0 — fix your gym list: remove, change model, merge — not yet released
+
+- **Remove a machine or a gym.** On the machine's edit page, and for a gym on
+  the Gyms page. One you added by mistake is deleted; one with history leaves
+  your lists but stays on your past workouts. Each gym has an "Archived"
+  section to bring a machine back; removed gyms have their own.
+- **Change a machine's model.** Search for the right model on the machine's
+  page. The machine keeps its history. If the new model has a standard stack,
+  you're offered it with one tap. A model that records weight differently
+  (plate-loaded instead of a stack) replaces the machine instead, so the two
+  kinds of numbers never mix.
+- **Same machine as…** merges two rows that are really one machine, with a
+  preview of what moves. Undo merge puts them back exactly.
+- Nothing can be removed, changed or merged while an open workout uses it.
+
 ## 0.6.2 — saving a set after naming a machine works — 2026-10-02
 
 - **Fixed:** after an exercise was named from a photo (Use this, or a repeat

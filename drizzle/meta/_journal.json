@@ -134,6 +134,13 @@
       "when": 1790950022446,
       "tag": "0018_photo_session_exercise",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790968400971,
+      "tag": "0019_machines_archive_merge",
+      "breakpoints": true
     }
   ]
 }

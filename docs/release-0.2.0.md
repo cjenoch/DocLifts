@@ -2732,3 +2732,43 @@ sets are never affected.
 
 Code only. Deploy after the owner has seen §31's report; `pre-0.6.2` kept.
 Check: the §31 check again, plus saving set 1 after the naming.
+
+## 33. 0.7.0 — remove, change model, merge (machines spec, first release) — NOT deployed
+
+**Migration 0019** (additive, the whole spec's columns at once, one restore
+check): `gyms.archived_at`, `gym_equipment.archived_at`,
+`gym_equipment.merged_into_id` (FK `gym_equipment_merged_into_id_fk`, index
+`gym_equipment_merged_into_idx`), table `machine_merges` (FKs
+`machine_merges_user_id_fk`, `_dropped_id_fk`, `_kept_id_fk`; indexes on user,
+dropped, kept), `exercises.body_region` (CHECK
+`exercises_body_region_check`, eight regions) and `exercises.archived_at`, plus
+a backfill of `body_region` for the 23 starter exercises by name (the exercise
+columns are used by the second release). Verify on a fresh restore before the
+deploy; then `migrate-prod.sh`.
+
+```
+restore  0019 applied to a FRESH pg_dump of production (2026-10-02, at 0018):
+         every existing row count unchanged (6 users, 40 sessions, 469
+         sets, 9 gyms, 16 machines, 27 photos, 188 exercises); migrations
+         19 -> 20; machine_merges created empty; all five constraints and
+         four indexes present by name; body_region set on 138 of 188
+         exercises (6 accounts x 23 starters): legs 48, chest 24, arms 18,
+         back 18, core 18, shoulders 12, none 50. Scratch DB dropped, dump
+         deleted.
+```
+
+Owner diff to read first: `src/lib/server/auth-core.ts` gains
+`bodyRegion: e.bodyRegion` in the user-create hook's starter-exercise insert,
+and nothing else.
+
+Departures from the spec: a gym's Remove and its Archived machines live in
+the gym's section of the Gyms page (there is no gym edit page). Replace
+removes the old machine by Part G's rule, so one with no history is deleted
+rather than archived. The photo flow still deletes its placeholder directly
+(docs/machine-identity.md).
+
+Check (assistant, production, scratch account): remove an unused machine
+(gone from the database); remove one with history (archived, absent from the
+workout's add form, present on its past workout); restore it; change a
+machine's model in place (same id) and take the stack offer; merge two
+machines and undo.

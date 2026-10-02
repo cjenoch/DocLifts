@@ -49,6 +49,7 @@ type ActionEvent = Parameters<(typeof actions)['update']>[0];
 const as = (user: string) =>
 	({
 		params: { gymId, id: machine.id },
+		url: new URL('http://test.local/'),
 		locals: { user: { id: user } } as App.Locals
 	}) as Parameters<typeof load>[0];
 const post = (user: string, form: Record<string, string>) => {

@@ -257,9 +257,17 @@ export const exercises = pgTable(
 		 */
 		userId: text('user_id')
 			.notNull()
-			.references(() => authUsers.id)
+			.references(() => authUsers.id),
+		/** One of the eight body regions (0.7.0, machines spec Part J); null = "Other". */
+		bodyRegion: text('body_region'),
+		/** Hidden from the picker, kept in history (0.7.0, Part J). */
+		archivedAt: timestamp('archived_at', { withTimezone: true })
 	},
 	(t) => ({
+		bodyRegionCheck: check(
+			'exercises_body_region_check',
+			sql`${t.bodyRegion} IS NULL OR ${t.bodyRegion} IN ('legs', 'back', 'chest', 'arms', 'shoulders', 'glutes', 'core', 'full body')`
+		),
 		/**
 		 * D4: was a GLOBAL unique on `name` alone. Replaced by per-user.
 		 *
@@ -434,7 +442,13 @@ export const gyms = pgTable(
 		 */
 		userId: text('user_id')
 			.notNull()
-			.references(() => authUsers.id)
+			.references(() => authUsers.id),
+		/**
+		 * Removed with history (0.7.0, machines spec Part G): hidden from every
+		 * list and picker, and its machines with it; kept for past workouts. A
+		 * gym nothing points at is deleted instead.
+		 */
+		archivedAt: timestamp('archived_at', { withTimezone: true })
 	},
 	(t) => ({
 		userIdIdx: index('gyms_user_id_idx').on(t.userId)
@@ -457,9 +471,19 @@ export const gymEquipment = pgTable(
 		 */
 		stackLb: integer('stack_lb'),
 		/** Smallest load step on this instance (pin step or add-on weight). */
-		incrementLb: integer('increment_lb')
+		incrementLb: integer('increment_lb'),
+		/** Removed with history (0.7.0, Part G); see gyms.archivedAt. */
+		archivedAt: timestamp('archived_at', { withTimezone: true }),
+		/** Merged into this machine (0.7.0, Part K); set with archivedAt, cleared by undo. */
+		mergedIntoId: uuid('merged_into_id')
 	},
 	(t) => ({
+		mergedIntoFk: foreignKey({
+			name: 'gym_equipment_merged_into_id_fk',
+			columns: [t.mergedIntoId],
+			foreignColumns: [t.id]
+		}),
+		mergedIntoIdx: index('gym_equipment_merged_into_idx').on(t.mergedIntoId),
 		gymIdx: index('gym_equipment_gym_idx').on(t.gymId),
 		modelIdx: index('gym_equipment_model_idx').on(t.equipmentModelId),
 		stackCheck: check(
@@ -472,6 +496,50 @@ export const gymEquipment = pgTable(
 		)
 	})
 );
+
+/**
+ * One merge of two machines (0.7.0, machines spec Part K): which machine was
+ * dropped into which, and the ids of every row that moved, so undo moves back
+ * exactly those rows. Owned directly by `user_id`.
+ */
+export const machineMerges = pgTable(
+	'machine_merges',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		userId: text('user_id').notNull(),
+		droppedId: uuid('dropped_id').notNull(),
+		keptId: uuid('kept_id').notNull(),
+		/** The ids of every row that moved: `{ sets, sessionExercises, photos }`. */
+		moved: jsonb('moved').$type<MachineMergeMoved>().notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		undoneAt: timestamp('undone_at', { withTimezone: true })
+	},
+	(t) => ({
+		userFk: foreignKey({
+			name: 'machine_merges_user_id_fk',
+			columns: [t.userId],
+			foreignColumns: [authUsers.id]
+		}),
+		droppedFk: foreignKey({
+			name: 'machine_merges_dropped_id_fk',
+			columns: [t.droppedId],
+			foreignColumns: [gymEquipment.id]
+		}),
+		keptFk: foreignKey({
+			name: 'machine_merges_kept_id_fk',
+			columns: [t.keptId],
+			foreignColumns: [gymEquipment.id]
+		}),
+		userIdx: index('machine_merges_user_idx').on(t.userId),
+		droppedIdx: index('machine_merges_dropped_idx').on(t.droppedId),
+		keptIdx: index('machine_merges_kept_idx').on(t.keptId)
+	})
+);
+export type MachineMergeMoved = {
+	sets: string[];
+	sessionExercises: string[];
+	photos: string[];
+};
 
 // ---------- day_exercises ----------
 

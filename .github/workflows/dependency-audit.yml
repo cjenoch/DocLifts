@@ -1,0 +1,42 @@
+# Weekly production dependency audit. REPORT ONLY: it never fails, whatever it
+# finds (owner decision, 2026-10-02). The report is the run's job summary:
+# every finding (package, severity, path, advisory link), then whether a gate
+# at "high" would fail and which packages would trigger it. The CI job runs the
+# same report on every push to main and every PR.
+#
+# GitHub disables scheduled workflows in a repository with no activity for 60
+# days (as happened to the old Browser CI workflow); re-enable it from the
+# Actions tab, or run it by hand with "Run workflow".
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable corepack pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.3.0 --activate
+
+      # pnpm audit reads the lockfile; no install is needed.
+      - name: Production dependency audit (report only)
+        continue-on-error: true
+        run: |
+          pnpm audit --prod --json > audit.json || true
+          node scripts/audit-summary.mjs audit.json >> "$GITHUB_STEP_SUMMARY"
+          tail -n 1 "$GITHUB_STEP_SUMMARY"

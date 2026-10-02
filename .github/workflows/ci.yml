@@ -144,9 +144,16 @@ jobs:
       - name: End-to-end (CSP + page render)
         run: pnpm run test:e2e
 
-      # Signal only for now; can be promoted to blocking once baseline is clean.
-      - name: Production dependency audit (signal)
-        run: pnpm audit --prod || true
+      # REPORT ONLY, never fails the job (owner decision, 2026-10-02): every
+      # finding goes to the job summary, then one line saying whether a gate at
+      # high would fail and which packages would trigger it. The same report
+      # runs weekly in dependency-audit.yml.
+      - name: Production dependency audit (report only)
+        continue-on-error: true
+        run: |
+          pnpm audit --prod --json > audit.json || true
+          node scripts/audit-summary.mjs audit.json >> "$GITHUB_STEP_SUMMARY"
+          tail -n 1 "$GITHUB_STEP_SUMMARY"
 
   # The production image, built the way the VPS builds it (node:24-alpine).
   # Added in 0.4.0 for sharp, a native dependency: the test job above runs on

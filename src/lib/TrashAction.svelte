@@ -40,7 +40,11 @@
 		message = '';
 		return async ({ result, update }) => {
 			try {
-				if (result.type === 'success') await update({ reset: false });
+				// A redirect is success too: the session page's Move to Trash
+				// answers 303 to History or the program page, and update()
+				// follows it. Treating it as a failure showed an error after
+				// the workout had been trashed, and stayed on the page.
+				if (result.type === 'success' || result.type === 'redirect') await update({ reset: false });
 				else
 					message =
 						result.type === 'failure'

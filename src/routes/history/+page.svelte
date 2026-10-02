@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { workoutUi } from '$lib/workout-ui';
+	import TrashAction from '$lib/TrashAction.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -20,6 +21,9 @@
 			day: 'numeric',
 			timeZone: 'UTC'
 		});
+
+	const trashLabel = (t: PageData['trashSessions'][number]) =>
+		t.systemKind === 'quick' ? workoutUi.quickWorkoutLabel : t.programName;
 </script>
 
 <div class="mx-auto max-w-md px-4 py-6">
@@ -82,4 +86,53 @@
 			{/each}
 		</ul>
 	{/if}
+
+	<!-- Trash on History (0.5.2): every trashed workout, quick or program.
+	     Collapsed by default; <details> keeps it CSP-clean (no style attribute). -->
+	<details class="mt-8 rounded-xl border border-zinc-700 bg-zinc-900/50">
+		<summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-zinc-200"
+			>{workoutUi.historyTrashHeading} ({data.trashCount})</summary
+		>
+		<div class="border-t border-zinc-800 p-4">
+			{#if data.trashSessions.length === 0}
+				<p class="text-sm text-zinc-400">{workoutUi.historyTrashEmpty}</p>
+			{:else}
+				<p class="text-sm text-zinc-400">{workoutUi.historyTrashIntro}</p>
+				{#if data.trashSessions.length < data.trashCount}
+					<p class="mt-1 text-sm text-zinc-500">
+						{workoutUi.historyTrashTruncated(data.trashSessions.length)}
+					</p>
+				{/if}
+				<ul class="mt-4 space-y-3">
+					{#each data.trashSessions as t (t.id)}
+						<li class="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+							<h2 class="font-medium text-zinc-100">{trashLabel(t)}</h2>
+							<p class="mt-1 text-sm text-zinc-400">
+								{fmtDate(t.startedAt)} · {workoutUi.historyTrashSets(t.loggedSets)}
+							</p>
+							<div class="mt-3 flex flex-wrap gap-2">
+								<TrashAction
+									action="?/restoreSession"
+									label={workoutUi.historyTrashRestore}
+									sessionId={t.id}
+								/>
+								<TrashAction
+									action="?/permanentDeleteSession"
+									label={workoutUi.historyTrashDelete}
+									sessionId={t.id}
+									destructive
+									confirmation={workoutUi.historyTrashConfirmDelete(
+										trashLabel(t),
+										fmtDate(t.startedAt)
+									)}
+									confirmationField="confirmDelete"
+									confirmationValue="d"
+								/>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	</details>
 </div>

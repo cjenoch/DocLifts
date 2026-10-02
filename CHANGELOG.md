@@ -22,7 +22,7 @@
 - **At most two photos are prepared at once.** Others wait their turn (a
   fraction of a second in practice); the wait is logged as `processWaitMs`.
 
-## 0.5.2 — a misread code can't pick the wrong machine — not yet released
+## 0.5.2 — a misread code can't pick the wrong machine, and Trash on History — not yet released
 
 - **The app no longer pre-picks a machine when the code and the name
   disagree.** If the model reads a real model code that belongs to a
@@ -31,8 +31,18 @@
   first, then the machines whose names match what was read, with a line
   saying why. When the code and the name agree, it is pre-picked as before.
   The maker's name and product line ("Pure Kraft") don't count as agreement.
+- **Trash is on History.** A workout you move to Trash, quick or from a
+  program, now shows under "Trash" at the bottom of History, with the date,
+  "Quick workout" or the program's name, and how many sets you logged. Restore
+  puts it back in your history; Delete permanently asks first, then removes
+  it for good. Until now a quick workout in Trash could not be brought back
+  from the app. The program page's own Trash is unchanged.
+- **Move to Trash no longer shows an error when it worked.** It used to say
+  "Could not complete that action" and stay on the workout, even though the
+  workout had gone to Trash. It now takes you to History (a quick workout) or
+  the program page.
 
-## 0.5.1 — start a workout without a program — deployed 2026-10-02, acceptance pending
+## 0.5.1 — start a workout without a program — 2026-10-02
 
 - **Start a workout with no setup.** Home has a big "Start workout" button
   above "Create program". Pick your gym (the one you used last is already

@@ -535,8 +535,13 @@ In force now. It governs `scripts/compose-prod.sh`, `scripts/migrate-prod.sh`,
 
   A mismatch means stop and report, never confirm.
 
-- **Quiet check before any deploy:** no open workout for any user, and no
-  activity in the last 30 minutes. Otherwise wait and retry.
+- **Quiet check before any deploy: SUSPENDED (owner decision, 2026-10-02)**
+  while the only accounts are the owner's and test accounts; gating a deploy
+  on his own testing only delays it. **It returns automatically when the first
+  account for anyone else (the invited tester) is created.** Until then, a
+  deploy may go while the owner is mid-test; tell him it is going out. When it
+  applies: no open workout for any user, and no activity in the last 30
+  minutes. Otherwise wait and retry.
   - **There is no request log.** The web log carries only app events
     (`login_attempt`, `password_change`, `photo_upload`, config lines), so
     the check is the open-workout query, the most recent write time, and

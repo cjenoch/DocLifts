@@ -30,6 +30,17 @@ export const workoutUi = {
 	gymStepNewName: 'New gym name',
 	gymStepNewNamePlaceholder: 'e.g. Your gym or Home',
 	gymStepSubmit: 'Start',
+	/** Trash on History (0.5.2): every trashed workout, quick or program. */
+	historyTrashHeading: 'Trash',
+	historyTrashEmpty: 'Trash is empty.',
+	historyTrashIntro: 'Restore a workout or delete it for good.',
+	historyTrashTruncated: (shown: number) => `Showing the ${shown} most recently trashed.`,
+	historyTrashSets: (n: number) => `${n} ${n === 1 ? 'set' : 'sets'} logged`,
+	historyTrashRestore: 'Restore',
+	historyTrashDelete: 'Delete permanently',
+	/** Mirrors the program page's confirmation, with the History label. */
+	historyTrashConfirmDelete: (label: string, date: string) =>
+		`Permanently delete ${label} from ${date}? This cannot be undone.`,
 	/** Part C: name of an exercise logged before its machine is identified. */
 	placeholderExerciseName: 'Unidentified machine',
 	/** Part F: rest timer default. */

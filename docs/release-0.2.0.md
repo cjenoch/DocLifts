@@ -2665,7 +2665,23 @@ placard, or the quiet line); Use this names it and the set is unchanged
 **Owed by the owner, on the iPhone:** photo to first saved set under 3 seconds
 on cellular, with the read still running (the spec's acceptance number).
 
-## 31. 0.6.1 — repeat visits name themselves, with undo — NOT deployed
+## 31. 0.6.1 — repeat visits name themselves, with undo — DEPLOYED and ROLLED BACK 2026-10-02
+
+```
+0.6.1    4245a18 deployed 16:57 UTC (pre-0.6.1 = 0.6.0 kept)
+check    the repeat visit named itself with no tap, 3.1 s after the photo,
+         on the gym's one IL-ROW, and set 1 was prefilled with last time's
+         50 in the database. FAIL on the page: set 1's weight field stayed
+         blank, and saving it never succeeded.
+cause    SetRow captures its machine identity once, at mount (the stale-tab
+         guard); the rows were keyed by set id only, so after naming they
+         kept the placeholder's identity, showed no prefill, and the server
+         refused their save. 0.6.0 has the same fault after "Use this"; its
+         checks saved the set before naming, so they did not see it.
+action   rolled back to pre-0.6.1 (0.6.0, d503b5c) at 16:59 UTC, healthy;
+         reported to the owner. Fixed in 0.6.2 (§32). The scratch account's
+         check workout from this run was left open.
+```
 
 Code only: no migration, no env change. Deploy under development-push mode,
 `pre-0.6.1` kept until the owner signs off.
@@ -2679,3 +2695,18 @@ last time's numbers (psql). Undo: back to "Unidentified machine", set 1 kept,
 the card shown again. Use this again, finish.
 
 **Owed by the owner:** a real repeat visit at his gym.
+
+## 32. 0.6.2 — set rows follow a named photo block (fixes 0.6.0 and 0.6.1) — NOT deployed
+
+The fix for §31: the session page keys each set row by its id, machine and
+weight format, so a row starts again when its block is named or undone: new
+identity, last time's numbers, and its save accepted. The e2e now saves a set
+after "Use this" and checks the prefilled 70; it failed without the fix
+(blank field) and passes with it. Ships 0.6.1's repeat visits and undo with it.
+
+Known: numbers typed but not yet saved on a block when it is named are cleared
+(the row's draft belongs to the old identity, by the stale-tab rule). Saved
+sets are never affected.
+
+Code only. Deploy after the owner has seen §31's report; `pre-0.6.2` kept.
+Check: the §31 check again, plus saving set 1 after the naming.

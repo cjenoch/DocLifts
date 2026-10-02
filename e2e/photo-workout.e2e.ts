@@ -266,6 +266,25 @@ run('photo in the workout (production build, no model configured)', () => {
 			.where(eq(s.equipmentPhotos.id, latest.id));
 		expect(named).toMatchObject({ status: 'confirmed', gymEquipmentId: machines[0].id });
 
+		// 0.6.2: the named block's set rows follow the new machine. They show last
+		// time's numbers (70 x 12, logged on this IL-ROW in the first workout) and
+		// a set saves; the rows used to keep the placeholder's identity, so the
+		// field stayed blank and the save was refused until a reload.
+		const weight = page.getByRole('spinbutton', { name: 'Weight', exact: true }).first();
+		await expect.poll(() => weight.inputValue()).toBe('70');
+		await page.getByRole('spinbutton', { name: 'Reps', exact: true }).first().fill('11');
+		await page.getByRole('button', { name: 'Save set 1' }).click();
+		await expect.poll(() => page.getByText('✓ Saved').count()).toBe(1);
+		const savedAfterNaming = await harness.db
+			.select()
+			.from(s.sets)
+			.where(
+				and(eq(s.sets.sessionExerciseId, latest.sessionExerciseId!), isNotNull(s.sets.executedLoad))
+			);
+		expect(savedAfterNaming.map((r) => [r.executedLoad, r.executedReps, r.gymEquipmentId])).toEqual(
+			[[70, 11, machines[0].id]]
+		);
+
 		// Undo (0.6.1): back to the placeholder, the card offered again, the
 		// gym's machine kept.
 		expect(await page.getByTestId('photo-named').innerText()).toContain(

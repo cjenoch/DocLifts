@@ -284,7 +284,15 @@
 					</form>
 				</details>{/if}
 			<ul>
-				{#each group.sets as set (set.id)}<SetRow
+				<!--
+					Keyed by the set's identity, not its id alone (0.6.2): SetRow captures
+					its machine and weight format once, for the stale-tab guard and its
+					draft. When a photo block is named (or undone) they change, and the
+					row must start again: fresh identity, last time's numbers. Before,
+					the row kept the placeholder's identity, showed no prefill, and its
+					save was refused until a reload.
+				-->
+				{#each group.sets as set (`${set.id}:${set.gymEquipmentId}:${set.loadConvention}`)}<SetRow
 						{set}
 						sessionEnded={data.session.endedAt != null}
 						allowEndedSessionEdit={data.allowEndedSessionEdit}

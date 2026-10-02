@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.6.1 — machines you've used before name themselves — not yet released
+## 0.6.2 — saving a set after naming a machine works — not yet released
+
+- **Fixed:** after an exercise was named from a photo (Use this, or a repeat
+  visit naming itself), its sets showed no numbers from last time and could
+  not be saved until the page was reloaded. They now pick up the machine
+  straight away. Numbers typed but not yet saved when the naming lands are
+  cleared; saved sets are never affected.
+- Brings 0.6.1 (below), which was rolled back for this.
+
+## 0.6.1 — machines you've used before name themselves — rolled back 2026-10-02, ships in 0.6.2
 
 - **Repeat visits name themselves.** Photograph a machine you've logged on
   before at this gym, and when the photo is read the exercise names itself:

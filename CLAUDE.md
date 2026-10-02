@@ -522,17 +522,88 @@ the diff before they reach `main`.
 **No force-push to `main`, and no squash.** History on `main` is a record. A
 wrong commit gets a fix-forward commit that says what it fixes.
 
-**Nothing touches production without the owner's explicit "go" in the current
-session.** That covers `scripts/compose-prod.sh`, `scripts/migrate-prod.sh`,
-`scripts/user-prod.sh` and `scripts/catalog-prod.sh`. A "go" from an earlier session, a handoff, or a plan is
-not one. Before any production build, preserve the running image:
+### Development-push mode (owner decision, 2026-10-01)
 
-```sh
-docker tag doclifts-web:vps doclifts-web:pre-<version>
-```
+In force now. It governs `scripts/compose-prod.sh`, `scripts/migrate-prod.sh`,
+`scripts/user-prod.sh` and `scripts/catalog-prod.sh`.
 
-Delete it only after the release checks pass. Run the `*-prod.sh` wrappers on
-the VPS over SSH, never from another machine against its Docker socket.
+- **The assistant may run the production wrappers itself**, including typed
+  confirmations (`IMPORT`), but only after all three:
+  - a verified backup;
+  - a dry run, where the wrapper has one;
+  - totals that match what it expected.
+
+  A mismatch means stop and report, never confirm.
+
+- **Quiet check before any deploy:** no open workout for any user, and no
+  activity in the last 30 minutes. Otherwise wait and retry.
+  - **There is no request log.** The web log carries only app events
+    (`login_attempt`, `password_change`, `photo_upload`, config lines), so
+    the check is the open-workout query, the most recent write time, and
+    the app events in the log:
+
+    ```sh
+    q() { sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc "$1"; }
+    # 1. Open workouts with activity in the last 6 h. Must be 0.
+    q "select count(*) from (select s.id from sessions s
+         left join sets st on st.session_id = s.id
+         where s.ended_at is null and s.deleted_at is null
+         group by s.id
+         having greatest(s.started_at, max(st.logged_at)) > now() - interval '6 hours') b"
+    # 2. Time since the most recent write anywhere. Must be over 30 min.
+    q "select now() - greatest(
+         (select max(logged_at) from sets), (select max(started_at) from sessions),
+         (select max(ended_at) from sessions), (select max(created_at) from equipment_photos),
+         (select max(created_at) from llm_calls), (select max(updated_at) from programs),
+         (select max(updated_at) from auth.session))"
+    # 3. App events in the last 30 min. Must be 0, not counting the
+    #    assistant's own scratch-account checks.
+    sudo -n scripts/compose-prod.sh logs web --since 30m \
+      | grep -cE '"event":"(login_attempt|password_change|photo_upload)"'
+    ```
+
+  - **An open workout with no activity for 6 hours does not block a
+    deploy.** Query 1 counts only workouts active within 6 hours (its
+    start, or its latest saved set).
+
+- **Migrations** only after the full chain passes on a restore of the nightly
+  dump, with a verified dump taken immediately before (`migrate-prod.sh`
+  takes and verifies it).
+- **The owner reads the diff first** for any change to sign-in, sessions,
+  origin or CSRF settings, or the tunnel configuration.
+- **Keep the previous image until the owner signs off the release.** Before
+  any production build:
+
+  ```sh
+  docker tag doclifts-web:vps doclifts-web:pre-<version>
+  ```
+
+  Delete `pre-<version>` only after the owner's sign-off, not merely after the
+  assistant's checks.
+
+- **If post-deploy checks fail, roll back to `pre-<version>` and report:**
+
+  ```sh
+  DOCLIFTS_WEB_IMAGE=doclifts-web:pre-<version> \
+    sudo -n scripts/compose-prod.sh up -d --wait web
+  ```
+
+  Do not retry forward unattended. A fix ships as a new release, through the
+  gate, after the owner has seen the report.
+
+- **A release with an owner-only check still owed** (a real-phone test, a
+  first real use) is recorded as "deployed, acceptance pending", in the
+  runbook and the CHANGELOG, until he signs it off.
+- **Test users are told this is a test system.**
+- **This mode ends** at the first paying customer, or the first user promised
+  uptime. Then the rule below returns.
+
+**When development-push mode ends:** nothing touches production without the
+owner's explicit "go" in the current session. A "go" from an earlier session,
+a handoff, or a plan is not one. The image rule above still applies.
+
+In either mode, run the `*-prod.sh` wrappers on the VPS over SSH, never from
+another machine against its Docker socket.
 
 **Secrets never appear in chat, commits, logs, or docs.** Not passwords, not
 `BETTER_AUTH_SECRET`, not database URLs with credentials, and that includes

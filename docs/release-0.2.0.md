@@ -2041,13 +2041,15 @@ check    the scratch account's Home showed 0 of the owner's 2 active
          programs; pre-0.4.7 deleted afterwards
 ```
 
-## 24. 0.5.0 (Part A) — resize photos on the phone — DEPLOYED 2026-10-02
+## 24. 0.5.0 (Part A) — resize photos on the phone — deployed 2026-10-02, acceptance pending
 
 ```
 0.5.0    71b7a20, tagged 0.5.0 (the spec's Part A; Part B ships as 0.5.1)
 CI       green on the branch; full local gate 647 / 3 / 31 / 101
-deploy   code only; pre-0.5.0 preserved, web rebuilt, healthy; pre-0.5.0
-         deleted after the check
+deploy   code only; pre-0.5.0 preserved, web rebuilt, healthy. pre-0.5.0
+         was then deleted after the assistant's check, before the
+         development-push rule (keep it until the owner signs off) was
+         written; rollback is a rebuild from tag 0.4.7 (fea8700)
 check    scratch account, live page, Chromium: a 4,660,232-byte 4000x3000
          placard -> photo_upload log: clientResized true, receivedBytes
          540,808 (12%), storedBytes 235,763; review in 3.3 s including the

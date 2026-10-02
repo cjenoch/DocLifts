@@ -2387,7 +2387,6 @@ check    Trash on History, fresh empty account fresh-052@doclifts.invalid,
 owed     the owner's own look at both
 ```
 
-
 Code only: no migration, no env change. Deploy under development-push mode:
 quiet check, `pre-0.5.2` kept until the owner signs off, `compose-prod.sh up
 -d --build --wait web`, then the check below.
@@ -2472,7 +2471,6 @@ check    photo-timings-report.sh 1: 4 lines (1 stored, 3 refused), 0
 due      2026-10-09: photo-timings-report.sh 7, medians to the owner
 owed     the owner's own look
 ```
-
 
 Code only: no migration, no env change. Deploy under development-push mode:
 quiet check, `pre-0.5.3` kept until the owner signs off, `compose-prod.sh up

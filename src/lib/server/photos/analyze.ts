@@ -177,6 +177,7 @@ export const SYSTEM_PROMPT = [
 	'1. Report only what is visible in the photo. Do not use what you know about a product line to fill in anything that is not shown.',
 	'2. null beats a guess. If a field is not clearly visible, return null for it (or "unknown" for loading_type and laterality).',
 	'3. Transcribe the model code character for character, exactly as printed: same letters, digits, hyphens, spaces and case. Do not correct, complete or normalize it.',
+	'3a. If any character of the model code is unclear, too small, blurred or partly hidden, return null for model_code and give it confidence 0. Write the characters you could make out in notes. A wrong code is worse than no code.',
 	'4. Never estimate starting resistance. Give starting_resistance_lb only if a starting resistance is printed, in pounds; otherwise null.',
 	'5. Give stack_lb only if a weight stack is visible and the number on its top plate is legible; otherwise null.',
 	'6. placard_text is the verbatim text visible on any label or placard, or an empty string if there is none.',

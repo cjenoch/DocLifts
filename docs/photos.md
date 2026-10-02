@@ -126,6 +126,16 @@ visible; that `null` beats a guess; to transcribe the model code character for
 character; never to estimate starting resistance; and, if no placard is
 visible, to say so in `notes`.
 
+Rule **3a** (0.5.1, owner-approved after testing): if any character of the
+model code is unclear, too small, blurred or partly hidden, the model returns
+`null` for `model_code` at confidence 0 and writes the characters it could make
+out in `notes`. A wrong code is worse than no code, because the matcher
+preselects on an exact code and a confident wrong one can preselect the wrong
+machine, while a missing code falls back to the name with nothing preselected.
+On the owner's real photos, wrong codes fell from 5 to 1 in 30 scored reads,
+with no regressions: all 15 correct codes were kept. The reads were scored
+outside the repository; no photo or raw output is kept here.
+
 It is **not** asked to identify a machine from its shape, to look anything up,
 to estimate weights, or to choose a catalog row. Matching is done by the app,
 and choosing is done by you.

@@ -2356,3 +2356,13 @@ database; under 0.5.0 they show on Home as a program named "Quick workouts"
 and in History under that name, and are otherwise ordinary sessions.
 `/srv/doclifts/.env.pre-0.5.1` is the env file before step 4; the
 `PHOTO_DAILY_LIMIT` key is safe to keep (0.5.0's compose reads it too).
+
+## 26. 0.5.2 — the name guard on photo matching — NOT deployed
+
+Code only: no migration, no env change. Deploy under development-push mode:
+quiet check, `pre-0.5.2` kept until the owner signs off, `compose-prod.sh up
+-d --build --wait web`, then the check below.
+
+Check (scratch account): upload a generated placard reading gym80 / `4157` /
+PURE KRAFT BOOTY BOOSTER. Review must show the name-disagrees line, 4157
+first, 4352 among the names, and no radio preselected. Discard the photo.

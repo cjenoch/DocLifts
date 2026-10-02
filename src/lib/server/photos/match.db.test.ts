@@ -121,14 +121,15 @@ describe('matchCandidate', () => {
 		expect(ids(r)).toEqual([models.ilRow.id]);
 	});
 
-	it('an exact code match wins over the name', async () => {
+	it('an exact code match is listed first, and preselected when the names agree', async () => {
 		const r = await matchCandidate(db, alice, {
 			manufacturer: 'Hammer Strength',
 			model_code: 'il-hbp',
-			name: 'Iso Lateral Row'
+			name: 'Iso-Lateral Bench Press'
 		});
 		expect(r.method).toBe('exact');
 		expect(r.preselectedId).toBe(models.ilHbp.id);
+		expect(r.nameDisagrees).toBeUndefined();
 	});
 
 	it('prefix (Technogym): base code MB20 matches placard SKU MB200N0-ANV0GGGP, preselected', async () => {
@@ -173,7 +174,9 @@ describe('matchCandidate', () => {
 		const r = await matchCandidate(db, alice, {
 			manufacturer: 'Nautilus',
 			model_code: 'NP-L3004',
-			name: 'Something Else Entirely'
+			// An agreeing name: since 0.5.2 a disagreeing one withholds the
+			// preselection (see 'name guard' below).
+			name: 'LEVERAGE ROW'
 		});
 		expect(r).toMatchObject({ method: 'leading_digit', preselectedId: models.nlRow.id });
 		expect(ids(r)).toEqual([models.nlRow.id]);
@@ -269,6 +272,102 @@ describe('matchCandidate', () => {
 		expect(
 			await matchCandidate(db, alice, { manufacturer: null, model_code: null, name: 'XY' })
 		).toEqual({ method: 'none', preselectedId: null, matches: [] });
+	});
+
+	describe('name guard (0.5.2): a code match is preselected only if the names agree', () => {
+		// gym80 lists 4157 as a Power Curl Barbell Rack. On 2026-10-01 the
+		// owner's 4352 Booty Booster placard was read as 4157, three reads
+		// running, at confidence 1.0. The name is the independent check.
+		beforeEach(async () => {
+			const line = { productLine: 'PURE KRAFT' };
+			for (const [key, code, name] of [
+				['g4157', '4157', 'POWER CURL BARBELL RACK'],
+				['g4352', '4352', 'PURE KRAFT Booty Booster'],
+				['g4386n', '4386N', 'PURE KRAFT Booty Booster Special']
+			] as const) {
+				const [row] = await db
+					.insert(s.equipmentModels)
+					.values({
+						manufacturer: 'gym80',
+						name,
+						code,
+						loadingType: 'machine-plate',
+						confidence: 'manufacturer_page',
+						...(key === 'g4157' ? {} : line)
+					})
+					.returning();
+				models[key] = row;
+			}
+		});
+
+		it('a real code for a different machine: offered first, the name matches after it, nothing preselected', async () => {
+			const r = await matchCandidate(db, alice, {
+				manufacturer: 'GYM80',
+				model_code: '4157',
+				name: 'PURE KRAFT BOOTY BOOSTER'
+			});
+			expect(r).toMatchObject({ method: 'exact', preselectedId: null, nameDisagrees: true });
+			expect(ids(r)).toEqual([models.g4157.id, models.g4352.id, models.g4386n.id]);
+		});
+
+		it('maker and product-line words do not count as agreement', async () => {
+			// "PURE KRAFT" alone would otherwise vouch for any Pure Kraft machine.
+			const r = await matchCandidate(db, alice, {
+				manufacturer: 'gym80',
+				model_code: '4386N',
+				name: 'gym80 Pure Kraft Booty Booster'
+			});
+			expect(r.preselectedId).toBe(models.g4386n.id); // shares "booty", "booster"
+			const wrong = await matchCandidate(db, alice, {
+				manufacturer: 'gym80',
+				model_code: '4386N',
+				name: 'Pure Kraft Squat Machine'
+			});
+			expect(wrong).toMatchObject({ preselectedId: null, nameDisagrees: true });
+		});
+
+		it('the right code and an agreeing name: preselected as before', async () => {
+			const r = await matchCandidate(db, alice, {
+				manufacturer: 'Gym80',
+				model_code: '4352',
+				name: 'Booty Booster'
+			});
+			expect(r).toMatchObject({ method: 'exact', preselectedId: models.g4352.id });
+			expect(r.nameDisagrees).toBeUndefined();
+		});
+
+		it('no meaningful name read: the code alone still preselects (owner default)', async () => {
+			for (const name of [null, '', 'PURE KRAFT', 'gym80']) {
+				const r = await matchCandidate(db, alice, {
+					manufacturer: 'gym80',
+					model_code: '4352',
+					name
+				});
+				expect(r.preselectedId, String(name)).toBe(models.g4352.id);
+			}
+		});
+
+		it('the guard covers leading-digit and prefix matches too', async () => {
+			const leading = await matchCandidate(db, alice, {
+				manufacturer: 'Nautilus',
+				model_code: 'NP-L3004',
+				name: 'Chest Press'
+			});
+			expect(leading).toMatchObject({
+				method: 'leading_digit',
+				preselectedId: null,
+				nameDisagrees: true
+			});
+			expect(ids(leading)[0]).toBe(models.nlRow.id);
+			expect(ids(leading)).toContain(models.nlChest.id);
+			const prefix = await matchCandidate(db, alice, {
+				manufacturer: 'Technogym',
+				model_code: 'MB200N0-ANV0GGGP',
+				name: 'Leg Curl' // MB20 is a chest press: no shared word
+			});
+			expect(prefix).toMatchObject({ method: 'prefix', preselectedId: null, nameDisagrees: true });
+			expect(ids(prefix)[0]).toBe(models.mb20.id);
+		});
 	});
 
 	it('a user’s own model is matched for them, and invisible to another user', async () => {

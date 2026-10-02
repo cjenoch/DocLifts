@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.2 — a misread code can't pick the wrong machine — not yet released
+
+- **The app no longer pre-picks a machine when the code and the name
+  disagree.** If the model reads a real model code that belongs to a
+  different machine (a Booty Booster placard read as gym80 4157, which is a
+  barbell rack), nothing is chosen for you: the code's machine is shown
+  first, then the machines whose names match what was read, with a line
+  saying why. When the code and the name agree, it is pre-picked as before.
+  The maker's name and product line ("Pure Kraft") don't count as agreement.
+
 ## 0.5.1 — start a workout without a program — deployed 2026-10-02, acceptance pending
 
 - **Start a workout with no setup.** Home has a big "Start workout" button

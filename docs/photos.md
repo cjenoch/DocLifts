@@ -374,3 +374,16 @@ varies just as much on the same image read twice. Details in
 - **No placard, no reading.** A photo of the whole machine returns nothing
   useful; machine-only recognition is not built (see the handoff for the
   two-stage idea).
+
+## The name guard (0.5.2)
+
+A code match (exact, leading digit or prefix) is preselected only when the
+name read shares a meaningful word with the matched model's name. Maker words,
+the model's product-line words and `GENERIC_NAME_WORDS` (series, machine,
+station) don't count. If they share none, `matchCandidate` returns the code
+matches followed by the name matches, preselects nothing, and sets
+`nameDisagrees`; the review page says so. With no meaningful name read, the
+code alone still preselects (owner default). Why: a misread to a real code
+repeats across reads at confidence 1.0, so neither a second read nor the
+model's confidence catches it; the name is the independent check. Part C's
+"identify on an exact code" must use the same guard.

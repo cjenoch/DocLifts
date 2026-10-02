@@ -29,6 +29,9 @@
 		name: 'No model code matched. These are the closest names; none is chosen for you.',
 		none: 'No match in the catalog or your own models. Create your own model below.'
 	};
+	/** 0.5.2 name guard: shown instead of the method text when the code and the name disagree. */
+	const NAME_DISAGREES =
+		"The model code matches a machine whose name doesn't match the name read, so nothing is chosen for you. The code match is first, then the closest names: pick the one that is this machine.";
 </script>
 
 <div class="mx-auto max-w-lg space-y-5 p-4">
@@ -124,7 +127,7 @@
 			<form method="POST" action="?/link" class="space-y-3 rounded border border-zinc-700 p-4">
 				<h2 class="font-semibold">Link an existing model</h2>
 				<p class="text-sm text-zinc-400" data-testid="match-method">
-					{METHOD_TEXT[data.matching.method]}
+					{data.matching.nameDisagrees ? NAME_DISAGREES : METHOD_TEXT[data.matching.method]}
 				</p>
 				{#if data.matching.matches.length}
 					<fieldset class="space-y-2">

@@ -29,6 +29,17 @@
  *
  * Order: exact, leading digit, prefix, name, none. If a photo is preselected
  * to the wrong model, suspect the leading-digit rule first. See docs/photos.md.
+ *
+ * Name guard (owner decision, 0.5.2): a code match (exact, leading digit or
+ * prefix) is preselected only when the read name shares at least one
+ * meaningful word with the matched model's name. Maker words, the model's
+ * product-line words and GENERIC_NAME_WORDS do not count, so "Pure Kraft" or
+ * "Iso-Lateral" can't vouch for a wrong machine. If they share none, the code
+ * matches are returned with the name matches after them, nothing preselected,
+ * and `nameDisagrees` set. With no meaningful name read, the code alone still
+ * preselects. Why: a placard misread to a real code (gym80 4352 read as 4157,
+ * a different machine) is repeated across reads at confidence 1.0; the name
+ * is the independent check that catches it.
  */
 import { and, asc, eq, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { equipmentModels } from '../db/schema';
@@ -43,7 +54,12 @@ export type CandidateMatches = {
 	/** The match to preselect, or null when the user must choose. */
 	preselectedId: string | null;
 	matches: EquipmentModel[];
+	/** A code match whose model name shares no meaningful word with the name read (0.5.2). */
+	nameDisagrees?: boolean;
 };
+
+/** Words that say nothing about which machine it is. Maker and line words are added per model. */
+export const GENERIC_NAME_WORDS = ['series', 'machine', 'station'];
 
 /** The shortest code a prefix match may rest on. */
 export const MIN_PREFIX_LENGTH = 4;
@@ -83,6 +99,28 @@ export function nameTokens(name: string): string[] {
 	return [...new Set((name.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((t) => t.length >= 3))];
 }
 
+/** The name's tokens minus maker, product-line and generic words (0.5.2 name guard). */
+export function meaningfulTokens(
+	name: string | null | undefined,
+	ignore: (string | null | undefined)[]
+): string[] {
+	const skip = new Set([...GENERIC_NAME_WORDS, ...ignore.flatMap((w) => (w ? nameTokens(w) : []))]);
+	return name ? nameTokens(name).filter((t) => !skip.has(t)) : [];
+}
+
+/** True when the read name and the model's name share a meaningful word, or nothing meaningful was read. */
+export function nameAgrees(
+	readName: string | null | undefined,
+	readMaker: string | null,
+	model: EquipmentModel
+): boolean {
+	const ignore = [readMaker, model.manufacturer, model.productLine];
+	const read = meaningfulTokens(readName, ignore);
+	if (!read.length) return true;
+	const theirs = new Set(meaningfulTokens(model.name, ignore));
+	return read.some((t) => theirs.has(t));
+}
+
 /** Several exact rows (a user's own copy beside the catalog row): prefer the single owned one. */
 function preselectAmong(rows: EquipmentModel[]): string | null {
 	if (rows.length === 1) return rows[0].id;
@@ -97,6 +135,27 @@ export async function matchCandidate(
 ): Promise<CandidateMatches> {
 	const manufacturer = candidate.manufacturer?.trim() || null;
 	const code = candidate.model_code ? normalizeCode(candidate.model_code) : '';
+	const tokens = candidate.name ? nameTokens(candidate.name) : [];
+
+	// The name guard: keep a code preselection only if the names agree.
+	const guarded = async (
+		method: MatchMethod,
+		matches: EquipmentModel[],
+		preselectedId: string | null
+	): Promise<CandidateMatches> => {
+		const chosen = matches.find((m) => m.id === preselectedId);
+		if (!chosen || nameAgrees(candidate.name, manufacturer, chosen)) {
+			return { method, preselectedId, matches };
+		}
+		const byName = await nameMatches(db, userId, manufacturer, tokens);
+		const seen = new Set(matches.map((m) => m.id));
+		return {
+			method,
+			preselectedId: null,
+			matches: [...matches, ...byName.filter((m) => !seen.has(m.id))],
+			nameDisagrees: true
+		};
+	};
 
 	if (manufacturer && code) {
 		const exact = await db
@@ -113,7 +172,7 @@ export async function matchCandidate(
 			// The user's own row first, then the catalog's.
 			.orderBy(sql`${equipmentModels.ownerUserId} IS NULL`, asc(equipmentModels.id));
 		if (exact.length) {
-			return { method: 'exact', preselectedId: preselectAmong(exact), matches: exact };
+			return guarded('exact', exact, preselectAmong(exact));
 		}
 
 		const coded = await db
@@ -128,58 +187,57 @@ export async function matchCandidate(
 		// rule is the first suspect (docs/photos.md).
 		const leading = coded.filter((m) => isLeadingDigitMatch(normalizeCode(m.code!), code));
 		if (leading.length) {
-			return {
-				method: 'leading_digit',
-				preselectedId: leading.length === 1 ? leading[0].id : null,
-				matches: leading
-			};
+			return guarded('leading_digit', leading, leading.length === 1 ? leading[0].id : null);
 		}
 
 		const prefix = coded.filter((m) => isPrefixMatch(normalizeCode(m.code!), code));
 		if (prefix.length) {
-			return {
-				method: 'prefix',
-				preselectedId: prefix.length === 1 ? prefix[0].id : null,
-				matches: prefix
-			};
+			return guarded('prefix', prefix, prefix.length === 1 ? prefix[0].id : null);
 		}
 	}
 
-	const tokens = candidate.name ? nameTokens(candidate.name) : [];
-	if (tokens.length) {
-		const [{ known }] = manufacturer
-			? await db
-					.select({ known: sql<number>`count(*)::int` })
-					.from(equipmentModels)
-					.where(and(modelVisibleTo(userId), sameManufacturer(manufacturer)))
-			: [{ known: 0 }];
-		const score = sql<number>`(${sql.join(
-			tokens.map(
-				(t) => sql`(CASE WHEN ${equipmentModels.name} ILIKE ${likePattern(t)} THEN 1 ELSE 0 END)`
-			),
-			sql` + `
-		)})`;
-		const rows = await db
-			.select({ model: equipmentModels, score })
-			.from(equipmentModels)
-			.where(
-				and(
-					modelVisibleTo(userId),
-					known > 0 ? sameManufacturer(manufacturer!) : undefined,
-					sql`${score} > 0`
-				)
-			)
-			.orderBy(
-				sql`${score} DESC`,
-				sql`length(${equipmentModels.name}) ASC`,
-				asc(equipmentModels.name),
-				asc(equipmentModels.id)
-			)
-			.limit(NAME_MATCH_LIMIT);
-		if (rows.length) {
-			return { method: 'name', preselectedId: null, matches: rows.map((r) => r.model) };
-		}
-	}
+	const byName = await nameMatches(db, userId, manufacturer, tokens);
+	if (byName.length) return { method: 'name', preselectedId: null, matches: byName };
 
 	return { method: 'none', preselectedId: null, matches: [] };
+}
+
+/** Step 3, the name search: also offered after a code match whose name disagrees. */
+async function nameMatches(
+	db: Database,
+	userId: string,
+	manufacturer: string | null,
+	tokens: string[]
+): Promise<EquipmentModel[]> {
+	if (!tokens.length) return [];
+	const [{ known }] = manufacturer
+		? await db
+				.select({ known: sql<number>`count(*)::int` })
+				.from(equipmentModels)
+				.where(and(modelVisibleTo(userId), sameManufacturer(manufacturer)))
+		: [{ known: 0 }];
+	const score = sql<number>`(${sql.join(
+		tokens.map(
+			(t) => sql`(CASE WHEN ${equipmentModels.name} ILIKE ${likePattern(t)} THEN 1 ELSE 0 END)`
+		),
+		sql` + `
+	)})`;
+	const rows = await db
+		.select({ model: equipmentModels, score })
+		.from(equipmentModels)
+		.where(
+			and(
+				modelVisibleTo(userId),
+				known > 0 ? sameManufacturer(manufacturer!) : undefined,
+				sql`${score} > 0`
+			)
+		)
+		.orderBy(
+			sql`${score} DESC`,
+			sql`length(${equipmentModels.name}) ASC`,
+			asc(equipmentModels.name),
+			asc(equipmentModels.id)
+		)
+		.limit(NAME_MATCH_LIMIT);
+	return rows.map((r) => r.model);
 }

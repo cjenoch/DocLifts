@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 — photograph the machine, log your sets, name it later — not yet released
+## 0.6.0 — photograph the machine, log your sets, name it later — 2026-10-02
 
 - **Photo next machine.** A green button at the bottom of an open workout.
   The photo opens a new exercise at once, as "Unidentified machine", and you

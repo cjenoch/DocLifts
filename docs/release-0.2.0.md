@@ -2606,7 +2606,30 @@ its bar and no tabs.
 - The tab bar clears the home indicator, and a page scrolled to the bottom
   shows its last control above the tabs.
 
-## 30. 0.6.0 — photo in the workout (SPEC 0.5.0 Part C, first half) — NOT deployed
+## 30. 0.6.0 — photo in the workout (SPEC 0.5.0 Part C, first half) — DEPLOYED 2026-10-02, acceptance pending
+
+```
+0.6.0    d503b5c, tagged 0.6.0; branch CI green (test + docker); full local
+         gate 778 (+2 skipped) / 3 / 31 / 135
+migrate  migrate-prod.sh: dump predeploy-20261002T145850Z.dump verified
+         (220K); 0018 applied; 19 migration rows; FK present; 36 sessions,
+         457 sets, 23 photos unchanged
+quiet    suspended by the owner (no tester account yet)
+image    pre-0.6.0 kept until the owner signs off
+web      rebuilt 14:59 UTC, healthy; version.json d503b5c
+check    scratch account, Scratch photo check gym, 390x844, real model:
+         Photo next machine (>= 44 px, no capture); the block opened in
+         811 ms with "Identifying machine…" showing; a set of 50 x 10
+         saved 970 ms after the photo (scripted on the VPS); the read
+         returned "Hammer Strength Iso-Lateral Row (IL-ROW)" 3.3 s after
+         the photo; Use this named it "Iso-Lateral Row", plates per side;
+         finished -> Home with nothing to name. psql: the 50 x 10 set
+         unchanged, all three sets on the gym's one IL-ROW machine (merged),
+         photo confirmed on it, no "Photo" machine left; the upload line
+         "source":"workout", totalMs 285, modelMs null; no 5xx, 0 page
+         errors
+owed     the owner's phone: photo to first saved set under 3 s on cellular
+```
 
 **Migration 0018** (additive): `equipment_photos.session_exercise_id`, nullable,
 FK `equipment_photos_session_exercise_id_fk` to `session_exercises` with

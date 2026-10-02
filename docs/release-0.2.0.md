@@ -2041,7 +2041,15 @@ check    the scratch account's Home showed 0 of the owner's 2 active
          programs; pre-0.4.7 deleted afterwards
 ```
 
-## 24. 0.5.0 (Part A) — resize photos on the phone — deployed 2026-10-02, acceptance pending
+## 24. 0.5.0 (Part A) — resize photos on the phone — DEPLOYED 2026-10-02, accepted 2026-10-02
+
+**Owner sign-off, 2026-10-02:** tested from his iPhone and accepted. The
+upload is in the log at 01:08 UTC: `clientOriginalBytes` 2,827,060,
+`clientResized` true, `receivedBytes` 933,941 (33%, under the 1.5 MB
+target), `storedBytes` 267,502, stored 1200x1600 (portrait, upright), and
+confirmed by him. **Still owed, not blocking:** the five-real-placard
+comparison with resize on and off, once he puts camera originals on the
+VPS (outside the public repo).
 
 ```
 0.5.0    71b7a20, tagged 0.5.0 (the spec's Part A; Part B ships as 0.5.1)

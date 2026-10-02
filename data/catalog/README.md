@@ -41,3 +41,13 @@ each change and each gap left open. Same columns as 2026-09-30, plus
   codes come mostly from lifefitness.com, their parent's catalog.
 - A starting weight the manufacturer gives without saying total or per arm
   is in `notes`, not in the starting-resistance columns.
+
+# equipment_models seed — 2026-10-01b
+
+The 2026-10-01 snapshot plus one row: gym80 **4352** PURE KRAFT Booty
+Booster, read from https://gym80.de/en/product/4352/ on 2026-10-01 (plate
+loaded, PURE KRAFT series; the page's 165 kg total weight and 125 kg max load
+are in `notes`, not in the resistance or stack columns). Added because the
+owner's placard for this machine was misread as 4157, a code gym80 uses for a
+POWER CURL BARBELL RACK, and 4352 had no row. Every other row is unchanged
+from 2026-10-01; no `replaces_code`.

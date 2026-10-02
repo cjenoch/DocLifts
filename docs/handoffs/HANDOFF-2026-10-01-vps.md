@@ -117,8 +117,11 @@ change logs are committed in `data/catalog/research-2026-10-01/`.
    - Manufacturer aliases before matching: the gym80 logo reads as
      "Dyumbo"/"Gymbo", and the product line gets taken for the maker ("Pure
      Kraft", "FIRE KRAFT").
-   - A research top-up for gym80 Pure Kraft: 4157 Booty Booster was read
-     correctly but has no catalog row.
+   - **Corrected:** this said "4157 Booty Booster was read correctly". It
+     was not: the placard is gym80 **4352** PURE KRAFT BOOTY BOOSTER
+     (https://gym80.de/en/product/4352/), and gym80 lists 4157 as a POWER
+     CURL BARBELL RACK. The model misread the code at confidence 1.0. 4352 is
+     added in the 2026-10-01b snapshot; see `docs/photos.md`, "Known gaps".
 3. **Machine-only photos (no placard): design, not built.** Keep it cheap:
    - Stage 1 is the same single call: with no placard, describe maker
      (logo, frame), machine type, plate or stack, and arms.

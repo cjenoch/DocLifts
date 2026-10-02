@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.1 — start a workout without a program — not yet released
+
+- **Start a workout with no setup.** Home has a big "Start workout" button
+  above "Create program". Pick your gym (the one you used last is already
+  chosen; on your first time, just type your gym's name) and the workout
+  opens, ready for you to add the first exercise. No program to build first.
+- **Pick up where you left off.** While that workout is open, the button
+  reads "Resume workout".
+- **Last time's numbers come back.** Add the same exercise on the same
+  machine next time and the weight from your last workout is filled in, with
+  "Last: …" under it, just as in a program workout.
+- **Exercises go in the workout's gym** unless you pick another.
+- **History and Reports include these workouts**, labelled "Quick workout".
+  The program list doesn't show them: there is nothing to edit.
+- **Photo reading is more careful with model codes.** When any character of
+  a machine's model code is hard to read, it now leaves the code blank and
+  says what it could make out, instead of guessing. A wrong code is worse
+  than none: on real placards this cut wrong codes from 5 to 1 in 30 reads,
+  with every correct code still read.
+- **For the owner:** the catalog import script now accepts a snapshot kept
+  outside the repository, by its full path, and its confirmation prompt is a
+  whole line.
+
 ## 0.5.0 — photos upload faster — 2026-10-02
 
 - **Photos shrink on your phone before they upload.** A camera photo is 3 to

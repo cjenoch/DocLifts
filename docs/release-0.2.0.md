@@ -2116,3 +2116,219 @@ is one tap. e2e: the POST is aborted (`internetdisconnected`), the alert shows,
 the URL and the selected file are unchanged, nothing is stored, and the retry
 reaches review. Watched failing with the first Part A handler (the page was
 replaced and the alert never appeared).
+
+## 25. 0.5.1 — start a workout with no program — NOT deployed
+
+Branch `feat/0.5.1-quick-workout`, off `main` at `5dba397` (production runs
+0.5.0). Not merged, not tagged, not deployed.
+
+```
+0.5.1    the spec's Part B (start a workout with no program), plus
+         catalog-prod.sh taking a CSV outside the repo, and photo
+         prompt rule 3a
+gate     full local gate in CI order: server 698, demo 3, client 31,
+         e2e 103 (baseline at 5dba397: 647 / 3 / 31 / 101)
+CLAUDE   one commit touches CLAUDE.md (file map only); the owner reads
+         that diff before it reaches main
+```
+
+### What changes
+
+- **Migration 0017** (additive): `programs.system_kind` and
+  `sessions.gym_id`. Each user gets one hidden system program, "Quick
+  workouts", with one day, created the first time they tap Start workout.
+  A quick workout is an ordinary session on that day.
+- **New page** `/workout/start` (the gym step). Home gains the Start / Resume
+  workout button. The system program never appears on Home, its program page
+  or the editor (all 404 / not found); History and Reports label its sessions
+  "Quick workout".
+- **Photo prompt rule 3a**: an unclear model code is returned as null. Reads
+  change for unclear codes only; see `docs/photos.md`.
+- **`scripts/catalog-prod.sh`** accepts an absolute path to a CSV outside the
+  repo (mounted read-only). Not run as part of this deploy.
+- **One env change at deploy:** `PHOTO_DAILY_LIMIT=60` while the owner and the
+  tester are testing (owner default; the code default stays 20).
+
+### Migration 0017, verified on a restore of production
+
+The newest nightly was `/srv/backups/doclifts/doclifts-2026-10-01.sql.gz`
+(03:00 UTC, taken before 0012–0016 were applied, so at 0011; the 2026-10-02
+nightly did not exist yet). Restored into a throwaway database
+(`doclifts_scratch_051`) on this branch's disposable test container
+(`doclifts-test-db-051`). The chain was applied in two steps so the last
+one is exactly production's pending step: 0012 → 0016 (the chain without
+0017, i.e. production's state), then 0017 alone, both with drizzle-orm's
+migrator. The database was dropped afterwards. Counts only:
+
+| table                           | dump (0011) | at 0016 | at 0017 |
+| ------------------------------- | ----------: | ------: | ------: |
+| `auth.account`                  |           2 |       2 |       2 |
+| `auth.session`                  |           2 |       2 |       2 |
+| `auth.user`                     |           2 |       2 |       2 |
+| `auth.verification`             |           0 |       0 |       0 |
+| `drizzle.__drizzle_migrations`  |          12 |      17 |      18 |
+| `public.day_exercises`          |          61 |      61 |      61 |
+| `public.days`                   |          12 |      12 |      12 |
+| `public.equipment_models`       |           0 |       0 |       0 |
+| `public.equipment_photos`       |           — |       0 |       0 |
+| `public.exercise_equipment_map` |           0 |       0 |       0 |
+| `public.exercises`              |          94 |      94 |      94 |
+| `public.gym_equipment`          |           0 |       0 |       0 |
+| `public.gyms`                   |           2 |       2 |       2 |
+| `public.imported_workouts`      |         107 |     107 |     107 |
+| `public.llm_calls`              |           — |       0 |       0 |
+| `public.pain_events`            |           0 |       0 |       0 |
+| `public.prescribed_sets`        |         140 |     140 |     140 |
+| `public.program_draft_requests` |           1 |       1 |       1 |
+| `public.programs`               |           4 |       4 |       4 |
+| `public.session_exercises`      |          22 |      22 |      22 |
+| `public.sessions`               |          31 |      31 |      31 |
+| `public.sets`                   |         454 |     454 |     454 |
+| `public.workout_log_imports`    |           1 |       1 |       1 |
+
+New in 0017, by name, as Postgres reports them: columns `programs.system_kind`
+(text, nullable) and `sessions.gym_id` (uuid, nullable); CHECK
+`programs_system_kind_check` (`system_kind IS NULL OR system_kind = 'quick'`);
+unique index `programs_one_quick_per_user` on `programs (user_id) WHERE
+system_kind = 'quick'`; FK `sessions_gym_id_fk` (→ `gyms(id)`, NO ACTION);
+index `sessions_gym_id_idx`. On the restored data no program has a
+`system_kind` and no session a `gym_id` (both 0 of 4 / 0 of 31), so every
+existing program and workout is unchanged. Longest new name 27 bytes.
+`drizzle-kit check` is green.
+
+**Before deploying, repeat this on the newest nightly** if it is newer than
+2026-10-01 (from 2026-10-02 it is at 0016, so only 0017 applies): restore it
+into a scratch database on a disposable container, apply the chain, compare
+counts, drop it. CLAUDE.md: migrations only after the chain passes on a
+restore of the nightly dump.
+
+### Before deploying (development-push mode)
+
+```bash
+# 1. CI green on main at the release sha, BOTH jobs (test and docker):
+#    gh run list --branch main
+
+# 2. Quiet check (CLAUDE.md, "Development-push mode"): all three must pass,
+#    otherwise wait and retry.
+q() { sudo -n scripts/compose-prod.sh exec -T db psql -U doclifts -d doclifts -tAc "$1"; }
+q "select count(*) from (select s.id from sessions s
+     left join sets st on st.session_id = s.id
+     where s.ended_at is null and s.deleted_at is null
+     group by s.id
+     having greatest(s.started_at, max(st.logged_at)) > now() - interval '6 hours') b"
+#   0
+q "select now() - greatest(
+     (select max(logged_at) from sets), (select max(started_at) from sessions),
+     (select max(ended_at) from sessions), (select max(created_at) from equipment_photos),
+     (select max(created_at) from llm_calls), (select max(updated_at) from programs),
+     (select max(updated_at) from auth.session))"
+#   over 30 minutes
+sudo -n scripts/compose-prod.sh logs web --since 30m \
+  | grep -cE '"event":"(login_attempt|password_change|photo_upload)"'
+#   0 (not counting the assistant's own scratch-account checks)
+
+# 3. Keep the running image until the owner signs 0.5.1 off.
+sudo -n docker tag doclifts-web:vps doclifts-web:pre-0.5.1
+```
+
+4. **The one env change**, `PHOTO_DAILY_LIMIT=60` (owner default while testing;
+   the code and compose default is 20). Its passthrough line already exists:
+   `docker-compose.yml` has `PHOTO_DAILY_LIMIT: ${PHOTO_DAILY_LIMIT:-20}` in
+   the `web` environment (checked on this branch), and
+   `env-passthrough.test.ts` covers every `PHOTO_ENV` key. Keep a copy, then
+   set the key once:
+
+   ```bash
+   sudo -n cp -p /srv/doclifts/.env /srv/doclifts/.env.pre-0.5.1
+   sudo -n grep -c '^PHOTO_DAILY_LIMIT=' /srv/doclifts/.env
+   #   0 -> append it; 1 -> edit that line to 60 with an editor
+   sudo -n sh -c 'printf "\nPHOTO_DAILY_LIMIT=60\n" >> /srv/doclifts/.env'
+   sudo -n scripts/check-env-passthrough.sh /srv/doclifts/.env
+   #   env passthrough check: all N key(s) in /srv/doclifts/.env are read by docker-compose.yml
+   ```
+
+### Migrate, deploy
+
+```bash
+# 5. Migration 0017 (migrate-prod.sh takes and verifies its own dump first,
+#    and refuses to migrate without one). Only 0017 is pending; afterwards
+#    drizzle.__drizzle_migrations has 18 rows.
+sudo -n scripts/migrate-prod.sh
+
+# 6. Deploy. 0.5.0 code never reads the two new columns, so 5 before 6 is
+#    safe. The passthrough check runs again inside compose-prod.sh.
+sudo -n scripts/compose-prod.sh up -d --build --wait web
+```
+
+### Checks
+
+```bash
+# 7. Migration objects by name.
+q "select count(*) from drizzle.__drizzle_migrations"
+#   18
+q "select string_agg(n, ', ' order by n) from (
+     select conname n from pg_constraint
+      where conname in ('programs_system_kind_check', 'sessions_gym_id_fk')
+     union all select indexname from pg_indexes
+      where indexname in ('programs_one_quick_per_user', 'sessions_gym_id_idx')) x"
+#   programs_one_quick_per_user, programs_system_kind_check, sessions_gym_id_fk, sessions_gym_id_idx
+
+# 8. The limit reached the container (not a secret).
+sudo -n docker exec doclifts-web printenv PHOTO_DAILY_LIMIT
+#   60
+```
+
+9. **On a fresh, empty test account**, never the owner's, and **not** the
+   scratch account (`scratch-test@doclifts.invalid` already has a gym, so it
+   hides the first-run state). Create it with the password piped from the
+   owner's own shell, never typed into a command line by an assistant:
+
+   ```bash
+   printf '%s' "$(pass show doclifts-fresh)" | scripts/user-prod.sh create \
+     --email fresh-0.5.1@doclifts.invalid --password-stdin --name "Fresh 0.5.1"
+   ```
+
+   Then, signed in as it, on a phone-width page:
+   - Home shows **Start workout** above **Create program**, and no programs.
+   - Start workout → the gym step has no gyms; type a gym name → Start. The
+     workout opens headed **Workout** and the date, with the add-exercise
+     control already open and that gym chosen.
+   - Add an exercise (name a new machine), save a first set. Home now reads
+     **Resume workout** and opens the same workout. Finish it.
+   - Start workout again: the gym is preselected; one tap. Add the same
+     exercise on the same machine: the weight is filled in from the first
+     workout and "Last: …" shows under it.
+   - History lists both as **Quick workout**; Reports' recent trend labels the
+     finished one **Quick workout**. The program list is still empty.
+   - Pages still load (`/`, `/gyms`, `/equipment`, `/history`, `/reports`).
+
+```bash
+# 10. The fresh account's rows: one quick program, two sessions in its gym,
+#     and no other user's rows touched.
+q "select p.system_kind, count(distinct s.id), count(distinct s.gym_id)
+   from programs p join auth.\"user\" u on u.id = p.user_id
+   left join sessions s on s.program_id = p.id
+   where u.email = 'fresh-0.5.1@doclifts.invalid' group by 1"
+#   quick | 2 | 1
+q "select count(*) from programs where system_kind is not null"
+#   1 (only the fresh account has used it so far)
+```
+
+`pre-0.5.1` is kept until the owner signs the release off. The owner's own
+check (a brand-new account from Home to a saved first set **on a phone**, and
+the second workout showing last time's numbers) is the spec's acceptance;
+until then the release is "deployed, acceptance pending".
+
+### Rollback
+
+```bash
+DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.5.1 \
+  sudo -n scripts/compose-prod.sh up -d --wait web
+```
+
+0017 is additive and 0.5.0 runs against it unchanged (it never reads
+`system_kind` or `gym_id`). Quick workouts already logged stay in the
+database; under 0.5.0 they show on Home as a program named "Quick workouts"
+and in History under that name, and are otherwise ordinary sessions.
+`/srv/doclifts/.env.pre-0.5.1` is the env file before step 4; the
+`PHOTO_DAILY_LIMIT` key is safe to keep (0.5.0's compose reads it too).

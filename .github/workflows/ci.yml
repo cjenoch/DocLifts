@@ -7,6 +7,11 @@ on:
   # Manual runs, e.g. to validate a workflow change on a branch before merging.
   workflow_dispatch:
 
+# Neither job writes to the repository or uses a secret: a read-only token,
+# stated here rather than left to the repository's default setting.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

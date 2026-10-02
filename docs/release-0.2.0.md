@@ -2696,7 +2696,27 @@ the card shown again. Use this again, finish.
 
 **Owed by the owner:** a real repeat visit at his gym.
 
-## 32. 0.6.2 — set rows follow a named photo block (fixes 0.6.0 and 0.6.1) — NOT deployed
+## 32. 0.6.2 — set rows follow a named photo block (fixes 0.6.0 and 0.6.1) — DEPLOYED 2026-10-02, acceptance pending
+
+```
+0.6.2    c643c77, tagged 0.6.2 (0.6.1 tagged 4245a18 for the record);
+         branch CI green; full local gate 782 (+2 skipped) / 3 / 31 / 135
+go       the owner, after the §31 report
+image    pre-0.6.2 = 0.6.0 kept until the owner signs off
+web      healthy; version.json c643c77
+check    scratch account, Scratch photo check gym, real model: the open
+         workout left by §31 finished from the page first. Repeat visit
+         named itself with no tap, 2.6-3.1 s after the photo, "Named from
+         your photo: Hammer Strength Iso-Lateral Row (IL-ROW)"; set 1 showed
+         last time's number (50 on the first run, 60 on the second, after
+         the first run's 60 x 8 became last time) and saved; Undo back to
+         Unidentified machine with the card; Use this again; set 2 saved
+         55 x 8 after it. psql: every set on the gym's one IL-ROW, no
+         "Photo" machine left. No 5xx, 0 page errors. (One run's two
+         failures were the check script typing into a row before it
+         re-rendered; rerun with waits, all pass.)
+owed     the owner: a real repeat visit at his gym
+```
 
 The fix for §31: the session page keys each set row by its id, machine and
 weight format, so a row starts again when its block is named or undone: new

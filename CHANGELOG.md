@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.2 — saving a set after naming a machine works — not yet released
+## 0.6.2 — saving a set after naming a machine works — 2026-10-02
 
 - **Fixed:** after an exercise was named from a photo (Use this, or a repeat
   visit naming itself), its sets showed no numbers from last time and could

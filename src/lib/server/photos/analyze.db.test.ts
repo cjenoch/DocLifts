@@ -18,7 +18,13 @@ import {
 	SYSTEM_PROMPT,
 	userText
 } from './analyze';
-import { FIXTURE_CANDIDATE as CANDIDATE, smallPng } from './test-fixtures';
+import { emptyTimings } from './timings';
+import {
+	CountingPhotoStore,
+	FIXTURE_CANDIDATE as CANDIDATE,
+	imageSentTo,
+	smallPng
+} from './test-fixtures';
 
 let db: TestDb;
 let handle: Awaited<ReturnType<typeof setupTestDb>>;
@@ -42,7 +48,7 @@ beforeEach(async () => {
 });
 
 const upload = async () =>
-	(await uploadPhoto(db, alice, { gymId, bytes: await smallPng() }, { store, limits }))!;
+	(await uploadPhoto(db, alice, { gymId, bytes: await smallPng() }, { store, limits }))!.photo;
 const row = async (id: string) =>
 	(await db.select().from(s.equipmentPhotos).where(eq(s.equipmentPhotos.id, id)))[0];
 const calls = (userId: string) => db.select().from(s.llmCalls).where(eq(s.llmCalls.userId, userId));
@@ -252,5 +258,92 @@ describe('analyzePhoto', () => {
 			await analyzePhoto(db, alice, photo.id, { store, limits, complete: testComplete(model) })
 		).toBeNull();
 		expect(model.doGenerateCalls).toHaveLength(0);
+	});
+
+	describe('the image handed over on upload (0.5.3)', () => {
+		it('given the image, analysis does not read the store; without it, it does', async () => {
+			const counting = new CountingPhotoStore();
+			const uploaded = (await uploadPhoto(
+				db,
+				alice,
+				{ gymId, bytes: await smallPng() },
+				{ store: counting, limits }
+			))!;
+			const model = answeringModel(JSON.stringify(CANDIDATE));
+			const handed = await analyzePhoto(db, alice, uploaded.photo.id, {
+				store: counting,
+				limits,
+				image: uploaded.image,
+				complete: testComplete(model)
+			});
+			expect(handed).toMatchObject({ ok: true, candidate: CANDIDATE });
+			expect(counting.gets).toBe(0);
+
+			// The retry path: no image given, so it is read from the store.
+			const read = await analyzePhoto(db, alice, uploaded.photo.id, {
+				store: counting,
+				limits,
+				complete: testComplete(model)
+			});
+			expect(read).toMatchObject({ ok: true, candidate: CANDIDATE });
+			expect(counting.gets).toBe(1);
+		});
+
+		it('the result is the same whether the image is handed over or read back', async () => {
+			const uploaded = (await uploadPhoto(
+				db,
+				alice,
+				{ gymId, bytes: await smallPng() },
+				{ store, limits }
+			))!;
+			const model = answeringModel(JSON.stringify(CANDIDATE));
+			const handed = await analyzePhoto(db, alice, uploaded.photo.id, {
+				store,
+				limits,
+				image: uploaded.image,
+				complete: testComplete(model)
+			});
+			const handedRow = await row(uploaded.photo.id);
+			const read = await analyzePhoto(db, alice, uploaded.photo.id, {
+				store,
+				limits,
+				complete: testComplete(model)
+			});
+			const readRow = await row(uploaded.photo.id);
+
+			// Same bytes sent to the model, and they are the stored image.
+			const stored = imageSentTo(model, 1);
+			expect(stored.byteLength).toBe(uploaded.photo.bytes);
+			expect(imageSentTo(model, 0).equals(stored)).toBe(true);
+			// Same candidate, returned and stored.
+			expect(handed && handed.ok && handed.candidate).toEqual(CANDIDATE);
+			expect(read && read.ok && read.candidate).toEqual(CANDIDATE);
+			expect(handedRow.candidate).toEqual(readRow.candidate);
+			expect(readRow.status).toBe('analyzed');
+		});
+
+		it('records the model call time, whether the call succeeds or fails', async () => {
+			const photo = await upload();
+			const ok = emptyTimings();
+			await analyzePhoto(db, alice, photo.id, {
+				store,
+				limits,
+				timings: ok,
+				complete: testComplete(answeringModel(JSON.stringify(CANDIDATE)))
+			});
+			expect(Number.isInteger(ok.modelMs) && ok.modelMs! >= 0).toBe(true);
+
+			const failed = emptyTimings();
+			const out = await analyzePhoto(db, alice, photo.id, {
+				store,
+				limits,
+				timings: failed,
+				complete: testComplete(answeringModel('{}'), {})
+			});
+			expect(out?.ok).toBe(false);
+			expect(Number.isInteger(failed.modelMs) && failed.modelMs! >= 0).toBe(true);
+			// Analysis is not where processing or storing happens.
+			expect(failed).toMatchObject({ processMs: null, storePutMs: null });
+		});
 	});
 });

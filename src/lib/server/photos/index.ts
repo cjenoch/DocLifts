@@ -13,6 +13,7 @@ import type { Database } from '../progression';
 import type { PhotoLimits } from './config';
 import { processPhoto } from './process';
 import { photoKey, type PhotoStore } from './store';
+import { timed, type PhotoTimings } from './timings';
 
 export { PhotoInputError } from './process';
 export { PhotoConfigError } from './config';
@@ -59,6 +60,9 @@ export const uploadLimitMessage = (limit: number) =>
 		? 'Photo uploads are switched off.'
 		: `You have uploaded ${limit} photos in the last 24 hours, the daily limit. Try again later.`;
 
+/** A stored photo's row, and the processed JPEG that was stored under its key. */
+export type UploadedPhoto = { photo: EquipmentPhoto; image: Buffer };
+
 export type UploadInput = {
 	gymId: string;
 	bytes: Uint8Array;
@@ -75,6 +79,11 @@ export type UploadInput = {
  * the lock makes the cap exact when two uploads race. If the insert fails the
  * stored object is deleted, so the store never holds an object no row names.
  *
+ * Returns the row and `image`, the processed JPEG exactly as stored, so the
+ * upload action can hand it to `analyzePhoto` without reading it back from the
+ * store (0.5.3). `deps.timings`, when given, receives `processWaitMs`,
+ * `processMs` and `storePutMs` (timings.ts); measurement only.
+ *
  * Returns null when the gym is not this user's. Throws `PhotoInputError`
  * (size, format) or `PhotoLimitError` (daily cap) for the page to show.
  */
@@ -82,8 +91,8 @@ export async function uploadPhoto(
 	db: Database,
 	userId: string,
 	input: UploadInput,
-	deps: { store: PhotoStore; limits: PhotoLimits }
-): Promise<EquipmentPhoto | null> {
+	deps: { store: PhotoStore; limits: PhotoLimits; timings?: PhotoTimings }
+): Promise<UploadedPhoto | null> {
 	const gym = await ownGym(db, userId, input.gymId);
 	if (!gym) return null;
 	const { limits, store } = deps;
@@ -97,21 +106,24 @@ export async function uploadPhoto(
 	const processed = await processPhoto(input.bytes, {
 		maxBytes: limits.maxBytes,
 		type: input.type,
-		name: input.name
+		name: input.name,
+		timings: deps.timings
 	});
 
 	const id = randomUUID();
 	const key = photoKey(userId, id);
 	let stored = false;
 	try {
-		return await db.transaction(async (tx) => {
+		const photo = await db.transaction(async (tx) => {
 			await tx.execute(
 				sql`SELECT pg_advisory_xact_lock(hashtext(${'equipment_photos:' + userId}))`
 			);
 			if ((await uploadsInLastDay(tx, userId)) >= limits.dailyLimit) {
 				throw new PhotoLimitError(uploadLimitMessage(limits.dailyLimit));
 			}
-			await store.put(key, processed.body, processed.contentType);
+			await timed(deps.timings, 'storePutMs', () =>
+				store.put(key, processed.body, processed.contentType)
+			);
 			stored = true;
 			const [row] = await tx
 				.insert(equipmentPhotos)
@@ -130,6 +142,7 @@ export async function uploadPhoto(
 				.returning();
 			return row;
 		});
+		return { photo, image: processed.body };
 	} catch (error) {
 		if (stored) await store.delete(key).catch(() => {});
 		throw error;

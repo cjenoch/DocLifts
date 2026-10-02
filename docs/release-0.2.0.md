@@ -2364,7 +2364,28 @@ and in History under that name, and are otherwise ordinary sessions.
 `/srv/doclifts/.env.pre-0.5.1` is the env file before step 4; the
 `PHOTO_DAILY_LIMIT` key is safe to keep (0.5.0's compose reads it too).
 
-## 26. 0.5.2 — the name guard on photo matching — NOT deployed
+## 26. 0.5.2 — the name guard on photo matching, and Trash on History — DEPLOYED 2026-10-02, acceptance pending
+
+```
+0.5.2    d2f0c05, tagged 0.5.2; branch CI green (test + docker); full local
+         gate 730 / 3 / 31 / 104
+quiet    suspended by the owner (2026-10-02: no users yet)
+image    pre-0.5.2 kept until the owner signs off
+web      rebuilt 03:44 UTC, healthy; no migration, no env change
+check    name guard, scratch account: a generated placard reading gym80
+         4386N (a real code, Booty Booster Special) with the name LEG
+         CURL -> nothing preselected, the names-disagree line shown, 4386N
+         offered first; the 4157 + BOOTY BOOSTER placard was
+         inconclusive as a guard test (4157 is not in the catalog: no code
+         match, names only, 4352 offered, nothing preselected); photos
+         discarded
+check    Trash on History, fresh empty account fresh-052@doclifts.invalid,
+         390x844: Move to Trash from the session page lands on History
+         with no error (the fixed bug); Trash (1); Restore -> Trash (0) and
+         listed again; trashed again, Delete permanently -> Trash (0), the
+         workout 404s; no sideways scroll; 0 page errors
+owed     the owner's own look at both
+```
 
 Code only: no migration, no env change. Deploy under development-push mode:
 quiet check, `pre-0.5.2` kept until the owner signs off, `compose-prod.sh up
@@ -2373,3 +2394,117 @@ quiet check, `pre-0.5.2` kept until the owner signs off, `compose-prod.sh up
 Check (scratch account): upload a generated placard reading gym80 / `4157` /
 PURE KRAFT BOOTY BOOSTER. Review must show the name-disagrees line, 4157
 first, 4352 among the names, and no radio preselected. Discard the photo.
+
+### Trash on History
+
+What changes: History has a "Trash (N)" section, collapsed by default, that
+lists every trashed workout of the signed-in user, quick or program, with
+Restore and Delete permanently (confirmed the same way as on the program
+page). The actions are `restoreSession` and `permanentDeleteSession` on
+`/history`; they call the same owner-scoped by-id functions as the program
+page (`restoreSoftDeletedSession`, `hardDeleteSession`). The program page's
+Trash is unchanged. Also: the session page's Move to Trash follows its
+redirect instead of showing "Could not complete that action".
+
+Check **on a fresh, empty test account created at deploy time**: never the
+owner's, and **not** `chris-phone-01`, which belongs to the owner's own
+testing. Create it with the password piped from the owner's own shell, never
+typed into a command line by an assistant:
+
+```bash
+printf '%s' "$(pass show doclifts-fresh)" | scripts/user-prod.sh create \
+  --email fresh-0.5.2@doclifts.invalid --password-stdin --name "Fresh 0.5.2"
+```
+
+Before the walk-through, note every other user's session count; it must be
+the same afterwards:
+
+```bash
+q "select count(*) from sessions s join auth.\"user\" u on u.id = s.user_id
+   where u.email <> 'fresh-0.5.2@doclifts.invalid'"
+```
+
+Signed in as it, on a phone-width page:
+
+- History shows **Trash (0)** at the bottom, closed. Opening it says
+  "Trash is empty."
+- Start workout → name a gym → Start. Add an exercise (name a new machine),
+  save one set, Finish workout.
+- History → the workout → Edit workout → **Move to Trash** → confirm. The
+  page goes to History with **no error line**. The workout is gone from the
+  month's list; **Trash (1)**, closed.
+- Open Trash: one row, **Quick workout**, today's date, **1 set logged**.
+  **Restore**: it is back in the month's list and Trash reads (0).
+- Move it to Trash again. In Trash, **Delete permanently** shows the
+  confirmation ("Permanently delete Quick workout from …? This cannot be
+  undone."); Cancel leaves it there; Delete permanently again, then confirm.
+  Trash reads (0) and the month's list does not show it.
+
+```bash
+# The fresh account has no sessions and no sets left.
+q "select count(*) from sessions s join auth.\"user\" u on u.id = s.user_id
+   where u.email = 'fresh-0.5.2@doclifts.invalid'"
+#   0
+q "select count(*) from sets st join auth.\"user\" u on u.id = st.user_id
+   where u.email = 'fresh-0.5.2@doclifts.invalid'"
+#   0
+# Every other user's session count: the same as before the walk-through.
+```
+
+## 27. 0.5.3 — hand the photo straight to analysis, and time each stage — DEPLOYED 2026-10-02, acceptance pending
+
+```
+0.5.3    67c359a, tagged 0.5.3; branch CI green (test + docker); full local
+         gate 753 / 3 / 31 / 104
+quiet    suspended by the owner (2026-10-02: no users yet)
+image    pre-0.5.3 kept until the owner signs off
+web      rebuilt 03:59 UTC, healthy; no migration, no env change
+check    scratch account: a generated placard stored and reviewed as
+         before; its line: processWaitMs 0, processMs 19, storePutMs 189,
+         modelMs 1943, totalMs 2166; photo discarded
+check    a 99-byte PNG declaring 20000x20000: "This photo is 20000×20000
+         (400 megapixels); the limit is 50. Take it at a lower
+         resolution."; line outcome refused, processWaitMs null, processMs
+         1-2, totalMs 3-4; web memory 59 -> 60 MiB
+check    photo-timings-report.sh 1: 4 lines (1 stored, 3 refused), 0
+         without timings, no ids printed
+due      2026-10-09: photo-timings-report.sh 7, medians to the owner
+owed     the owner's own look
+```
+
+Code only: no migration, no env change. Deploy under development-push mode:
+quiet check, `pre-0.5.3` kept until the owner signs off, `compose-prod.sh up
+-d --build --wait web`, then the check below. Ships after 0.5.2.
+
+What changes: `uploadPhoto` returns the processed JPEG with the row and the
+upload action passes it to `analyzePhoto` (no read-back from the store in the
+upload request; Re-analyze still reads the store). The `photo_upload` line
+gains `processWaitMs`, `processMs`, `storePutMs`, `modelMs` and `totalMs` and
+is written once at the end of the action. Security follow-up in the same
+release: a photo over 50 megapixels (`MAX_INPUT_PIXELS`, a constant) is
+refused from its header before any decode, the decode itself is capped at the
+same number, and at most two photos are decoded at once
+(`MAX_CONCURRENT_PROCESSING`, a constant); no env or compose change. The step order and the upload transaction are
+unchanged. Details in `docs/photos.md`, "Timing each stage".
+
+Check (scratch account, `scratch-test@doclifts.invalid`): upload one generated
+placard and confirm the line carries the five timings as whole numbers, and
+the review page shows the candidate as before. Discard the photo. Then upload
+a generated PNG whose header declares 20000×20000 (a few hundred bytes, as in
+`handmadePng` in `photos/test-fixtures.ts`) and confirm the page shows "This
+photo is 20000×20000 (400 megapixels); the limit is 50…", the log line says
+`"outcome":"refused"` with `processWaitMs` null, and memory stays flat
+(`docker stats --no-stream` on the web container before and after).
+
+```sh
+sudo -n scripts/compose-prod.sh logs web --since 10m | grep '"event":"photo_upload"' | tail -1
+```
+
+Expect `"outcome":"stored"` and integer `processWaitMs`, `processMs`,
+`storePutMs`, `modelMs`, `totalMs` (a model read of about 2-3 s with the current model). Then run
+`scripts/photo-timings-report.sh 1` once and confirm it prints one stored
+upload and no ids.
+
+**Due one week after deploy:** run `scripts/photo-timings-report.sh 7` and
+give the owner the medians; he decides from them whether the put and the
+model call run in parallel. Nothing is parallelized before that.

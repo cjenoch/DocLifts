@@ -1,6 +1,28 @@
 # Changelog
 
-## 0.5.2 — a misread code can't pick the wrong machine — not yet released
+## 0.5.3 — photo uploads are timed — 2026-10-02
+
+- **For the owner: photo uploads are timed.** Each upload's log line now
+  says how long each step took, in milliseconds: preparing the photo
+  (`processMs`, and `processWaitMs` for any wait before it), storing it
+  (`storePutMs`), the model's read (`modelMs`) and
+  the whole request (`totalMs`). `scripts/photo-timings-report.sh` prints
+  the median, p90 and max per step for the last week (counts and times only).
+  The first report is due a week after this is deployed; it decides whether
+  storing and reading should run side by side.
+- **The read starts from the photo already in memory.** The upload hands
+  the prepared photo straight to the model instead of fetching it back from
+  storage. Re-analyze on the review page still fetches it. Nothing else
+  changes: the steps run in the same order as before.
+- **Very large photos are refused up front.** A photo over 50 megapixels
+  (a phone photo is about 12) is turned away with a message saying its size
+  and the limit, before the server tries to open it. A file that is small
+  but claims to be a huge picture can no longer make the server run out of
+  memory.
+- **At most two photos are prepared at once.** Others wait their turn (a
+  fraction of a second in practice); the wait is logged as `processWaitMs`.
+
+## 0.5.2 — a misread code can't pick the wrong machine, and Trash on History — 2026-10-02
 
 - **The app no longer pre-picks a machine when the code and the name
   disagree.** If the model reads a real model code that belongs to a
@@ -9,6 +31,16 @@
   first, then the machines whose names match what was read, with a line
   saying why. When the code and the name agree, it is pre-picked as before.
   The maker's name and product line ("Pure Kraft") don't count as agreement.
+- **Trash is on History.** A workout you move to Trash, quick or from a
+  program, now shows under "Trash" at the bottom of History, with the date,
+  "Quick workout" or the program's name, and how many sets you logged. Restore
+  puts it back in your history; Delete permanently asks first, then removes
+  it for good. Until now a quick workout in Trash could not be brought back
+  from the app. The program page's own Trash is unchanged.
+- **Move to Trash no longer shows an error when it worked.** It used to say
+  "Could not complete that action" and stay on the workout, even though the
+  workout had gone to Trash. It now takes you to History (a quick workout) or
+  the program page.
 
 ## 0.5.1 — start a workout without a program — 2026-10-02
 

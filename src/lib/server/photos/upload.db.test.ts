@@ -16,6 +16,7 @@ import {
 	uploadsInLastDay
 } from './index';
 import { phonePhoto, smallPng } from './test-fixtures';
+import { emptyTimings } from './timings';
 
 let db: TestDb;
 let handle: Awaited<ReturnType<typeof setupTestDb>>;
@@ -67,12 +68,14 @@ async function seedRows(userId: string, gymId: string, n: number, ageMs = 0) {
 
 describe('uploadPhoto', () => {
 	it('stores the processed JPEG under the owner prefix and records it as uploaded', async () => {
-		const photo = await uploadPhoto(
-			db,
-			alice,
-			{ gymId: alicesGym, bytes: await phonePhoto(), type: 'image/jpeg', name: 'IMG_0001.JPG' },
-			{ store, limits }
-		);
+		const photo = (
+			await uploadPhoto(
+				db,
+				alice,
+				{ gymId: alicesGym, bytes: await phonePhoto(), type: 'image/jpeg', name: 'IMG_0001.JPG' },
+				{ store, limits }
+			)
+		)?.photo;
 		expect(photo).toMatchObject({
 			userId: alice,
 			gymId: alicesGym,
@@ -88,6 +91,38 @@ describe('uploadPhoto', () => {
 		const stored = await bytesOf((await store.get(photo!.storageKey))!.body);
 		expect(stored.byteLength).toBe(photo!.bytes);
 		expect((await sharp(stored).metadata()).exif).toBeUndefined();
+	});
+
+	it('returns the processed image exactly as stored, and times processing and the put', async () => {
+		const timings = emptyTimings();
+		const uploaded = await uploadPhoto(
+			db,
+			alice,
+			{ gymId: alicesGym, bytes: await phonePhoto(), type: 'image/jpeg' },
+			{ store, limits, timings }
+		);
+		const stored = await bytesOf((await store.get(uploaded!.photo.storageKey))!.body);
+		expect(uploaded!.image.byteLength).toBe(uploaded!.photo.bytes);
+		expect(uploaded!.image.equals(stored)).toBe(true);
+		expect((await sharp(uploaded!.image).metadata()).exif).toBeUndefined();
+		for (const ms of [timings.processMs, timings.storePutMs]) {
+			expect(Number.isInteger(ms) && ms! >= 0, String(ms)).toBe(true);
+		}
+		expect(timings.modelMs).toBeNull();
+	});
+
+	it('a refused photo still reports the processing time, and no put', async () => {
+		const timings = emptyTimings();
+		await expect(
+			uploadPhoto(
+				db,
+				alice,
+				{ gymId: alicesGym, bytes: Buffer.from('not an image') },
+				{ store, limits, timings }
+			)
+		).rejects.toBeInstanceOf(PhotoInputError);
+		expect(Number.isInteger(timings.processMs)).toBe(true);
+		expect(timings.storePutMs).toBeNull();
 	});
 
 	it('returns null for another user’s gym, and stores nothing', async () => {
@@ -120,7 +155,7 @@ describe('uploadPhoto', () => {
 			{ gymId: alicesGym, bytes: await smallPng() },
 			{ store, limits }
 		);
-		expect(twentieth?.status).toBe('uploaded');
+		expect(twentieth?.photo.status).toBe('uploaded');
 		expect(await uploadsInLastDay(db, alice)).toBe(20);
 		await expect(
 			uploadPhoto(db, alice, { gymId: alicesGym, bytes: await smallPng() }, { store, limits })
@@ -190,12 +225,9 @@ async function seedRowWithKey(key: string) {
 
 describe('readOwnPhoto', () => {
 	it('returns the owner their image, and nothing to another user', async () => {
-		const photo = await uploadPhoto(
-			db,
-			alice,
-			{ gymId: alicesGym, bytes: await smallPng() },
-			{ store, limits }
-		);
+		const photo = (
+			await uploadPhoto(db, alice, { gymId: alicesGym, bytes: await smallPng() }, { store, limits })
+		)?.photo;
 		const mine = await readOwnPhoto(db, alice, photo!.id, store);
 		expect(mine?.contentType).toBe('image/jpeg'); // positive first
 		expect(await readOwnPhoto(db, bob, photo!.id, store)).toBeNull();

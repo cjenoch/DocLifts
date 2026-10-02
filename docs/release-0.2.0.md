@@ -2364,7 +2364,29 @@ and in History under that name, and are otherwise ordinary sessions.
 `/srv/doclifts/.env.pre-0.5.1` is the env file before step 4; the
 `PHOTO_DAILY_LIMIT` key is safe to keep (0.5.0's compose reads it too).
 
-## 26. 0.5.2 — the name guard on photo matching, and Trash on History — NOT deployed
+## 26. 0.5.2 — the name guard on photo matching, and Trash on History — DEPLOYED 2026-10-02, acceptance pending
+
+```
+0.5.2    d2f0c05, tagged 0.5.2; branch CI green (test + docker); full local
+         gate 730 / 3 / 31 / 104
+quiet    suspended by the owner (2026-10-02: no users yet)
+image    pre-0.5.2 kept until the owner signs off
+web      rebuilt 03:44 UTC, healthy; no migration, no env change
+check    name guard, scratch account: a generated placard reading gym80
+         4386N (a real code, Booty Booster Special) with the name LEG
+         CURL -> nothing preselected, the names-disagree line shown, 4386N
+         offered first; the 4157 + BOOTY BOOSTER placard was
+         inconclusive as a guard test (4157 is not in the catalog: no code
+         match, names only, 4352 offered, nothing preselected); photos
+         discarded
+check    Trash on History, fresh empty account fresh-052@doclifts.invalid,
+         390x844: Move to Trash from the session page lands on History
+         with no error (the fixed bug); Trash (1); Restore -> Trash (0) and
+         listed again; trashed again, Delete permanently -> Trash (0), the
+         workout 404s; no sideways scroll; 0 page errors
+owed     the owner's own look at both
+```
+
 
 Code only: no migration, no env change. Deploy under development-push mode:
 quiet check, `pre-0.5.2` kept until the owner signs off, `compose-prod.sh up
@@ -2430,7 +2452,27 @@ q "select count(*) from sets st join auth.\"user\" u on u.id = st.user_id
 # Every other user's session count: the same as before the walk-through.
 ```
 
-## 27. 0.5.3 — hand the photo straight to analysis, and time each stage — NOT deployed
+## 27. 0.5.3 — hand the photo straight to analysis, and time each stage — DEPLOYED 2026-10-02, acceptance pending
+
+```
+0.5.3    67c359a, tagged 0.5.3; branch CI green (test + docker); full local
+         gate 753 / 3 / 31 / 104
+quiet    suspended by the owner (2026-10-02: no users yet)
+image    pre-0.5.3 kept until the owner signs off
+web      rebuilt 03:59 UTC, healthy; no migration, no env change
+check    scratch account: a generated placard stored and reviewed as
+         before; its line: processWaitMs 0, processMs 19, storePutMs 189,
+         modelMs 1943, totalMs 2166; photo discarded
+check    a 99-byte PNG declaring 20000x20000: "This photo is 20000×20000
+         (400 megapixels); the limit is 50. Take it at a lower
+         resolution."; line outcome refused, processWaitMs null, processMs
+         1-2, totalMs 3-4; web memory 59 -> 60 MiB
+check    photo-timings-report.sh 1: 4 lines (1 stored, 3 refused), 0
+         without timings, no ids printed
+due      2026-10-09: photo-timings-report.sh 7, medians to the owner
+owed     the owner's own look
+```
+
 
 Code only: no migration, no env change. Deploy under development-push mode:
 quiet check, `pre-0.5.3` kept until the owner signs off, `compose-prod.sh up

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.3 — photo uploads are timed — not yet released
+## 0.5.3 — photo uploads are timed — 2026-10-02
 
 - **For the owner: photo uploads are timed.** Each upload's log line now
   says how long each step took, in milliseconds: preparing the photo
@@ -22,7 +22,7 @@
 - **At most two photos are prepared at once.** Others wait their turn (a
   fraction of a second in practice); the wait is logged as `processWaitMs`.
 
-## 0.5.2 — a misread code can't pick the wrong machine, and Trash on History — not yet released
+## 0.5.2 — a misread code can't pick the wrong machine, and Trash on History — 2026-10-02
 
 - **The app no longer pre-picks a machine when the code and the name
   disagree.** If the model reads a real model code that belongs to a

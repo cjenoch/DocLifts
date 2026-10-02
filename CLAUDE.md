@@ -577,6 +577,7 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `scripts/catalog-prod.sh` — runs the importer against production (verified dump, dry run, typed confirmation). Mirrors `migrate-prod.sh`.
 - `src/lib/server/llm/` — the LLM seam: `complete()` and `usageForUser()` (`index.ts`, `usage.ts`), lazy env config (`config.ts`), the provider switch (`provider.ts`), the per-user cap (`cap.ts`). The only importer of `ai` / provider SDKs. `scripts/llm-ping.ts` (`pnpm llm:ping`) is its smoke test. See `docs/llm.md`.
 - `src/lib/server/photos/` — equipment from a photo (0.4.0): `store.ts` (S3 or memory, `PHOTO_STORE`), `process.ts` (sharp: orient, 1600 px, metadata stripped), `analyze.ts` (`EquipmentCandidate`, `CANDIDATE_WIRE_SCHEMA`, the one `complete()` call), `match.ts` (exact, leading-digit, prefix, name; through `modelVisibleTo`), `confirm.ts` (link / create / discard). Images are served only by the guarded `/photos/[id]/image` route. See `docs/photos.md`.
+- `src/lib/photo-client.ts` — resize on the phone before upload (0.5.0): `photoClientSettings` is the only place its numbers and progress labels live (`enabled`, `maxEdgePx`, `jpegQuality`, `skipBelowBytes`, `timeoutMs`, `labels`). `resizeForUpload` never throws and falls back to the original file; the server's `processPhoto` stays the authority.
 - `compose.demo.yml` — isolated, localhost-only temporary demo; does not mount production data or read `.env`.
 - `src/lib/server/db/index.ts` — Drizzle client singleton
 - `src/lib/server/progression.ts` — engine + history helpers

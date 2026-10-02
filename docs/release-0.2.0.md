@@ -2540,7 +2540,11 @@ CodeQL does not read `.svelte` files: its run on `main` scanned 181/181
 TypeScript, 2/2 JavaScript, 1/1 HTML and 1/1 Actions files, and none of
 the 26 components. None of them uses `{@html}`.
 
-## 29. 0.5.5 — the app shell (SPEC 0.5.0 Part E) — DEPLOYED 2026-10-02, acceptance pending
+## 29. 0.5.5 — the app shell (SPEC 0.5.0 Part E) — DEPLOYED 2026-10-02, accepted 2026-10-02
+
+**Owner sign-off, 2026-10-02:** checked on his iPhone, added to the home
+screen with the new icon, tabs at the bottom. "Everything looks good, I sign
+off." `pre-0.5.5` deleted after the sign-off.
 
 ```
 0.5.5    a22d5ea, tagged 0.5.5; branch CI green (test + docker); full local

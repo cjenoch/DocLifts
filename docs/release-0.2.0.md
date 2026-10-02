@@ -2733,7 +2733,29 @@ sets are never affected.
 Code only. Deploy after the owner has seen §31's report; `pre-0.6.2` kept.
 Check: the §31 check again, plus saving set 1 after the naming.
 
-## 33. 0.7.0 — remove, change model, merge (machines spec, first release) — NOT deployed
+## 33. 0.7.0 — remove, change model, merge (machines spec, first release) — DEPLOYED 2026-10-02, acceptance pending
+
+```
+0.7.0    29e9146, tagged 0.7.0; branch CI green; full local gate 792 (+2
+         skipped) / 3 / 31 / 140; the owner read the auth-core.ts and
+         CLAUDE.md diffs and said go
+migrate  migrate-prod.sh: dump predeploy-20261002T215241Z.dump verified
+         (224K); 0019 applied; 20 migration rows; 40 sessions, 469 sets,
+         16 machines unchanged; 138 exercises with a region
+image    pre-0.7.0 kept until the owner signs off
+web      healthy; version.json 29e9146
+check    scratch account, Scratch photo check gym, 390x844, from the pages:
+         an unused machine -> "no history, it will be deleted" -> Deleted,
+         row gone; the gym's IL-ROW (history) -> "past workouts keep" ->
+         archived, under the gym's Archived section -> Restore, active
+         again; a new stack machine -> Change model -> Cybex Eagle NX Leg
+         Curl in place (same id, typed label kept), stack offer shown;
+         Same machine as... -> preview -> Merge -> Undo merge (merge row
+         recorded and undone); no 5xx, 0 page errors. The two throwaway
+         machines were then removed from the page (archived: the merge
+         record points at them).
+owed     the owner fixing a real wrong machine at his gym
+```
 
 **Migration 0019** (additive, the whole spec's columns at once, one restore
 check): `gyms.archived_at`, `gym_equipment.archived_at`,

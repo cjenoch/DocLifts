@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 — fix your gym list: remove, change model, merge — not yet released
+## 0.7.0 — fix your gym list: remove, change model, merge — 2026-10-02
 
 - **Remove a machine or a gym.** On the machine's edit page, and for a gym on
   the Gyms page. One you added by mistake is deleted; one with history leaves

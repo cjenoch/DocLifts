@@ -519,6 +519,15 @@ green on the branch. Any other file in the diff, even one, means the full
 gate above. Changes to `CLAUDE.md` or `.claude/` still need the owner to read
 the diff before they reach `main`.
 
+**Dependency audit: report only.** Every CI run and a weekly workflow
+(`.github/workflows/dependency-audit.yml`, Mondays) write `pnpm audit --prod`
+findings to the job summary with a "would fail at high" line; neither ever
+fails (owner decision, 2026-10-02). GitHub disables a scheduled workflow after
+60 days without repository activity, as happened to the old Browser CI
+workflow: if the weekly report stops appearing, re-enable it in the Actions
+tab. Many findings arrive through `better-auth`'s optional peers (vitest,
+vite) and never reach the production image; read the path before acting.
+
 **No force-push to `main`, and no squash.** History on `main` is a record. A
 wrong commit gets a fix-forward commit that says what it fixes.
 

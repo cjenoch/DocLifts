@@ -2546,6 +2546,11 @@ the 26 components. None of them uses `{@html}`.
 screen with the new icon, tabs at the bottom. "Everything looks good, I sign
 off." `pre-0.5.5` deleted after the sign-off.
 
+**Answer to the spec's open check:** the installed app needs its own sign-in.
+The owner had to sign in again after adding it to the home screen: iOS keeps a
+home-screen web app's cookies separate from Safari's. Tell a new tester to
+sign in once more after adding the icon.
+
 ```
 0.5.5    a22d5ea, tagged 0.5.5; branch CI green (test + docker); full local
          gate 767 (+2 skipped) / 3 / 31 / 132

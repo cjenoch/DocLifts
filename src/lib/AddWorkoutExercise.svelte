@@ -3,8 +3,18 @@
 	import { enhance } from '$app/forms';
 	import { onMount, tick } from 'svelte';
 	import type { PageData } from '../routes/sessions/[id]/$types';
-	let { choices, open = $bindable(false) }: { choices: PageData['choices']; open?: boolean } =
-		$props();
+	let {
+		choices,
+		open = $bindable(false),
+		sessionGymId = null,
+		quick = false
+	}: {
+		choices: PageData['choices'];
+		open?: boolean;
+		/** A quick workout's gym (0.5.1): preselected over the remembered one. */
+		sessionGymId?: string | null;
+		quick?: boolean;
+	} = $props();
 	let query = $state('');
 	let exerciseId = $state('');
 	let creating = $state(false);
@@ -41,6 +51,10 @@
 	);
 	onMount(() => {
 		requestId = newRequestId();
+		if (sessionGymId && choices.gyms.some((g) => g.id === sessionGymId)) {
+			gymId = sessionGymId;
+			return;
+		}
 		try {
 			const last = localStorage.getItem('doclifts:last-gym');
 			if (choices.gyms.some((g) => g.id === last)) gymId = last!;
@@ -63,7 +77,7 @@
 	{#if open}
 		<div class="picker">
 			<h2>Add to this workout</h2>
-			<p class="muted">Your program stays unchanged.</p>
+			{#if !quick}<p class="muted">Your program stays unchanged.</p>{/if}
 			{#if !exerciseId && !creating}
 				<label
 					>Find an exercise<input

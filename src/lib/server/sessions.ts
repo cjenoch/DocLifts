@@ -48,6 +48,8 @@ export type SessionProjection = {
 	endedAt: Date | null;
 	deletedAt: Date | null;
 	startedAt: Date;
+	/** The gym a quick workout is in (0.5.1); null for program sessions. */
+	gymId: string | null;
 };
 
 /**
@@ -71,6 +73,9 @@ export type SessionProjection = {
  *
  * Reads are intentionally outside the transaction; the tx only wraps writes so
  * a mid-loop failure can't orphan a session.
+ *
+ * A day with no prescribed sets (the quick-workout day, 0.5.1) is valid: the
+ * session is created empty, and exercises are added to it afterwards.
  */
 export async function startSessionForDay(
 	db: Database,
@@ -409,7 +414,8 @@ export async function loadSession(
 			dayId: sessions.dayId,
 			endedAt: sessions.endedAt,
 			deletedAt: sessions.deletedAt,
-			startedAt: sessions.startedAt
+			startedAt: sessions.startedAt,
+			gymId: sessions.gymId
 		})
 		.from(sessions);
 
@@ -462,7 +468,8 @@ export async function loadProgramOwnedSession(
 		dayId: sessions.dayId,
 		endedAt: sessions.endedAt,
 		deletedAt: sessions.deletedAt,
-		startedAt: sessions.startedAt
+		startedAt: sessions.startedAt,
+		gymId: sessions.gymId
 	};
 
 	if (mode === 'active') {
@@ -531,7 +538,8 @@ export async function listDeletedSessionsForProgram(
 			dayName: days.name,
 			endedAt: sessions.endedAt,
 			deletedAt: sessions.deletedAt,
-			startedAt: sessions.startedAt
+			startedAt: sessions.startedAt,
+			gymId: sessions.gymId
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
@@ -929,9 +937,14 @@ export async function loadSessionDay(
 	db: Database,
 	userId: string,
 	dayId: string
-): Promise<{ day: typeof days.$inferSelect | null; dayExs: SessionDayExercises }> {
+): Promise<{
+	day: typeof days.$inferSelect | null;
+	dayExs: SessionDayExercises;
+	/** `programs.system_kind`: 'quick' for a workout started with no program. */
+	systemKind: string | null;
+}> {
 	const [day] = await db
-		.select({ day: days })
+		.select({ day: days, systemKind: programs.systemKind })
 		.from(days)
 		.innerJoin(programs, eq(days.programId, programs.id))
 		.where(and(eq(days.id, dayId), eq(programs.userId, userId)))
@@ -939,10 +952,10 @@ export async function loadSessionDay(
 	if (!day) {
 		// The FK guarantees the row exists, so a miss here means it belongs to
 		// someone else. Reported as absent, never as a 403 (D6).
-		return { day: null, dayExs: [] };
+		return { day: null, dayExs: [], systemKind: null };
 	}
 	const { rows: dayExs } = await sessionDayExercises(db, userId, dayId);
-	return { day: day.day, dayExs };
+	return { day: day.day, dayExs, systemKind: day.systemKind };
 }
 
 /** The set rows for a session, scoped to its owner. */

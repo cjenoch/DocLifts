@@ -120,6 +120,13 @@
       "when": 1790867287270,
       "tag": "0016_equipment_photos",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790905177045,
+      "tag": "0017_quick_workouts",
+      "breakpoints": true
     }
   ]
 }

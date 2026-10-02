@@ -14,6 +14,7 @@ vi.mock('$lib/server/db', async () => {
 
 import { load } from './+page.server';
 import * as s from '$lib/server/db/schema';
+import { startQuickSession } from '$lib/server/quick-workouts';
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
 beforeAll(async () => {
@@ -45,4 +46,20 @@ it('returns the owner their own active programs, and none to another user', asyn
 	expect(mine.programs.map((p) => p.name)).toEqual(['Alice push day']); // positive FIRST
 	const theirs = await home(bob);
 	expect(theirs.programs).toEqual([]);
+});
+
+it('never lists a system program, and offers Resume only to the owner of the open workout', async () => {
+	// 0.5.1: the hidden quick-workout program must not appear on Home.
+	const { alice, bob } = await withTwoUsers(testDb.db!);
+	await testDb.db!.insert(s.programs).values({ userId: alice, name: 'Alice push day' });
+	const [gym] = await testDb.db!.insert(s.gyms).values({ userId: alice, name: 'G' }).returning();
+	const started = await startQuickSession(testDb.db!, alice, gym.id);
+	if (!started.ok) throw new Error(started.message);
+
+	const mine = (await home(alice)) as HomeData & { openQuickSessionId: string | null };
+	expect(mine.programs.map((p) => p.name)).toEqual(['Alice push day']); // positive FIRST
+	expect(mine.openQuickSessionId).toBe(started.sessionId);
+	const theirs = (await home(bob)) as HomeData & { openQuickSessionId: string | null };
+	expect(theirs.programs).toEqual([]);
+	expect(theirs.openQuickSessionId).toBeNull();
 });

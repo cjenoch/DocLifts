@@ -525,7 +525,11 @@ export async function addSessionExercise(
 				return existing;
 			}
 		}
-		let gymId = value.gymId;
+		// A quick workout records its gym (0.5.1); with no gym chosen and no new
+		// one named, the exercise goes in that gym. The session row was read
+		// under the owner's lock, and machineSnapshot below re-checks the gym
+		// against gyms.user_id, so this default cannot reach another user's gym.
+		let gymId = value.gymId ?? (value.newGymName ? undefined : (activeSession.gymId ?? undefined));
 		let gymEquipmentId = value.gymEquipmentId;
 		if (!gymId && value.newGymName) {
 			const gym = await createGym(tx, userId, { name: value.newGymName });

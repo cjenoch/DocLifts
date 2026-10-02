@@ -150,11 +150,30 @@ export const programs = pgTable(
 		 */
 		userId: text('user_id')
 			.notNull()
-			.references(() => authUsers.id)
+			.references(() => authUsers.id),
+		/**
+		 * NULL for every program a user builds. `'quick'` marks the one hidden
+		 * system program behind "Start workout" (0.5.1, migration 0017): one
+		 * day, no prescriptions, created on first use by `ensureQuickProgram`.
+		 * A system program never appears on Home, in the program list, or in
+		 * any edit, deactivate or delete control; History and Reports include
+		 * its sessions, labelled from `src/lib/workout-ui.ts`.
+		 */
+		systemKind: text('system_kind')
 	},
 	(t) => ({
 		sourceProgramIdIdx: index('programs_source_program_id_idx').on(t.sourceProgramId),
-		userIdIdx: index('programs_user_id_idx').on(t.userId)
+		userIdIdx: index('programs_user_id_idx').on(t.userId),
+		systemKindCheck: check(
+			'programs_system_kind_check',
+			sql`${t.systemKind} IS NULL OR ${t.systemKind} = 'quick'`
+		),
+		// One quick program per user. ensureQuickProgram is idempotent through
+		// this index (INSERT ... ON CONFLICT DO NOTHING), including under two
+		// concurrent first taps.
+		oneQuickPerUser: uniqueIndex('programs_one_quick_per_user')
+			.on(t.userId)
+			.where(sql`system_kind = 'quick'`)
 	})
 );
 
@@ -588,9 +607,22 @@ export const sessions = pgTable(
 		 */
 		userId: text('user_id')
 			.notNull()
-			.references(() => authUsers.id)
+			.references(() => authUsers.id),
+		/**
+		 * The gym this workout is in (0.5.1, migration 0017). Set by
+		 * `startQuickSession`, always to a gym of the session's owner; NULL for
+		 * program sessions and everything before 0.5.1. `addSessionExercise`
+		 * defaults to it. NO ACTION on delete, like every owner-chain FK.
+		 */
+		gymId: uuid('gym_id')
 	},
 	(t) => ({
+		gymFk: foreignKey({
+			name: 'sessions_gym_id_fk',
+			columns: [t.gymId],
+			foreignColumns: [gyms.id]
+		}),
+		gymIdIdx: index('sessions_gym_id_idx').on(t.gymId),
 		dayStartedAtIdx: index('sessions_day_started_at_idx').on(
 			t.dayId,
 			t.startedAt.desc().nullsLast()

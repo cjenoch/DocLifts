@@ -189,3 +189,20 @@ it("load returns 404 for another user's program", async () => {
 	).rejects.toMatchObject({ status: 404 });
 	void day;
 });
+
+it('a system program has no program page: 404, like a missing id', async () => {
+	// 0.5.1: the quick-workout program is hidden from every program control.
+	const { isHttpError } = await import('@sveltejs/kit');
+	const { ensureQuickProgram } = await import('$lib/server/quick-workouts');
+	const [ordinary] = await testDb
+		.db!.insert(s.programs)
+		.values({ name: 'Mine', userId })
+		.returning();
+	const loadEvent = (id: string) =>
+		({ params: { id }, locals: { user: { id: userId } } }) as unknown as Parameters<typeof load>[0];
+	// Positive first: an ordinary program renders.
+	expect(await load(loadEvent(ordinary.id))).toMatchObject({ program: { id: ordinary.id } });
+	const { programId } = await ensureQuickProgram(testDb.db!, userId);
+	const result = await Promise.resolve(load(loadEvent(programId))).catch((e: unknown) => e);
+	expect(isHttpError(result, 404)).toBe(true);
+});

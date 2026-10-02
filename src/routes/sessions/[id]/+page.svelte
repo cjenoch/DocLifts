@@ -7,10 +7,16 @@
 	import MachinePicker from '$lib/MachinePicker.svelte';
 	import AddWorkoutExercise from '$lib/AddWorkoutExercise.svelte';
 	import TrashAction from '$lib/TrashAction.svelte';
+	import { workoutUi } from '$lib/workout-ui';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let dirtyIds = $state<string[]>([]);
 	let appending = $state<string | null>(null);
-	let pickerOpen = $state(false);
+	// An empty open quick workout has one thing to do next: add an exercise.
+	let pickerOpen = $state(
+		untrack(() => data.quick && !data.session.endedAt && data.groups.length === 0)
+	);
+	const heading = $derived(data.quick ? workoutUi.sessionHeading : data.day.name);
+	const backHref = $derived(data.quick ? '/' : `/programs/${data.session.programId}`);
 	let appendError = $state('');
 	let ids = $state<Record<string, string>>({});
 	onMount(() => {
@@ -36,12 +42,12 @@
 	);
 </script>
 
-<svelte:head><title>{data.day.name} · DocLifts</title></svelte:head>
+<svelte:head><title>{heading} · DocLifts</title></svelte:head>
 <main class="workout">
-	<a class="back" href="/programs/{data.session.programId}">← Workouts</a>
+	<a class="back" href={backHref}>{data.quick ? '← Home' : '← Workouts'}</a>
 	<header>
 		<div class="eyebrow">DOCLIFTS / {data.session.endedAt ? 'WORKOUT HISTORY' : 'IN SESSION'}</div>
-		<h1>{data.day.name}</h1>
+		<h1>{heading}</h1>
 		<p class="muted">
 			{new Date(data.session.startedAt).toLocaleDateString(undefined, {
 				month: 'short',
@@ -196,6 +202,8 @@
 	{#if appendError}<p role="alert" class="error">{appendError}</p>{/if}
 	{#if !data.session.endedAt}<AddWorkoutExercise
 			choices={data.choices}
+			sessionGymId={data.session.gymId}
+			quick={data.quick}
 			bind:open={pickerOpen}
 		/>{/if}
 </main>
@@ -207,7 +215,7 @@
 					: 'Saved sets are stored in your workout'}
 			</p>
 			<div class="footer-actions">
-				<a href="/programs/{data.session.programId}">Pause</a><a
+				<a href={backHref}>Pause</a><a
 					class="jump-add"
 					onclick={() => (pickerOpen = true)}
 					href="#add-workout-exercise">Add exercise</a

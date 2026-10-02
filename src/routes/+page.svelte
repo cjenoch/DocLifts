@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { workoutUi } from '$lib/workout-ui';
 
 	let { data }: { data: PageData } = $props();
 </script>
@@ -26,9 +27,23 @@
 		</div>
 	</div>
 
+	{#if data.openQuickSessionId}
+		<a
+			href="/sessions/{data.openQuickSessionId}"
+			class="mb-3 block rounded-lg bg-emerald-600 px-4 py-4 text-center text-lg font-semibold text-white"
+			>{workoutUi.resumeWorkout}</a
+		>
+	{:else}
+		<a
+			href="/workout/start"
+			class="mb-3 block rounded-lg bg-emerald-600 px-4 py-4 text-center text-lg font-semibold text-white"
+			>{workoutUi.startWorkout}</a
+		>
+	{/if}
+
 	<a
 		href="/programs/new"
-		class="mb-5 block rounded-lg bg-indigo-600 px-4 py-3 text-center font-semibold text-white"
+		class="mb-5 block rounded-lg border border-indigo-500 px-4 py-3 text-center font-semibold text-indigo-200"
 		>Create program</a
 	>
 

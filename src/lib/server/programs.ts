@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { programs, days, dayExercises, prescribedSets } from './db/schema';
 import type { Database } from './progression';
@@ -15,11 +15,14 @@ export async function duplicateProgramForEditInTransaction(
 ) {
 	z.string().uuid().parse(programId);
 	// Ownership is in the locking query, so another user's program is simply
-	// not there — same message, no 403 (D6).
+	// not there — same message, no 403 (D6). A system program (the hidden
+	// quick-workout program, 0.5.1) is never edited, so it reads as absent too.
 	const [source] = await tx
 		.select()
 		.from(programs)
-		.where(and(eq(programs.id, programId), eq(programs.userId, userId)))
+		.where(
+			and(eq(programs.id, programId), eq(programs.userId, userId), isNull(programs.systemKind))
+		)
 		.for('update');
 	if (!source) throw new Error('Program not found');
 	if (!source.isActive) throw new Error('Program is inactive; edit its active successor');

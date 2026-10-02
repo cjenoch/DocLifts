@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { workoutUi } from '$lib/workout-ui';
 
 	let { data }: { data: PageData } = $props();
 
@@ -53,7 +54,9 @@
 						class="block rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 transition active:scale-[0.99] active:bg-zinc-900"
 					>
 						<div class="flex items-center justify-between gap-2">
-							<span class="font-medium text-zinc-100">{s.dayName}</span>
+							<span class="font-medium text-zinc-100"
+								>{s.systemKind === 'quick' ? workoutUi.quickWorkoutLabel : s.dayName}</span
+							>
 							{#if s.endedAt}
 								<span class="text-xs font-semibold tracking-wide text-emerald-400 uppercase"
 									>Done</span
@@ -65,8 +68,9 @@
 							{/if}
 						</div>
 						<div class="mt-1 text-sm text-zinc-400">
-							{fmtDate(s.startedAt)} · {s.programName}{#if !s.programIsActive}
-								<span class="text-zinc-600">(archived)</span>{/if}
+							{fmtDate(s.startedAt)}{#if s.systemKind !== 'quick'}
+								· {s.programName}{#if !s.programIsActive}
+									<span class="text-zinc-600">(archived)</span>{/if}{/if}
 						</div>
 						{#if s.endedAt}
 							<div class="mt-2 text-xs text-indigo-300">Edit →</div>

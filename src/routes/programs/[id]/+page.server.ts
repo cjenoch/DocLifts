@@ -25,10 +25,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	// Ownership in the query: another user's program is a 404, the same as an
 	// id that never existed (D6). The session queries below also filter on the
 	// owner themselves (0.4.7), so none of them depends on this check alone.
+	// A system program (the hidden quick-workout program, 0.5.1) has no
+	// program page: its sessions are reached from Home, History and Reports.
 	const [program] = await db
 		.select()
 		.from(programs)
-		.where(and(eq(programs.id, parsedProgramId.data), eq(programs.userId, requireUser(locals).id)))
+		.where(
+			and(
+				eq(programs.id, parsedProgramId.data),
+				eq(programs.userId, requireUser(locals).id),
+				isNull(programs.systemKind)
+			)
+		)
 		.limit(1);
 
 	if (!program) {

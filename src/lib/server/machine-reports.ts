@@ -1,5 +1,5 @@
 import { and, count, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
-import { exercises, sessionExercises, sessions, sets } from './db/schema';
+import { days, exercises, programs, sessionExercises, sessions, sets } from './db/schema';
 import type { Database } from './progression';
 export async function topExerciseIdentities(db: Database, userId: string) {
 	const exerciseName = sql<string>`coalesce(${sessionExercises.exerciseName}, ${exercises.name})`;
@@ -76,23 +76,31 @@ export async function reportSnapshot(db: Database, userId: string) {
 			id: sessions.id,
 			startedAt: sessions.startedAt,
 			endedAt: sessions.endedAt,
+			dayName: days.name,
+			systemKind: programs.systemKind,
 			totalSets: count(sets.id),
 			completedSets: count(
 				sql`CASE WHEN ${sets.executedLoad} IS NOT NULL AND ${sets.executedReps} IS NOT NULL THEN 1 END`
 			)
 		})
 		.from(sessions)
+		// Joined for the label only: the session's own user_id scopes the read.
+		.innerJoin(days, eq(days.id, sessions.dayId))
+		.innerJoin(programs, eq(programs.id, sessions.programId))
 		.leftJoin(sets, eq(sets.sessionId, sessions.id))
 		.where(
 			and(eq(sessions.userId, userId), isNull(sessions.deletedAt), isNotNull(sessions.endedAt))
 		)
-		.groupBy(sessions.id)
+		.groupBy(sessions.id, days.name, programs.systemKind)
 		.orderBy(desc(sessions.startedAt))
 		.limit(10);
 
 	const recentTrend = recentSessions.map((s) => ({
 		sessionId: s.id,
 		startedAt: s.startedAt,
+		// Quick workouts (0.5.1) are labelled on the page from workout-ui.ts.
+		dayName: s.dayName,
+		quick: s.systemKind === 'quick',
 		totalSets: s.totalSets,
 		completedSets: s.completedSets,
 		completionPct:

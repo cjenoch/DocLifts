@@ -39,6 +39,7 @@ describe('isPublicPath', () => {
 			'/equipment/1/edit',
 			'/imported-history',
 			'/sessions/1',
+			'/workout/start',
 			'/account/password'
 		]) {
 			expect(isPublicPath(p), p).toBe(false);
@@ -165,7 +166,8 @@ describe('route inventory', () => {
 			'/programs/x',
 			'/programs/x/edit',
 			'/reports',
-			'/sessions/x'
+			'/sessions/x',
+			'/workout/start'
 		]);
 		for (const p of unguarded) {
 			expect(expectedGuarded.has(p), `route ${p} is not in the expected-guarded set`).toBe(true);

@@ -307,3 +307,29 @@ it('bindMachine binds a machine and redirects back to the session', async () => 
 		.where(eq(s.sessionExercises.id, occurrence.id));
 	expect(updated.gymEquipmentId).toBe(machine.id);
 });
+
+it('marks a quick workout, and moving an ended one to Trash returns to History', async () => {
+	// 0.5.1: a quick workout's program has no page to return to.
+	const { startQuickSession } = await import('$lib/server/quick-workouts');
+	const { endSession } = await import('$lib/server/sessions');
+	const db = testDb.db!;
+	const gym = await createGym(db, userId, { name: 'G' });
+	const started = await startQuickSession(db, userId, gym.id);
+	if (!started.ok) throw new Error(started.message);
+	const loadEvent = {
+		params: { id: started.sessionId },
+		url: new URL(`http://test.local/sessions/${started.sessionId}`),
+		locals: locals()
+	} as unknown as Parameters<typeof load>[0];
+	const data = (await load(loadEvent)) as { quick: boolean; groups: unknown[] };
+	expect(data.quick).toBe(true);
+	expect(data.groups).toEqual([]);
+
+	await endSession(db, userId, started.sessionId);
+	const moved = await Promise.resolve(
+		actions.deleteSession(post(started.sessionId, { confirmDelete: 'd' }))
+	).catch((e: unknown) => e);
+	expect(moved).toMatchObject({ status: 303, location: '/history' });
+	const [row] = await db.select().from(s.sessions).where(eq(s.sessions.id, started.sessionId));
+	expect(row.deletedAt).not.toBeNull();
+});

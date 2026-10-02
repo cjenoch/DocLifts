@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData } from './$types';
+	import { workoutUi } from '$lib/workout-ui';
 
 	let { data }: { data: PageData } = $props();
 </script>
@@ -79,7 +80,12 @@
 				{#each data.recentTrend as session (session.sessionId)}
 					<li class="rounded border border-zinc-800 bg-zinc-950/60 px-3 py-2">
 						<div class="flex items-center justify-between gap-2">
-							<span class="text-zinc-300">{new Date(session.startedAt).toLocaleString()}</span>
+							<span class="text-zinc-300"
+								><span class="text-zinc-100"
+									>{session.quick ? workoutUi.quickWorkoutLabel : session.dayName}</span
+								>
+								· {new Date(session.startedAt).toLocaleString()}</span
+							>
 							<span class="font-mono text-zinc-100">{session.completionPct}%</span>
 						</div>
 						<!-- <progress>, not a width-styled div: the strict CSP (style-src

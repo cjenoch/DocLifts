@@ -42,7 +42,11 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		error(404, 'Session not found');
 	}
 
-	const { day, dayExs } = await loadSessionDay(db, requireUser(locals).id, session.dayId);
+	const { day, dayExs, systemKind } = await loadSessionDay(
+		db,
+		requireUser(locals).id,
+		session.dayId
+	);
 	if (!day) {
 		// FK guarantees the row exists, so this is either corruption or a
 		// program owned by someone else. Either way the session page has
@@ -130,6 +134,9 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	return {
 		session,
 		day,
+		// A workout started with no program (0.5.1): no program page to go
+		// back to, a fixed heading, and the add-exercise control open when empty.
+		quick: systemKind === 'quick',
 		groups,
 		allowEndedSessionEdit,
 		choices: await machineChoices(db, requireUser(locals).id)
@@ -309,6 +316,8 @@ export const actions: Actions = {
 			return fail(result.status, { message: result.message });
 		}
 
-		redirect(303, `/programs/${activeSession.programId}`);
+		// A quick workout's program has no page (0.5.1); History lists them.
+		const { systemKind } = await loadSessionDay(db, requireUser(locals).id, activeSession.dayId);
+		redirect(303, systemKind === 'quick' ? '/history' : `/programs/${activeSession.programId}`);
 	}
 };

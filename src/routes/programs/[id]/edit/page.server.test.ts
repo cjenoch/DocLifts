@@ -59,3 +59,11 @@ it('keeps malformed program identifiers as HTTP 400', async () => {
 	const result = await Promise.resolve(load(event('bad'))).catch((cause: unknown) => cause);
 	expect(isHttpError(result, 400)).toBe(true);
 });
+
+it('returns HTTP 404 for a system program, which has no editor', async () => {
+	// 0.5.1: the quick-workout program is never edited.
+	const { ensureQuickProgram } = await import('$lib/server/quick-workouts');
+	const { programId } = await ensureQuickProgram(harness.db, userId);
+	const result = await Promise.resolve(load(event(programId))).catch((cause: unknown) => cause);
+	expect(isHttpError(result, 404)).toBe(true);
+});

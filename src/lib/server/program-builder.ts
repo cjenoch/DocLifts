@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { programDraftSchema, type ProgramDraft } from '../program-draft';
 import {
@@ -42,11 +42,12 @@ export async function loadProgramDraft(
 	id: string
 ): Promise<ProgramDraft> {
 	z.string().uuid().parse(id);
-	// Another user's program is 'not found', not 'forbidden' (D6).
+	// Another user's program is 'not found', not 'forbidden' (D6). So is a
+	// system program: the quick-workout program has no editor (0.5.1).
 	const [program] = await db
 		.select()
 		.from(programs)
-		.where(and(eq(programs.id, id), eq(programs.userId, userId)));
+		.where(and(eq(programs.id, id), eq(programs.userId, userId), isNull(programs.systemKind)));
 	if (!program) throw new ProgramNotFoundError();
 	const draft: ProgramDraft = { name: program.name, description: program.description, days: [] };
 	for (const day of await db

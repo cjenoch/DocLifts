@@ -17,6 +17,9 @@ import type { Database } from './progression';
  *
  * `sessions` carries its own user_id, so it is filtered directly; the joined
  * program is not relied on to scope it.
+ *
+ * Quick workouts (0.5.1) are included: their hidden program is joined like
+ * any other, and `systemKind` tells the page to label them.
  */
 export async function historyForMonth(
 	db: Database,
@@ -31,7 +34,10 @@ export async function historyForMonth(
 			endedAt: sessions.endedAt,
 			dayName: days.name,
 			programName: programs.name,
-			programIsActive: programs.isActive
+			programIsActive: programs.isActive,
+			// 'quick' for a workout started with no program (0.5.1); the page
+			// labels those from workout-ui.ts instead of naming the program.
+			systemKind: programs.systemKind
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))

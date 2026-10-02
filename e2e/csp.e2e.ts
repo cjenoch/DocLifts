@@ -357,6 +357,7 @@ run('production build: CSP and page render', () => {
 		'/programs/{id}',
 		'/programs/{id}/edit',
 		'/sessions/{id}',
+		'/workout/start',
 		'/account/password',
 		'/login'
 	] as const;

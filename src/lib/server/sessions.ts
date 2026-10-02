@@ -554,6 +554,61 @@ export async function listDeletedSessionsForProgram(
 		.limit(limit);
 }
 
+export type TrashedSession = {
+	id: string;
+	startedAt: Date;
+	deletedAt: Date | null;
+	dayName: string;
+	programName: string;
+	/** 'quick' for a quick workout (0.5.1); the page labels it from workout-ui.ts. */
+	systemKind: string | null;
+	/** Sets with a saved load and reps, the count the session page calls "logged". */
+	loggedSets: number;
+};
+
+/**
+ * Every trashed workout of this user, quick or program, for Trash on History
+ * (0.5.2). The program page keeps its own per-program list above; this one
+ * exists because the quick program has no page, so a trashed quick workout
+ * had nowhere to be restored from.
+ *
+ * Owner-scoped on `sessions.user_id` directly; the joined day and program
+ * only supply the label. Restore and permanent delete from this list go
+ * through `restoreSoftDeletedSession` and `hardDeleteSession`, the same
+ * owner-scoped by-id functions the program page calls.
+ */
+export async function listDeletedSessionsForUser(
+	db: Database,
+	userId: string,
+	limit = 100
+): Promise<{ sessions: TrashedSession[]; total: number }> {
+	const [rows, [{ total }]] = await Promise.all([
+		db
+			.select({
+				id: sessions.id,
+				startedAt: sessions.startedAt,
+				deletedAt: sessions.deletedAt,
+				dayName: days.name,
+				programName: programs.name,
+				systemKind: programs.systemKind,
+				loggedSets: sql<number>`count(${sets.id}) filter (where ${sets.executedLoad} is not null and ${sets.executedReps} is not null)::int`
+			})
+			.from(sessions)
+			.innerJoin(days, eq(days.id, sessions.dayId))
+			.innerJoin(programs, eq(programs.id, sessions.programId))
+			.leftJoin(sets, eq(sets.sessionId, sessions.id))
+			.where(and(eq(sessions.userId, userId), isNotNull(sessions.deletedAt)))
+			.groupBy(sessions.id, days.name, programs.name, programs.systemKind)
+			.orderBy(desc(sessions.deletedAt), desc(sessions.id))
+			.limit(limit),
+		db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(sessions)
+			.where(and(eq(sessions.userId, userId), isNotNull(sessions.deletedAt)))
+	]);
+	return { sessions: rows, total };
+}
+
 export async function softDeleteEndedSession(
 	db: Database,
 	userId: string,

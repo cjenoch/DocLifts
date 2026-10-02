@@ -2733,7 +2733,9 @@ sets are never affected.
 Code only. Deploy after the owner has seen §31's report; `pre-0.6.2` kept.
 Check: the §31 check again, plus saving set 1 after the naming.
 
-## 33. 0.7.0 — remove, change model, merge (machines spec, first release) — DEPLOYED 2026-10-02, acceptance pending
+## 33. 0.7.0 — remove, change model, merge (machines spec, first release) — DEPLOYED 2026-10-02, accepted 2026-10-02
+
+**Owner sign-off, 2026-10-02:** "I sign off." `pre-0.7.0` deleted after the sign-off.
 
 ```
 0.7.0    29e9146, tagged 0.7.0; branch CI green; full local gate 792 (+2

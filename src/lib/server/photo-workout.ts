@@ -170,6 +170,11 @@ const identifySchema = z.object({
 	loadConvention: z.preprocess(
 		(v) => (v === '' || v == null ? undefined : v),
 		convention.optional()
+	),
+	/** A specific machine of that model in the gym (a repeat visit names the one used last). */
+	gymEquipmentId: z.preprocess(
+		(v) => (v === '' || v == null ? undefined : v),
+		z.string().uuid().optional()
 	)
 });
 
@@ -202,8 +207,8 @@ export async function suggestedExerciseName(
  * and its photo there and removes the placeholder. Sets the exercise (the name
  * given, else the suggestion; an existing exercise of that name is reused) and
  * the load convention. Only identity columns move: no load, rep, RIR or note is
- * written. When nothing is logged yet on an open workout, the sets are
- * prefilled from that machine's history, as any newly bound machine is.
+ * written. On an open workout, the sets not touched yet are prefilled from
+ * that machine's history (0.6.1); a set with a saved value keeps its target.
  *
  * Returns null when the block is not this user's unidentified photo block.
  */
@@ -268,11 +273,13 @@ export async function identifySessionExercise(
 				and(
 					eq(gymEquipment.gymId, placeholder.gymId),
 					eq(gymEquipment.equipmentModelId, model.id),
-					ne(gymEquipment.id, placeholder.id)
+					ne(gymEquipment.id, placeholder.id),
+					value.gymEquipmentId ? eq(gymEquipment.id, value.gymEquipmentId) : undefined
 				)
 			)
 			.orderBy(asc(gymEquipment.localLabel))
 			.limit(1);
+		if (value.gymEquipmentId && !existing) throw new MachineInputError('Machine not found');
 		let machine = existing;
 		if (!machine) {
 			[machine] = await tx
@@ -353,20 +360,9 @@ export async function identifySessionExercise(
 				await tx.delete(gymEquipment).where(eq(gymEquipment.id, placeholder.id));
 		}
 
-		// Last time's numbers, only while nothing is logged on an open workout.
-		if (!session.endedAt) {
-			const logged = await tx
-				.select({ id: sets.id })
-				.from(sets)
-				.where(
-					and(
-						eq(sets.sessionExerciseId, occurrenceId),
-						sql`(${sets.executedLoad} IS NOT NULL OR ${sets.executedReps} IS NOT NULL OR ${sets.executedRir} IS NOT NULL OR ${sets.notes} IS NOT NULL)`
-					)
-				)
-				.limit(1);
-			if (!logged.length) await prefillOccurrence(tx, userId, updated);
-		}
+		// Last time's numbers into the sets not touched yet, on an open workout
+		// (0.6.1). A set with a saved value or note keeps its prescription.
+		if (!session.endedAt) await prefillOccurrence(tx, userId, updated, { onlyUntouched: true });
 		return { occurrence: updated, machineId: machine.id, merged: machine.id !== placeholder.id };
 	});
 }
@@ -503,4 +499,194 @@ export async function unidentifiedBlockOfPhoto(
 			)
 		);
 	return row ?? null;
+}
+
+/**
+ * A repeat visit (0.6.1): after a read, name the block without asking when the
+ * read's code is an exact match for a model this gym already has a machine
+ * for, and the user has logged on that machine before. The name guard applies
+ * (`matchCandidate`: a code whose model name disagrees with the name read is
+ * not preselected). The block takes the exercise and weight format logged
+ * there last, joins that machine, and its untouched sets get last time's
+ * numbers. Undo (`undoPhotoIdentify`) puts it back.
+ *
+ * Returns the identified block, or null when this is not a repeat visit.
+ */
+export async function autoIdentifyRepeatVisit(
+	db: Database,
+	userId: string,
+	sessionId: string,
+	photoId: string
+) {
+	const [row] = await db
+		.select({ photo: equipmentPhotos, occurrence: sessionExercises })
+		.from(equipmentPhotos)
+		.innerJoin(sessionExercises, eq(sessionExercises.id, equipmentPhotos.sessionExerciseId))
+		.innerJoin(sessions, eq(sessions.id, sessionExercises.sessionId))
+		.innerJoin(exercises, eq(exercises.id, sessionExercises.exerciseId))
+		.where(
+			and(
+				eq(equipmentPhotos.id, photoId),
+				eq(equipmentPhotos.userId, userId),
+				eq(equipmentPhotos.status, 'analyzed'),
+				eq(sessions.id, sessionId),
+				eq(sessions.userId, userId),
+				isNull(sessions.endedAt),
+				isNull(sessions.deletedAt),
+				eq(exercises.userId, userId),
+				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
+			)
+		);
+	if (!row) return null;
+	const candidate = parseCandidate(row.photo.candidate);
+	if (!candidate) return null;
+	const found = await matchCandidate(db, userId, candidate);
+	if (found.method !== 'exact' || !found.preselectedId || found.nameDisagrees) return null;
+
+	// The machine of that model in this gym logged on most recently, and what
+	// was logged there: an ended, kept workout with an executed set.
+	const [last] = await db
+		.select({
+			gymEquipmentId: sessionExercises.gymEquipmentId,
+			exerciseName: sessionExercises.exerciseName,
+			loadConvention: sessionExercises.loadConvention
+		})
+		.from(sessionExercises)
+		.innerJoin(sessions, eq(sessions.id, sessionExercises.sessionId))
+		.innerJoin(gymEquipment, eq(gymEquipment.id, sessionExercises.gymEquipmentId))
+		.innerJoin(sets, eq(sets.sessionExerciseId, sessionExercises.id))
+		.where(
+			and(
+				eq(sessions.userId, userId),
+				isNull(sessions.deletedAt),
+				sql`${sessions.endedAt} IS NOT NULL`,
+				eq(gymEquipment.gymId, row.photo.gymId),
+				eq(gymEquipment.equipmentModelId, found.preselectedId),
+				sql`${sets.executedLoad} IS NOT NULL AND ${sets.executedReps} IS NOT NULL`
+			)
+		)
+		.orderBy(desc(sessions.startedAt))
+		.limit(1);
+	if (!last?.gymEquipmentId) return null;
+	const done = await identifySessionExercise(db, userId, sessionId, row.occurrence.id, {
+		modelId: found.preselectedId,
+		exerciseName: last.exerciseName,
+		loadConvention: last.loadConvention === 'legacy' ? undefined : last.loadConvention,
+		gymEquipmentId: last.gymEquipmentId
+	});
+	return done?.occurrence ?? null;
+}
+
+/**
+ * Undo a photo block's naming (0.6.1), on an open workout: the block goes back
+ * to the placeholder exercise on a new placeholder machine, its photo back to
+ * `analyzed` (so the card offers the match again), and its untouched sets lose
+ * the prefill. Saved values and notes are never touched. No machine is
+ * deleted: the one it was named to may be one the user made themselves.
+ *
+ * Returns null when the block is not this user's photo-named block on an open
+ * workout.
+ */
+export async function undoPhotoIdentify(
+	db: Database,
+	userId: string,
+	sessionId: string,
+	occurrenceId: string,
+	opts: { timeLabel?: string } = {}
+) {
+	z.string().uuid().parse(sessionId);
+	z.string().uuid().parse(occurrenceId);
+	return db.transaction(async (tx) => {
+		const [session] = await tx
+			.select()
+			.from(sessions)
+			.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+			.for('update');
+		if (!session || session.deletedAt || session.endedAt) return null;
+		const [block] = await tx
+			.select({ occurrence: sessionExercises, photo: equipmentPhotos })
+			.from(sessionExercises)
+			.innerJoin(exercises, eq(exercises.id, sessionExercises.exerciseId))
+			.innerJoin(equipmentPhotos, eq(equipmentPhotos.sessionExerciseId, sessionExercises.id))
+			.where(
+				and(
+					eq(sessionExercises.id, occurrenceId),
+					eq(sessionExercises.sessionId, sessionId),
+					eq(exercises.userId, userId),
+					sql`${exercises.canonicalMovement} IS DISTINCT FROM ${PLACEHOLDER_MOVEMENT}`,
+					eq(equipmentPhotos.userId, userId),
+					eq(equipmentPhotos.status, 'confirmed')
+				)
+			)
+			.limit(1);
+		if (!block) return null;
+		const exercise = await ensurePlaceholderExercise(tx, userId);
+		const machine = await createMachine(tx, userId, {
+			gymId: block.photo.gymId,
+			localLabel: workoutUi.photoMachineLabel(photoTimeLabel(opts.timeLabel)),
+			equipmentType: exercise.equipmentType
+		});
+		const [gym] = await tx.select().from(gyms).where(eq(gyms.id, block.photo.gymId));
+		const [reverted] = await tx
+			.update(sessionExercises)
+			.set({
+				exerciseId: exercise.id,
+				exerciseName: exercise.name,
+				gymEquipmentId: machine.id,
+				machineLabel: machine.localLabel,
+				gymName: gym?.name ?? block.occurrence.gymName,
+				modelName: null,
+				equipmentType: exercise.equipmentType,
+				loadConvention: 'unknown'
+			})
+			.where(eq(sessionExercises.id, occurrenceId))
+			.returning();
+		await tx
+			.update(sets)
+			.set({ exerciseId: exercise.id, gymEquipmentId: machine.id, loadConvention: 'unknown' })
+			.where(eq(sets.sessionExerciseId, occurrenceId));
+		await tx
+			.update(equipmentPhotos)
+			.set({
+				status: parseCandidate(block.photo.candidate) ? 'analyzed' : 'uploaded',
+				matchedModelId: null,
+				gymEquipmentId: null
+			})
+			.where(eq(equipmentPhotos.sessionExerciseId, occurrenceId));
+		// The new placeholder has no history: untouched sets go back to blank.
+		await prefillOccurrence(tx, userId, reverted, { onlyUntouched: true });
+		return reverted;
+	});
+}
+
+/** Photo-named blocks of this session, by block id, for the Undo line (0.6.1). */
+export async function namedPhotoBlocks(
+	db: Database,
+	userId: string,
+	sessionId: string
+): Promise<Record<string, { photoId: string; modelLabel: string }>> {
+	const rows = await db
+		.select({
+			occurrenceId: sessionExercises.id,
+			photoId: equipmentPhotos.id,
+			model: equipmentModels
+		})
+		.from(equipmentPhotos)
+		.innerJoin(sessionExercises, eq(sessionExercises.id, equipmentPhotos.sessionExerciseId))
+		.innerJoin(sessions, eq(sessions.id, sessionExercises.sessionId))
+		.innerJoin(equipmentModels, eq(equipmentModels.id, equipmentPhotos.matchedModelId))
+		.where(
+			and(
+				eq(equipmentPhotos.userId, userId),
+				eq(equipmentPhotos.status, 'confirmed'),
+				eq(sessions.id, sessionId),
+				eq(sessions.userId, userId)
+			)
+		);
+	return Object.fromEntries(
+		rows.map((r) => [
+			r.occurrenceId,
+			{ photoId: r.photoId, modelLabel: defaultMachineLabel(r.model) }
+		])
+	);
 }

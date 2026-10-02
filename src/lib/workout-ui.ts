@@ -67,6 +67,11 @@ export const workoutUi = {
 	photoNameIt: 'Name it',
 	photoUseThis: 'Use this',
 	photoLater: 'Later',
+	/** A named photo block on an open workout (0.6.1), with its undo. */
+	photoNamedFrom: (label: string) => `Named from your photo: ${label}`,
+	photoUndo: 'Undo',
+	/** The match card's way to the review page, for a different model. */
+	photoOtherMachine: 'Other machine',
 	photoExerciseLabel: 'Exercise',
 	photoWeightLabel: 'Record weight as',
 	/** How weight is recorded on an identified machine, by equipment type. */

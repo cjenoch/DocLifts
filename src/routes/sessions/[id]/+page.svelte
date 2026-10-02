@@ -219,6 +219,7 @@
 									>{workoutUi.photoLater}</button
 								>
 							</div>
+							<a class="other" href="/photos/{pb.photoId}/review">{workoutUi.photoOtherMachine}</a>
 						</form>
 					{:else if pb.kind !== 'match'}
 						<p class="photo-line">{workoutUi.photoReadFailed}</p>
@@ -242,6 +243,26 @@
 						</div>
 					{/if}
 				</div>
+			{/if}
+			{#if !data.session.endedAt && group.occurrenceId && data.namedPhotoBlocks[group.occurrenceId]}
+				<form
+					method="POST"
+					action="?/undoIdentify"
+					class="photo-named"
+					data-testid="photo-named"
+					use:enhance={({ formData }) => {
+						// The new placeholder's label carries the phone's own time.
+						formData.set(
+							'timeLabel',
+							new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+						);
+					}}
+				>
+					<input type="hidden" name="occurrenceId" value={group.occurrenceId} />
+					<span
+						>{workoutUi.photoNamedFrom(data.namedPhotoBlocks[group.occurrenceId].modelLabel)}</span
+					><button>{workoutUi.photoUndo}</button>
+				</form>
 			{/if}
 			{#if !data.session.endedAt && group.occurrenceId && !data.photoBlocks[group.occurrenceId]}<details
 					class="equipment"
@@ -673,6 +694,29 @@
 	.identify-actions .later {
 		border: 1px solid #46546b;
 		color: #c7d2fe;
+	}
+	.identify .other {
+		min-height: 44px;
+		display: inline-flex;
+		align-items: center;
+		color: #c7d2fe;
+		font-size: 13px;
+		font-weight: 600;
+	}
+	.photo-named {
+		display: flex;
+		gap: 12px;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 12px;
+		font-size: 13px;
+		color: #b6c5da;
+	}
+	.photo-named button {
+		min-height: 44px;
+		color: #c7d2fe;
+		font-weight: 600;
+		flex: none;
 	}
 	.photo-form {
 		margin-bottom: 8px;

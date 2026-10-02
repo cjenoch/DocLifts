@@ -526,11 +526,27 @@ the count.
 `ON DELETE SET NULL`, indexed, so the photo stays with the workout record after
 a merge.
 
-**Not in 0.6.0 (next, 0.6.1):** a repeat visit identifying itself on an exact
-code (name guard, with undo) and filling last time's numbers into untouched
-sets; the photo button on a program session's planned exercises
-(`bindSessionMachine`). The button shows only on an open workout with a gym,
-which today means quick workouts.
+**Repeat visits (0.6.1).** After a read, `autoIdentifyRepeatVisit` names the
+block without a tap when the read's code is an **exact** match (`matchCandidate`
+method `exact`, preselected, so the name guard has passed) for a model this gym
+already has a machine for, **and** the user has an executed set on that machine
+in a finished workout. The block takes the exercise and weight format logged
+there last and joins that machine (the most recently used one, when the gym has
+two of the model). Its sets not touched yet get last time's numbers through the
+usual prefill; a set already logged keeps its values and its target. Prefix,
+leading-digit and name matches still ask.
+
+**Undo (0.6.1).** Every block named from a photo shows "Named from your photo:
+…" and **Undo** while the workout is open (`undoPhotoIdentify`). The block goes
+back to "Unidentified machine" on a new placeholder machine, the photo back to
+`analyzed` so the card offers the match again, and the untouched sets lose the
+prefill. Saved values and notes are never touched, and no machine is deleted:
+the one it was named to may be one the user made on the Gyms page. The card
+also links "Other machine" to the review page.
+
+**Not yet (next, 0.6.2):** the photo button on a program session's planned
+exercises (`bindSessionMachine`). The button shows only on an open workout with
+a gym, which today means quick workouts.
 
 **Limits.** Each photo counts against `PHOTO_DAILY_LIMIT` (uploads and
 analyses, separately). Production is at 60 for testing; a workout uses about 6

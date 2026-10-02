@@ -2664,3 +2664,18 @@ placard, or the quiet line); Use this names it and the set is unchanged
 
 **Owed by the owner, on the iPhone:** photo to first saved set under 3 seconds
 on cellular, with the read still running (the spec's acceptance number).
+
+## 31. 0.6.1 — repeat visits name themselves, with undo — NOT deployed
+
+Code only: no migration, no env change. Deploy under development-push mode,
+`pre-0.6.1` kept until the owner signs off.
+
+Check (assistant, production, scratch account, Scratch photo check gym, which
+has an IL-ROW logged on in the 0.6.0 check): start a quick workout, Photo next
+machine with the generated IL-ROW placard, log set 1 before the read returns.
+The block must name itself "Iso-Lateral Row" on the gym's existing IL-ROW, with
+"Named from your photo" and Undo; set 1 keeps its values; sets 2 and 3 carry
+last time's numbers (psql). Undo: back to "Unidentified machine", set 1 kept,
+the card shown again. Use this again, finish.
+
+**Owed by the owner:** a real repeat visit at his gym.

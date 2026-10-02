@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.1 — machines you've used before name themselves — not yet released
+
+- **Repeat visits name themselves.** Photograph a machine you've logged on
+  before at this gym, and when the photo is read the exercise names itself:
+  the same machine, the exercise and weight format you used last time, and
+  last time's numbers filled into the sets you haven't logged yet. This
+  happens only when the code on the placard matches exactly and the name
+  agrees; anything less still asks.
+- **Undo.** Any exercise named from a photo shows where its name came from,
+  with Undo, while the workout is open. Your logged sets stay as they are.
+- **Other machine.** The "Use this" card links to the photo's review page, to
+  pick a different model.
+
 ## 0.6.0 — photograph the machine, log your sets, name it later — 2026-10-02
 
 - **Photo next machine.** A green button at the bottom of an open workout.

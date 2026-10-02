@@ -54,8 +54,8 @@ narrower than `bindSessionMachine`, and different in two ways:
   point. It moves only identity columns: the block's exercise, machine,
   equipment type and load convention, and the same on its sets
   (`exercise_id`, `gym_equipment_id`, `load_convention`). It never writes an
-  executed value, a note, or a prescribed value, except the existing live-session
-  prefill, and only when nothing is logged yet on an open workout.
+  executed value or a note. On an open workout it prefills the sets not touched
+  yet (0.6.1); a set with a saved value or note keeps its prescription.
 - **It touches only a photo block still on the placeholder.** A block added by
   hand, or a program's planned exercise, is "not found" to it, so the refusal
   to rebind a machine after values are saved stays exactly as it is.
@@ -63,3 +63,7 @@ narrower than `bindSessionMachine`, and different in two ways:
 One machine per model per gym: when the gym already has the model, the block
 joins that machine, its photos move with it, and the placeholder is deleted
 once nothing references it.
+
+A repeat visit (0.6.1) names a photo block without a tap, on an exact code for a
+model this gym has a machine for and has been logged on; Undo reverses any
+photo naming on an open workout, onto a new placeholder, deleting nothing.

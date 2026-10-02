@@ -233,7 +233,7 @@ run('photo in the workout (production build, no model configured)', () => {
 		await page.close();
 	});
 
-	it('a read that found the machine: one tap on "Use this" names the block; it merges into the gym’s machine', async () => {
+	it('a read that found the machine: one tap on "Use this" names the block, merging into the gym’s machine; Undo puts it back', async () => {
 		const page = await signedInPage();
 		await startWorkout(page);
 		await photoNextMachine(page);
@@ -265,6 +265,33 @@ run('photo in the workout (production build, no model configured)', () => {
 			.from(s.equipmentPhotos)
 			.where(eq(s.equipmentPhotos.id, latest.id));
 		expect(named).toMatchObject({ status: 'confirmed', gymEquipmentId: machines[0].id });
+
+		// Undo (0.6.1): back to the placeholder, the card offered again, the
+		// gym's machine kept.
+		expect(await page.getByTestId('photo-named').innerText()).toContain(
+			workoutUi.photoNamedFrom('Hammer Strength Iso-Lateral Row (IL-ROW)')
+		);
+		await page
+			.getByTestId('photo-named')
+			.getByRole('button', { name: workoutUi.photoUndo })
+			.click();
+		await expect
+			.poll(() =>
+				page.getByRole('heading', { name: workoutUi.placeholderExerciseName, exact: true }).count()
+			)
+			.toBe(1);
+		expect(await card.getByRole('button', { name: workoutUi.photoUseThis }).count()).toBe(1);
+		expect(
+			await card.getByRole('link', { name: workoutUi.photoOtherMachine }).getAttribute('href')
+		).toBe(`/photos/${latest.id}/review`);
+		const [undone] = await harness.db
+			.select()
+			.from(s.equipmentPhotos)
+			.where(eq(s.equipmentPhotos.id, latest.id));
+		expect(undone).toMatchObject({ status: 'analyzed', gymEquipmentId: null });
+		expect(
+			await harness.db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, machines[0].id))
+		).toHaveLength(1);
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});

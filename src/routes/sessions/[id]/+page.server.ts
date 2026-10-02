@@ -29,9 +29,12 @@ import type { Actions, PageServerLoad } from './$types';
 import { appendWorkoutSet, removeEmptyLastSet } from '$lib/server/workout-sets';
 import { requireUser } from '$lib/server/request-user';
 import {
+	autoIdentifyRepeatVisit,
 	identifySessionExercise,
+	namedPhotoBlocks,
 	openPhotoBlock,
-	photoBlocksForSession
+	photoBlocksForSession,
+	undoPhotoIdentify
 } from '$lib/server/photo-workout';
 import { isUuid, PhotoLimitError, uploadPhoto } from '$lib/server/photos';
 import { analyzePhoto } from '$lib/server/photos/analyze';
@@ -158,6 +161,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		// Photo in the workout (0.6.0): what each unidentified photo block shows,
 		// and whether the photo button is offered (an open workout with a gym).
 		photoBlocks: await photoBlocksForSession(db, requireUser(locals).id, session.id),
+		// Blocks named from a photo (0.6.1), for the Undo line on an open workout.
+		namedPhotoBlocks: await namedPhotoBlocks(db, requireUser(locals).id, session.id),
 		photoEnabled: session.endedAt == null && session.gymId != null
 	};
 };
@@ -328,9 +333,35 @@ export const actions: Actions = {
 				store: photoStore(),
 				limits: resolvePhotoLimits()
 			});
-			return { read: outcome?.ok ? ('done' as const) : ('failed' as const), photoId };
+			if (!outcome?.ok) return { read: 'failed' as const, photoId };
+			// A repeat visit names itself (0.6.1): exact code, name guard, a
+			// machine of that model logged on before in this gym.
+			const named = await autoIdentifyRepeatVisit(db, userId, params.id, photoId);
+			return { read: named ? ('named' as const) : ('done' as const), photoId };
 		} catch (e) {
 			if (e instanceof PhotoLimitError) return { read: 'failed' as const, photoId };
+			throw e;
+		}
+	},
+	/** Undo a photo block's naming (0.6.1), on an open workout. */
+	undoIdentify: async ({ request, params, locals }) => {
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid session id', setId: null });
+		}
+		const form = await request.formData();
+		try {
+			const undone = await undoPhotoIdentify(
+				db,
+				requireUser(locals).id,
+				params.id,
+				String(form.get('occurrenceId') ?? ''),
+				{ timeLabel: String(form.get('timeLabel') ?? '') }
+			);
+			if (!undone) return fail(404, { message: 'Exercise not found in this session', setId: null });
+			return { undone: undone.id };
+		} catch (e) {
+			if (e instanceof z.ZodError || e instanceof MachineInputError)
+				return fail(400, { message: 'Exercise not found in this session', setId: null });
 			throw e;
 		}
 	},

@@ -319,7 +319,12 @@ async function machineSnapshot(db: Database, userId: string, input: unknown) {
 export async function prefillOccurrence(
 	db: Database,
 	userId: string,
-	occurrence: typeof sessionExercises.$inferSelect
+	occurrence: typeof sessionExercises.$inferSelect,
+	/**
+	 * `onlyUntouched` (0.6.1, photo blocks): rows with a saved value or note
+	 * keep their prescription; only the untouched rows are prefilled.
+	 */
+	opts: { onlyUntouched?: boolean } = {}
 ) {
 	const rows = await db
 		.select()
@@ -420,6 +425,11 @@ export async function prefillOccurrence(
 	for (let i = 0; i < rows.length; i++) {
 		const r = rows[i],
 			h = histories[i];
+		if (
+			opts.onlyUntouched &&
+			(r.executedLoad != null || r.executedReps != null || r.executedRir != null || r.notes)
+		)
+			continue;
 		let load = h?.executedLoad ?? null;
 		let reasoning: string | null = null;
 		if (main) {

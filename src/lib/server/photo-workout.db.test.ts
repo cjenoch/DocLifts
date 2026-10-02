@@ -4,8 +4,11 @@ import { and, eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDbWithUsers, type TestDb } from './test-db';
 import * as s from './db/schema';
 import {
+	autoIdentifyRepeatVisit,
 	identifySessionExercise,
 	machinesToName,
+	namedPhotoBlocks,
+	undoPhotoIdentify,
 	openPhotoBlock,
 	photoBlocksForSession,
 	photoTimeLabel,
@@ -367,5 +370,148 @@ describe('photoTimeLabel', () => {
 		const noon = new Date(Date.UTC(2026, 9, 2, 12, 5));
 		expect(photoTimeLabel('<script>', noon)).toBe('12:05 PM');
 		expect(photoTimeLabel(undefined, noon)).toBe('12:05 PM');
+	});
+});
+
+describe('repeat visits and undo (0.6.1)', () => {
+	/** Last visit: the gym's own IL-ROW, "Row", plates per side, 3 sets of 90 x 10. */
+	async function lastVisit() {
+		const machine = await createMachine(db, alice, {
+			gymId,
+			equipmentType: 'machine-plate',
+			equipmentModelId: ilRow.id
+		});
+		const sessionId = await openSession();
+		const row = await addSessionExercise(db, alice, sessionId, {
+			exerciseName: 'Row',
+			equipmentType: 'machine-plate',
+			gymId,
+			gymEquipmentId: machine.id,
+			loadConvention: 'plates_per_side',
+			setCount: 3,
+			repsMin: 8,
+			repsMax: 12,
+			rir: 2,
+			tier: 'secondary',
+			progressionPolicy: 'standard'
+		});
+		await db
+			.update(s.sets)
+			.set({ executedLoad: 90, executedReps: 10, executedRir: 2 })
+			.where(eq(s.sets.sessionExerciseId, row.id));
+		await endSession(db, alice, sessionId);
+		return machine;
+	}
+
+	/** Today: a photo of it opens a block; set 1 is logged before the read returns. */
+	async function today(candidate = FIXTURE_CANDIDATE) {
+		const sessionId = await openSession();
+		const p = await photo(alice, gymId, 'analyzed');
+		await db.update(s.equipmentPhotos).set({ candidate }).where(eq(s.equipmentPhotos.id, p.id));
+		const block = await openPhotoBlock(db, alice, sessionId, p.id);
+		const [first] = await setsOf(block.id);
+		await db
+			.update(s.sets)
+			.set({ executedLoad: 80, executedReps: 8 })
+			.where(eq(s.sets.id, first.id));
+		return { sessionId, photoId: p.id, block };
+	}
+
+	it('names itself: last exercise and weight format, the same machine, last time’s numbers in untouched sets only', async () => {
+		const machine = await lastVisit();
+		const { sessionId, photoId, block } = await today();
+		const named = await autoIdentifyRepeatVisit(db, alice, sessionId, photoId);
+		expect(named).toMatchObject({
+			exerciseName: 'Row',
+			loadConvention: 'plates_per_side',
+			gymEquipmentId: machine.id
+		});
+		const [first, second, third] = await setsOf(block.id);
+		// The set logged before the read keeps everything, its target included.
+		expect(first).toMatchObject({ executedLoad: 80, executedReps: 8, prescribedLoad: null });
+		// Untouched sets get last time's numbers, with their reasoning.
+		expect(second.prescribedLoad).not.toBeNull();
+		expect(third.prescribedLoad).not.toBeNull();
+		expect(second.suggestionReasoning).toBeTruthy();
+		expect((await namedPhotoBlocks(db, alice, sessionId))[block.id]).toMatchObject({ photoId });
+		expect(await namedPhotoBlocks(db, bob, sessionId)).toEqual({});
+	});
+
+	it('does not name itself without a logged visit, on a non-exact code, or when the names disagree', async () => {
+		// A machine of that model, on a finished workout, but no set ever logged.
+		const unused = await createMachine(db, alice, {
+			gymId,
+			equipmentType: 'machine-plate',
+			equipmentModelId: ilRow.id
+		});
+		const empty = await openSession();
+		await addSessionExercise(db, alice, empty, {
+			exerciseName: 'Seated row',
+			equipmentType: 'machine-plate',
+			gymId,
+			gymEquipmentId: unused.id,
+			loadConvention: 'plates_per_side',
+			setCount: 2,
+			repsMin: 8,
+			repsMax: 12,
+			rir: 2,
+			tier: 'secondary',
+			progressionPolicy: 'standard'
+		});
+		await endSession(db, alice, empty);
+		const first = await today();
+		expect(await autoIdentifyRepeatVisit(db, alice, first.sessionId, first.photoId)).toBeNull();
+		await endSession(db, alice, first.sessionId);
+
+		await lastVisit();
+		const prefix = await today({ ...FIXTURE_CANDIDATE, model_code: 'IL-RO' });
+		expect(await autoIdentifyRepeatVisit(db, alice, prefix.sessionId, prefix.photoId)).toBeNull();
+		await endSession(db, alice, prefix.sessionId);
+		const guard = await today({ ...FIXTURE_CANDIDATE, name: 'Leg Curl' });
+		expect(await autoIdentifyRepeatVisit(db, alice, guard.sessionId, guard.photoId)).toBeNull();
+		const [still] = await db
+			.select()
+			.from(s.sessionExercises)
+			.where(eq(s.sessionExercises.id, guard.block.id));
+		expect(still.exerciseName).toBe(workoutUi.placeholderExerciseName);
+	});
+
+	it('undo puts the block back: saved values kept, prefill cleared, the match offered again, no machine deleted', async () => {
+		const machine = await lastVisit();
+		const { sessionId, photoId, block } = await today();
+		await autoIdentifyRepeatVisit(db, alice, sessionId, photoId);
+
+		// Another user cannot undo it; nothing changes.
+		expect(await undoPhotoIdentify(db, bob, sessionId, block.id)).toBeNull();
+		expect((await namedPhotoBlocks(db, alice, sessionId))[block.id]).toBeTruthy();
+
+		const reverted = await undoPhotoIdentify(db, alice, sessionId, block.id, {
+			timeLabel: '6:05 PM'
+		});
+		expect(reverted).toMatchObject({
+			exerciseName: workoutUi.placeholderExerciseName,
+			machineLabel: workoutUi.photoMachineLabel('6:05 PM'),
+			loadConvention: 'unknown',
+			modelName: null
+		});
+		expect(reverted!.gymEquipmentId).not.toBe(machine.id);
+		const [first, second] = await setsOf(block.id);
+		expect(first).toMatchObject({ executedLoad: 80, executedReps: 8 });
+		expect(second.prescribedLoad).toBeNull();
+		expect((await photoBlocksForSession(db, alice, sessionId))[block.id]).toMatchObject({
+			kind: 'match',
+			photoId
+		});
+		expect(
+			await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, machine.id))
+		).toHaveLength(1);
+	});
+
+	it('undo is refused on a finished workout and on a block added by hand', async () => {
+		await lastVisit();
+		const { sessionId, photoId, block } = await today();
+		await autoIdentifyRepeatVisit(db, alice, sessionId, photoId);
+		await endSession(db, alice, sessionId);
+		expect(await undoPhotoIdentify(db, alice, sessionId, block.id)).toBeNull();
 	});
 });

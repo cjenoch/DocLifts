@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.5 — the app shell: tabs, an account page, a home-screen icon — not yet released
+## 0.5.5 — the app shell: tabs, an account page, a home-screen icon — 2026-10-02
 
 - **Tabs at the bottom.** Workout, Gyms, History and Reports, one row at the
   bottom of the screen, clear of the iPhone's home indicator. Equipment lives

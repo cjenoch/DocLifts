@@ -2540,7 +2540,28 @@ CodeQL does not read `.svelte` files: its run on `main` scanned 181/181
 TypeScript, 2/2 JavaScript, 1/1 HTML and 1/1 Actions files, and none of
 the 26 components. None of them uses `{@html}`.
 
-## 29. 0.5.5 — the app shell (SPEC 0.5.0 Part E) — NOT deployed
+## 29. 0.5.5 — the app shell (SPEC 0.5.0 Part E) — DEPLOYED 2026-10-02, acceptance pending
+
+```
+0.5.5    a22d5ea, tagged 0.5.5; branch CI green (test + docker); full local
+         gate 767 (+2 skipped) / 3 / 31 / 132
+quiet    suspended by the owner (2026-10-02: no users yet)
+image    pre-0.5.5 kept until the owner signs off
+web      rebuilt 11:59 UTC, healthy; version.json a22d5ea
+check    fresh empty account fresh-055@doclifts.invalid (created at deploy,
+         password in a mode-600 scratch file only), 390x844, live:
+         sign-in page names the app, tagline, no sign-up link; Home shows
+         the three first-run lines and one Start workout, nothing about
+         programs; /, /gyms, /history, /reports, /equipment: 4 tabs one
+         row at the bottom, each >= 44 px, the right tab current (Gyms on
+         /equipment), no sideways scroll, empty states on Gyms, History,
+         Reports; account button -> /account with the email; manifest
+         (standalone) and the 192, 512 and 180 px icons 200 image/png; an
+         open workout shows its bar and no tabs, finishing brings them
+         back; Sign out from /account, then /history goes to /login; no
+         5xx, 0 page errors
+owed     the owner's iPhone checks below
+```
 
 Code only: no migration, no env change. Deploy under development-push mode
 (quiet check suspended), `pre-0.5.5` kept until the owner signs off,

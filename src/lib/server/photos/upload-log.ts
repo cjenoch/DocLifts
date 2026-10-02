@@ -6,7 +6,12 @@
  * They are measurement only and never trusted: parsed defensively here, and
  * used for nothing but this line. Validation and storage read the received
  * file alone. A missing or malformed value is logged as null.
+ *
+ * Since 0.5.3 the line also carries the stage timings in whole milliseconds
+ * (`PhotoTimings`, timings.ts) and `totalMs`, the whole action. It is written
+ * once, at the end of the action, so `modelMs` is known when it is written.
  */
+import type { PhotoTimings } from './timings';
 
 export type ClientMeasurement = {
 	clientOriginalBytes: number | null;
@@ -26,15 +31,18 @@ export function clientMeasurement(form: FormData): ClientMeasurement {
 	};
 }
 
-export type UploadLogLine = ClientMeasurement & {
-	event: 'photo_upload';
-	/** The bytes that actually arrived. */
-	receivedBytes: number;
-	outcome: 'stored' | 'refused';
-	/** The stored image's size and id, when stored. */
-	storedBytes: number | null;
-	photoId: string | null;
-};
+export type UploadLogLine = ClientMeasurement &
+	PhotoTimings & {
+		event: 'photo_upload';
+		/** The bytes that actually arrived. */
+		receivedBytes: number;
+		outcome: 'stored' | 'refused';
+		/** The stored image's size and id, when stored. */
+		storedBytes: number | null;
+		photoId: string | null;
+		/** From the request entering the action to its response being decided. */
+		totalMs: number;
+	};
 
 /** Deliberately console.log(JSON): one greppable line, like the login attempt log. */
 export function logUpload(line: Omit<UploadLogLine, 'event'>): void {

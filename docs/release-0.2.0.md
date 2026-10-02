@@ -2366,3 +2366,33 @@ quiet check, `pre-0.5.2` kept until the owner signs off, `compose-prod.sh up
 Check (scratch account): upload a generated placard reading gym80 / `4157` /
 PURE KRAFT BOOTY BOOSTER. Review must show the name-disagrees line, 4157
 first, 4352 among the names, and no radio preselected. Discard the photo.
+
+## 27. 0.5.3 — hand the photo straight to analysis, and time each stage — NOT deployed
+
+Code only: no migration, no env change. Deploy under development-push mode:
+quiet check, `pre-0.5.3` kept until the owner signs off, `compose-prod.sh up
+-d --build --wait web`, then the check below. Ships after 0.5.2.
+
+What changes: `uploadPhoto` returns the processed JPEG with the row and the
+upload action passes it to `analyzePhoto` (no read-back from the store in the
+upload request; Re-analyze still reads the store). The `photo_upload` line
+gains `processMs`, `storePutMs`, `modelMs` and `totalMs` and is written once at
+the end of the action. The step order and the upload transaction are
+unchanged. Details in `docs/photos.md`, "Timing each stage".
+
+Check (scratch account, `scratch-test@doclifts.invalid`): upload one generated
+placard and confirm the line carries the four timings as whole numbers, and
+the review page shows the candidate as before. Discard the photo.
+
+```sh
+sudo -n scripts/compose-prod.sh logs web --since 10m | grep '"event":"photo_upload"' | tail -1
+```
+
+Expect `"outcome":"stored"` and integer `processMs`, `storePutMs`, `modelMs`,
+`totalMs` (a model read of about 2-3 s with the current model). Then run
+`scripts/photo-timings-report.sh 1` once and confirm it prints one stored
+upload and no ids.
+
+**Due one week after deploy:** run `scripts/photo-timings-report.sh 7` and
+give the owner the medians; he decides from them whether the put and the
+model call run in parallel. Nothing is parallelized before that.

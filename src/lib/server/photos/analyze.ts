@@ -6,6 +6,8 @@
  *
  * The image sent is the stored one: already oriented, resized and stripped of
  * all metadata (process.ts), so no location or device data reaches a provider.
+ * On upload it is handed over in memory (the same bytes that were stored);
+ * a re-analysis reads it back from the store.
  */
 import { and, count, eq, gt, inArray, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -15,6 +17,7 @@ import { complete as defaultComplete, LlmError, type CompleteRequest } from '../
 import type { PhotoLimits } from './config';
 import { isUuid, PhotoLimitError } from './index';
 import type { PhotoStore } from './store';
+import { timed, type PhotoTimings } from './timings';
 
 export const PHOTO_PURPOSE = 'equipment_from_photo';
 
@@ -231,6 +234,12 @@ async function readAll(body: NodeJS.ReadableStream): Promise<Buffer> {
 	return Buffer.concat(chunks);
 }
 
+/** The stored image's bytes, or null when its object is gone. */
+async function readStored(store: PhotoStore, key: string): Promise<Buffer | null> {
+	const object = await store.get(key);
+	return object ? readAll(object.body) : null;
+}
+
 /**
  * Read one of this user's photos with the vision model and attach the
  * candidate (status `analyzed`). Allowed on `uploaded` and `analyzed`
@@ -244,12 +253,24 @@ async function readAll(body: NodeJS.ReadableStream): Promise<Buffer> {
  * Capped by PHOTO_DAILY_LIMIT, counted over this user's analyses (llm_calls
  * rows for this purpose that reached the provider) in the last 24 hours, and
  * separately from uploads. Throws `PhotoLimitError`.
+ *
+ * `deps.image` (0.5.3): the processed JPEG `uploadPhoto` just stored, passed
+ * by the upload action so the store is not read back in the same request.
+ * Without it (re-analysis) the image is read from the store, as before.
+ * `deps.timings`, when given, receives `modelMs`: the `complete()` call alone.
  */
 export async function analyzePhoto(
 	db: Database,
 	userId: string,
 	photoId: string,
-	deps: { store: PhotoStore; limits: PhotoLimits; note?: string | null; complete?: CompleteFn }
+	deps: {
+		store: PhotoStore;
+		limits: PhotoLimits;
+		note?: string | null;
+		complete?: CompleteFn;
+		image?: Buffer;
+		timings?: PhotoTimings;
+	}
 ): Promise<AnalyzeOutcome | null> {
 	if (!isUuid(photoId)) return null;
 	const [photo] = await db
@@ -266,28 +287,29 @@ export async function analyzePhoto(
 	if ((await analysesInLastDay(db, userId)) >= deps.limits.dailyLimit) {
 		throw new PhotoLimitError(analysisLimitMessage(deps.limits.dailyLimit));
 	}
-	const object = await deps.store.get(photo.storageKey);
-	if (!object) return null;
-	const image = await readAll(object.body);
+	const image = deps.image ?? (await readStored(deps.store, photo.storageKey));
+	if (!image) return null;
 
 	const complete = deps.complete ?? defaultComplete;
 	try {
-		const { output, callId } = await complete(db, userId, {
-			purpose: PHOTO_PURPOSE,
-			kind: 'vision',
-			system: SYSTEM_PROMPT,
-			messages: [
-				{
-					role: 'user',
-					content: [
-						{ type: 'image', image, mediaType: 'image/jpeg' },
-						{ type: 'text', text: userText(deps.note) }
-					]
-				}
-			],
-			schema: EquipmentCandidate,
-			wireSchema: CANDIDATE_WIRE_SCHEMA
-		});
+		const { output, callId } = await timed(deps.timings, 'modelMs', () =>
+			complete(db, userId, {
+				purpose: PHOTO_PURPOSE,
+				kind: 'vision',
+				system: SYSTEM_PROMPT,
+				messages: [
+					{
+						role: 'user',
+						content: [
+							{ type: 'image', image, mediaType: 'image/jpeg' },
+							{ type: 'text', text: userText(deps.note) }
+						]
+					}
+				],
+				schema: EquipmentCandidate,
+				wireSchema: CANDIDATE_WIRE_SCHEMA
+			})
+		);
 		await db
 			.update(equipmentPhotos)
 			.set({ candidate: output, llmCallId: callId, status: 'analyzed' })

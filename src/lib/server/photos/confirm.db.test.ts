@@ -62,7 +62,7 @@ async function analyzedPhoto(userId = alice, gym = gymId) {
 		userId,
 		{ gymId: gym, bytes: await smallPng() },
 		{ store, limits }
-	))!;
+	))!.photo;
 	await db
 		.update(s.equipmentPhotos)
 		.set({ status: 'analyzed', candidate: FIXTURE_CANDIDATE })

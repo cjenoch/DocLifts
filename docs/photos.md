@@ -17,7 +17,9 @@ added.** The model's output is a suggestion, never a write.
    processes the photo (below), stores it privately, and records it as
    `uploaded`.
 3. **Analysis**, in the same request: the stored image goes through
-   `complete()` with the vision model and a strict schema (below). The result
+   `complete()` with the vision model and a strict schema (below). Since
+   0.5.3 the upload hands analysis the processed JPEG it has just stored,
+   the same bytes, so the store is not read back in that request. The result
    is a **candidate**, stored on the photo row with the `llm_calls` row that
    produced it; the photo becomes `analyzed`.
 4. **Review** (`/photos/<photo id>/review`): the photo, the candidate field
@@ -178,7 +180,8 @@ labels such a match "leading-digit match", so it is visible before linking.
 ## Re-running analysis
 
 On the review page, **Re-analyze** (with an optional new note) reads the
-stored photo again and replaces the candidate. It is allowed while the photo is
+stored photo again from the store (it is never handed over, unlike the upload's
+own analysis) and replaces the candidate. It is allowed while the photo is
 `uploaded` or `analyzed`, counts against the daily analysis limit, and records
 its own `llm_calls` row. If analysis fails — the model's answer does not fit
 the schema, the provider errors or times out, the layer is not configured, or
@@ -319,6 +322,7 @@ one JSON line per upload:
 {"event":"photo_upload","clientOriginalBytes":2513122,"clientResized":true,"receivedBytes":663080,"outcome":"stored","storedBytes":350700,"photoId":"…"}
 ```
 
+(Since 0.5.3 the line also carries four timings; see "Timing each stage".)
 `receivedBytes` is what actually arrived; `storedBytes` is what `processPhoto`
 kept. The two client fields are what the browser says, parsed defensively
 (`photos/upload-log.ts`: anything but a plain integer, or `1`/`0`, is `null`)
@@ -387,3 +391,70 @@ code alone still preselects (owner default). Why: a misread to a real code
 repeats across reads at confidence 1.0, so neither a second read nor the
 model's confidence catches it; the name is the independent check. Part C's
 "identify on an exact code" must use the same guard.
+
+## Timing each stage (0.5.3)
+
+Every `photo_upload` line carries four timings, in whole milliseconds
+(`performance.now()`, rounded), so the owner can decide from real medians
+whether storing the photo and the model's read should run in parallel. They
+are measurement only; nothing reads them. The steps still run one after the
+other, in the same order as before: process, then (in the transaction, under
+the per-user lock) put and insert, then analysis.
+
+```
+{"event":"photo_upload","clientOriginalBytes":2513122,"clientResized":true,"receivedBytes":663080,"outcome":"stored","storedBytes":350700,"photoId":"…","processMs":183,"storePutMs":96,"modelMs":2410,"totalMs":2790}
+```
+
+| Field        | Starts                                                                                                  | Stops                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `processMs`  | just before `processPhoto` (sharp: validate, orient, resize, re-encode, strip)                          | when it returns or throws                                 |
+| `storePutMs` | just before `store.put` of the processed JPEG, inside the upload transaction                            | when the put returns or throws                            |
+| `modelMs`    | just before the one `complete()` call in `analyzePhoto` (includes `complete()`'s own `llm_calls` write) | when `complete()` returns or throws                       |
+| `totalMs`    | the first line of the upload action, before the form is read                                            | when the response is decided: the redirect or the refusal |
+
+- A stage that **fails** still reports the time it took (a model timeout shows
+  as a long `modelMs`, with the review page's "analysis failed" as before).
+- A stage the request **never reached** is `null`: a refused upload has
+  `storePutMs` and `modelMs` null (and `processMs` null when it was refused
+  before processing, e.g. the daily limit); an upload whose analysis was
+  refused by the daily analysis limit has `modelMs` null. `outcome` keeps its
+  meaning (`stored` or `refused`).
+- `totalMs` is not the sum of the three: it also covers reading the form, the
+  gym and limit queries, the insert, the analysis's own queries, and the
+  candidate update.
+
+**The line is now written once, at the end of the action** (a `finally`), so
+that it can carry `modelMs`. Before 0.5.3 a stored upload's line was written
+just before analysis. Only when the line is printed moved; no step moved, and
+the line's fields keep their meaning. If the process dies mid-analysis, that
+upload has no line.
+
+**Weekly report.** On the VPS, from the deploy checkout, as yourself:
+
+```sh
+scripts/photo-timings-report.sh      # last 7 days
+scripts/photo-timings-report.sh 14   # last 14 days
+```
+
+It reads the web container's log through `sudo -n scripts/compose-prod.sh logs
+--no-log-prefix --since <N*24>h web` (Docker's `--since` takes hours, not
+days), keeps the `photo_upload` lines and prints, for **stored** uploads, each
+stage's count, median, p90 (nearest rank) and max in ms, plus how many lines
+carry no timings (written before 0.5.3) and how many were refused. It prints
+counts and milliseconds only: never a photo id, a size, or any other field.
+The computation is `scripts/photo-timings-report.mjs` (plain Node, no
+dependencies), tested on fixture lines in
+`src/lib/server/photo-timings-report.test.ts`; `PHOTO_TIMINGS_LOG=<file>`
+reads a saved log instead of the container's.
+
+**The first median report is due one week after 0.5.3 is deployed.** The
+owner decides from it whether to run the put and the model call in parallel.
+
+**Tests:** `upload.db.test.ts` (the processed image is returned exactly as
+stored; process and put timed, also on a refusal), `analyze.db.test.ts` (with
+the image handed over the store is not read, without it it is; the same bytes
+and the same candidate either way; `modelMs` on success and failure), the
+upload route's `page.server.test.ts` (the upload path sends the stored bytes
+with no read-back; the line's four timings and every earlier field; one line on
+refusal), the review route's test (re-analyze reads the store), and
+`e2e/photos.e2e.ts` (the four timings on the served build's line).

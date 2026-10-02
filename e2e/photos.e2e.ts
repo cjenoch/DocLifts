@@ -338,6 +338,11 @@ run('equipment from a photo (production build)', () => {
 			clientOriginalBytes: phone.byteLength,
 			clientResized: true
 		});
+		// 0.5.3: the stage timings, in whole ms, on the served build's line.
+		// (No model is configured here; modelMs is the refused call's time.)
+		for (const k of ['processMs', 'storePutMs', 'modelMs', 'totalMs']) {
+			expect(Number.isInteger(line[k]) && (line[k] as number) >= 0, `${k}=${line[k]}`).toBe(true);
+		}
 		const received = line.receivedBytes as number;
 		// What crossed the wire: well under half the original, and under the
 		// spec's 1.5 MB for a 4 MB phone photo.

@@ -24,7 +24,7 @@ import { GET } from '../image/+server';
 import * as s from '$lib/server/db/schema';
 import { MemoryPhotoStore, setPhotoStoreForTests } from '$lib/server/photos/store';
 import { uploadPhoto } from '$lib/server/photos';
-import { FIXTURE_CANDIDATE, smallPng } from '$lib/server/photos/test-fixtures';
+import { CountingPhotoStore, FIXTURE_CANDIDATE, smallPng } from '$lib/server/photos/test-fixtures';
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
 let store: MemoryPhotoStore;
@@ -83,7 +83,7 @@ async function analyzedPhoto(userId: string, gymId: string) {
 		userId,
 		{ gymId, bytes: await smallPng() },
 		{ store, limits: { maxBytes: 10 * 1024 * 1024, dailyLimit: 20 } }
-	))!;
+	))!.photo;
 	await harness.db
 		.update(s.equipmentPhotos)
 		.set({ status: 'analyzed', candidate: FIXTURE_CANDIDATE })
@@ -167,6 +167,21 @@ it("B cannot link B's own photo to A's owned model: a 404, and no machine", asyn
 		actions.link(post(bob, bobsPhoto.id, { modelId: alicesModel.id }))
 	).resolves.toMatchObject({ status: 404, data: { message: 'Model not found' } });
 	expect(await machinesAt(bobsGym)).toEqual([]);
+});
+
+it('re-analyze reads the photo back from the store (0.5.3: only upload hands it over)', async () => {
+	store = new CountingPhotoStore();
+	setPhotoStoreForTests(store);
+	const photo = await analyzedPhoto(alice, alicesGym);
+	expect((store as CountingPhotoStore).gets).toBe(0);
+	// No model is configured here, so the call is refused after the image is read.
+	await expect(actions.analyze(post(alice, photo.id, { note: '' }))).rejects.toMatchObject({
+		status: 303,
+		location: `/photos/${photo.id}/review?analysis=failed`
+	});
+	expect((store as CountingPhotoStore).gets).toBe(1);
+	const calls = await harness.db.select().from(s.llmCalls).where(eq(s.llmCalls.userId, alice));
+	expect(calls).toMatchObject([{ status: 'refused', errorCode: 'not_configured' }]);
 });
 
 it('discard: the object is gone (image 404) and the row is discarded; B cannot discard', async () => {

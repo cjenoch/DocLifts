@@ -14,6 +14,16 @@
  */
 import sharp from 'sharp';
 import type { EquipmentCandidate } from './analyze';
+import { MemoryPhotoStore } from './store';
+
+/** A memory store that counts its reads, to prove which paths read the store back. */
+export class CountingPhotoStore extends MemoryPhotoStore {
+	gets = 0;
+	override async get(key: string) {
+		this.gets++;
+		return super.get(key);
+	}
+}
 
 export const FIXTURE_GPS = {
 	GPSLatitudeRef: 'N',
@@ -85,3 +95,22 @@ export const FIXTURE_CANDIDATE: EquipmentCandidate = {
 	field_confidence: { manufacturer: 0.95, model_code: 0.9, name: 0.85, loading_type: 0.5 },
 	notes: 'Lower half of the placard is scratched.'
 };
+
+/**
+ * The image bytes a mock model (llm/test-models.ts) was sent in its `n`th
+ * call: the prompt's file part, `{ type: 'data', data }` in the SDK's shape.
+ */
+export function imageSentTo(
+	model: { doGenerateCalls: { prompt: unknown[] }[] },
+	n: number
+): Buffer {
+	const message = model.doGenerateCalls[n].prompt[1] as {
+		content: { type: string; data?: unknown }[];
+	};
+	const part = message.content.find((p) => p.type === 'file')?.data as
+		| { type: 'data'; data: Uint8Array }
+		| Uint8Array
+		| undefined;
+	if (!part) throw new Error('no image was sent');
+	return Buffer.from(part instanceof Uint8Array ? part : part.data);
+}

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.3 — photo uploads are timed — not yet released
+
+- **For the owner: photo uploads are timed.** Each upload's log line now
+  says how long each step took, in milliseconds: preparing the photo
+  (`processMs`), storing it (`storePutMs`), the model's read (`modelMs`) and
+  the whole request (`totalMs`). `scripts/photo-timings-report.sh` prints
+  the median, p90 and max per step for the last week (counts and times only).
+  The first report is due a week after this is deployed; it decides whether
+  storing and reading should run side by side.
+- **The read starts from the photo already in memory.** The upload hands
+  the prepared photo straight to the model instead of fetching it back from
+  storage. Re-analyze on the review page still fetches it. Nothing else
+  changes: the steps run in the same order as before.
+
 ## 0.5.2 — a misread code can't pick the wrong machine — not yet released
 
 - **The app no longer pre-picks a machine when the code and the name

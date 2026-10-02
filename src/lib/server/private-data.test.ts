@@ -27,7 +27,9 @@ describe.skipIf(!dir)('private data directory', () => {
 	});
 
 	it('the hard-photo manifest names each photo by a unique id, a sha256 and a private bucket key', () => {
-		const [header, ...rows] = parseCsv(readFileSync(join(root, 'hard-photos', 'manifest.csv'), 'utf8'));
+		const [header, ...rows] = parseCsv(
+			readFileSync(join(root, 'hard-photos', 'manifest.csv'), 'utf8')
+		);
 		expect(header).toEqual(['id', 'sha256', 'bucket_key', 'true_model', 'notes']);
 		const ids = new Set<string>();
 		for (const [id, sha256, key, trueModel] of rows.filter((r) => r.some((c) => c !== ''))) {

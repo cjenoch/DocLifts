@@ -20,11 +20,11 @@ On the VPS it is set in the owner's login profile.
 
 ## Layout the app relies on
 
-| Path | Used by |
-| --- | --- |
-| `catalog/snapshots/equipment_models_seed_<date>.csv` | `catalog-prod.sh` (below) and `private-data.test.ts` |
+| Path                                                                     | Used by                                                                                                     |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `catalog/snapshots/equipment_models_seed_<date>.csv`                     | `catalog-prod.sh` (below) and `private-data.test.ts`                                                        |
 | `hard-photos/manifest.csv` (`id, sha256, bucket_key, true_model, notes`) | `private-data.test.ts`; the image is at `bucket_key` in the app's bucket, under `private-data/hard-photos/` |
-| `hard-photos/files/` (not in git) | the VPS copy of each photo; checked against its `sha256` when present |
+| `hard-photos/files/` (not in git)                                        | the VPS copy of each photo; checked against its `sha256` when present                                       |
 
 ## Private tests
 

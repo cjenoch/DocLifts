@@ -2117,7 +2117,31 @@ the URL and the selected file are unchanged, nothing is stored, and the retry
 reaches review. Watched failing with the first Part A handler (the page was
 replaced and the alert never appeared).
 
-## 25. 0.5.1 — start a workout with no program — NOT deployed
+## 25. 0.5.1 — start a workout with no program — deployed 2026-10-02, acceptance pending
+
+```
+0.5.1    14922ff, tagged 0.5.1; branch CI green (test + docker); full local
+         gate 698 / 3 / 31 / 103
+restore  0017 applied to a FRESH pg_dump of production taken just before
+         (at 0016): every row count unchanged (31 sessions, 454 sets, 4
+         programs, 5 gyms, 11 machines, 898 models, 18 photos, 24 llm_calls,
+         2 users); migrations 17 -> 18; all four names present
+quiet    open workouts active in 6 h: 0; last write 56 min before; app
+         events in the last 30 min: 0
+image    pre-0.5.1 kept until the owner signs off
+env      PHOTO_DAILY_LIMIT=60 (owner default for testing); backup
+         /srv/doclifts/.env.pre-0.5.1; passthrough check 17 keys
+migrate  verified dump predeploy-20261002T022254Z.dump; 18 migration rows
+web      rebuilt 02:23 UTC, healthy; PHOTO_DAILY_LIMIT=60 in the container
+check    fresh empty account fresh-051@doclifts.invalid, 390x844, live:
+         Start workout on Home, no programs listed; new gym typed at the
+         gym step; "Workout" heading, picker open; gym preselected; first
+         set saved; Home "Resume workout"; finished; History "Quick
+         workout"; no sideways scroll; 0 page errors
+owed     the owner's phone walk-through on a fresh account
+known    a quick workout moved to Trash cannot be restored from the UI
+         (Trash lives on a program page); sent to Project Claude
+```
 
 Branch `feat/0.5.1-quick-workout`, off `main` at `5dba397` (production runs
 0.5.0). Not merged, not tagged, not deployed.

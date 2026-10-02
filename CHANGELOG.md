@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 — start a workout without a program — not yet released
+## 0.5.1 — start a workout without a program — deployed 2026-10-02, acceptance pending
 
 - **Start a workout with no setup.** Home has a big "Start workout" button
   above "Create program". Pick your gym (the one you used last is already

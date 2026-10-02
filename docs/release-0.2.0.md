@@ -2696,7 +2696,9 @@ the card shown again. Use this again, finish.
 
 **Owed by the owner:** a real repeat visit at his gym.
 
-## 32. 0.6.2 — set rows follow a named photo block (fixes 0.6.0 and 0.6.1) — DEPLOYED 2026-10-02, acceptance pending
+## 32. 0.6.2 — set rows follow a named photo block (fixes 0.6.0 and 0.6.1) — DEPLOYED 2026-10-02, accepted 2026-10-02
+
+**Owner sign-off, 2026-10-02:** "Perfect. I approve." `pre-0.6.2` and `pre-0.6.1` (both 0.6.0) deleted after the sign-off.
 
 ```
 0.6.2    c643c77, tagged 0.6.2 (0.6.1 tagged 4245a18 for the record);

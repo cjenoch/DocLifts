@@ -291,7 +291,8 @@ The eight directly-owned tables, the ones 0011 makes `user_id NOT NULL`:
 `programs`, `gyms`, `exercises`, `sessions`, `sets`, `pain_events`,
 `workout_log_imports`, `program_draft_requests`. Since 0.3.1 (migration 0013)
 `llm_calls` is a ninth, created `user_id NOT NULL` from the start; only
-`complete()` writes it.
+`complete()` writes it. Since 0.7.0 (migration 0019) `machine_merges` is a
+tenth, written only by `mergeMachines` / `undoMerge` in `machine-admin.ts`.
 
 Everything else is owned through a parent chain. Resolve it; never widen it.
 
@@ -696,6 +697,7 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/server/plates.ts` — plate snap algorithms + router
 - `src/lib/server/quick-workouts.ts` — workouts with no program (0.5.1): `ensureQuickProgram` (the one hidden system program per user, `programs.system_kind = 'quick'`, idempotent through `programs_one_quick_per_user`), `startQuickSession` (gym checked first, then `startSessionForDay`, then `sessions.gym_id`), the gym step's reads. System programs never appear on Home, the program page or the editor.
 - `src/lib/workout-ui.ts` — `workoutUi`, the only place the quick-workout strings and defaults live ("Start workout", "Quick workout", the placeholder name, rest seconds), since 0.5.2 History's Trash strings, and since 0.6.0 the photo-block strings and defaults (sets, targets, weight format by type). Tests read the strings from it.
+- `src/lib/server/machine-admin.ts` — fixing the gym list (0.7.0, machines spec Parts G, H, K): `removeMachine` / `removeGym` (delete when nothing points at the row, else archive via `archived_at`; refused while an open workout uses it), `restoreMachine` / `restoreGym`, `changeMachineModel` (same loading type in place; another type returns `replace`), `replaceMachine`, `applyStandardStack`, `mergeMachines` / `undoMerge` (one `machine_merges` row lists every moved id). Archived gyms and machines are filtered out of every chooser (`machineChoices`, `machineSnapshot`, `quickStartChoices`, `gymsOf`, `instancesOfModel`, photo matching) and kept everywhere they are history. Strings in `src/lib/machine-admin-ui.ts`.
 - `src/lib/server/photo-workout.ts` — photos in a workout (0.6.0): `openPhotoBlock` (a stored photo opens a block on a placeholder machine and exercise, no model call), `identifySessionExercise` ("Use this" and the review page: model, exercise, convention; merges into the gym's machine for that model; identity columns only), `photoBlocksForSession`, `machinesToName`, `unidentifiedBlockOfPhoto`. See `docs/photos.md`, "Photos in a workout", and `docs/machine-identity.md`, "Photo blocks".
 - `src/lib/server/sessions.ts` — action helpers (`startSessionForDay`, `endSession`, `updateSetInSession`), and Trash: `listDeletedSessionsForProgram` / `listDeletedSessionsForUser` (History, 0.5.2), `restoreSoftDeletedSession`, `hardDeleteSession`, `purgeDeletedSessionsForProgram`, all owner-scoped and by id. The route `+page.server.ts` files are thin wrappers around these.
 - `src/lib/server/workout-sets.ts` — in-session set mutation (append set, remove-empty-last-set) for the inline logging UX. Locks the session row, validates done/deleted state, uses a client-supplied `requestId` as the set PK for idempotency, tags appended sets as `machine`-sourced copies (provenance: "Copied from the previous set. Adjust to what you lift."). Never renumbers existing `position`s.

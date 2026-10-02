@@ -2041,7 +2041,21 @@ check    the scratch account's Home showed 0 of the owner's 2 active
          programs; pre-0.4.7 deleted afterwards
 ```
 
-## 24. 0.5.0 Part A — resize photos on the phone — NOT deployed
+## 24. 0.5.0 (Part A) — resize photos on the phone — DEPLOYED 2026-10-02
+
+```
+0.5.0    71b7a20, tagged 0.5.0 (the spec's Part A; Part B ships as 0.5.1)
+CI       green on the branch; full local gate 647 / 3 / 31 / 101
+deploy   code only; pre-0.5.0 preserved, web rebuilt, healthy; pre-0.5.0
+         deleted after the check
+check    scratch account, live page, Chromium: a 4,660,232-byte 4000x3000
+         placard -> photo_upload log: clientResized true, receivedBytes
+         540,808 (12%), storedBytes 235,763; review in 3.3 s including the
+         read (4364 read correctly); labels 'Preparing photo' then
+         'Identifying machine…'; 0 page errors; test photo discarded
+owed     the owner's real iPhone/Android check and five real placards with
+         resize on and off (below)
+```
 
 Code only. No migration, no new environment variable, no change to
 `docker-compose.yml`, `PHOTO_MAX_BYTES` or `BODY_SIZE_LIMIT`. Deploying it is

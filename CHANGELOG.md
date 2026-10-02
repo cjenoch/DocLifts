@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — photos upload faster — not yet released
+## 0.5.0 — photos upload faster — 2026-10-02
 
 - **Photos shrink on your phone before they upload.** A camera photo is 3 to
   5 MB; the browser now resizes it (longest side 2000 px) before sending, so

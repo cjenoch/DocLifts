@@ -981,6 +981,12 @@ export const equipmentPhotos = pgTable(
 		createdModelId: uuid('created_model_id'),
 		/** The machine the confirmation created. */
 		gymEquipmentId: uuid('gym_equipment_id'),
+		/**
+		 * The workout block this photo opened (0.6.0, Part C), so the photo stays
+		 * with the workout record after machines are merged. Null for photos from
+		 * the gym page, and when the block is deleted.
+		 */
+		sessionExerciseId: uuid('session_exercise_id'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(t) => ({
@@ -1014,6 +1020,12 @@ export const equipmentPhotos = pgTable(
 			columns: [t.gymEquipmentId],
 			foreignColumns: [gymEquipment.id]
 		}),
+		sessionExerciseFk: foreignKey({
+			name: 'equipment_photos_session_exercise_id_fk',
+			columns: [t.sessionExerciseId],
+			foreignColumns: [sessionExercises.id]
+		}).onDelete('set null'),
+		sessionExerciseIdx: index('equipment_photos_session_exercise_idx').on(t.sessionExerciseId),
 		storageKeyUnique: unique('equipment_photos_storage_key_unique').on(t.storageKey),
 		userCreatedIdx: index('equipment_photos_user_created_idx').on(t.userId, t.createdAt),
 		gymEquipmentIdx: index('equipment_photos_gym_equipment_idx').on(t.gymEquipmentId),

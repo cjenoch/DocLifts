@@ -2599,3 +2599,39 @@ its bar and no tabs.
   spec's open check). Record the answer here.
 - The tab bar clears the home indicator, and a page scrolled to the bottom
   shows its last control above the tabs.
+
+## 30. 0.6.0 — photo in the workout (SPEC 0.5.0 Part C, first half) — NOT deployed
+
+**Migration 0018** (additive): `equipment_photos.session_exercise_id`, nullable,
+FK `equipment_photos_session_exercise_id_fk` to `session_exercises` with
+`ON DELETE SET NULL`, index `equipment_photos_session_exercise_idx`. Before the
+deploy: apply 0000-0018 to a fresh restore of the nightly dump and record row
+counts and the new names (CLAUDE.md, migrations rule 3); then
+`migrate-prod.sh`, which takes and verifies its own dump. No env change
+(`PHOTO_DAILY_LIMIT` is already 60).
+
+```
+restore  0018 applied to a FRESH pg_dump of production taken 2026-10-02
+         (at 0017; a 24-byte "==> building" line from compose-prod.sh
+         stripped from the front of the archive first): every row count
+         unchanged (6 users, 36 sessions, 457 sets, 24 session_exercises,
+         9 programs, 9 gyms, 16 machines, 899 models, 23 photos, 29
+         llm_calls); migrations 18 -> 19; column session_exercise_id uuid
+         NULL, FK equipment_photos_session_exercise_id_fk ON DELETE SET
+         NULL, index equipment_photos_session_exercise_idx; 0 of 23
+         existing photos carry a block. Scratch DB dropped, dump deleted.
+```
+
+Deploy under development-push mode (quiet check suspended while there is no
+tester account), `pre-0.6.0` kept until the owner signs off.
+
+Check (assistant, production, `scratch-test@doclifts.invalid`, 390x844): start
+a quick workout at "Scratch photo check gym"; Photo next machine with a
+generated placard; the block appears as "Unidentified machine" before the read
+ends; save a set on it; the read returns (the Use this card for a catalog
+placard, or the quiet line); Use this names it and the set is unchanged
+(psql); finish; Home has no "to name" line. The `photo_upload` line says
+`"source":"workout"`.
+
+**Owed by the owner, on the iPhone:** photo to first saved set under 3 seconds
+on cellular, with the read still running (the spec's acceptance number).

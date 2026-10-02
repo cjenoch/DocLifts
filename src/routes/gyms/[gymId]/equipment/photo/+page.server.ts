@@ -105,7 +105,13 @@ export const actions: Actions = {
 			// One line per upload, written once the response is decided, so it
 			// carries the model's time as well (0.5.3). Only when the line is
 			// printed moved; every step runs in the order it always did.
-			logUpload({ ...measured, ...result, ...timings, totalMs: msSince(started) });
+			logUpload({
+				source: 'gym_page',
+				...measured,
+				...result,
+				...timings,
+				totalMs: msSince(started)
+			});
 		}
 	}
 };

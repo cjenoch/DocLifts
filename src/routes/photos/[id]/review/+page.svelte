@@ -42,6 +42,10 @@
 		>← Add another photo for {data.gym.name}</a
 	>
 	<h1 class="text-2xl font-semibold">Review the photo</h1>
+	{#if data.block}<p class="text-zinc-300" data-testid="block-note">
+			This photo is from a workout. Choosing a model names that exercise in the workout; its sets
+			stay as you logged them.
+		</p>{/if}
 	{#if form?.message}<p role="status" class="text-amber-300">{form.message}</p>{/if}
 
 	{#if data.photo.status === 'discarded'}

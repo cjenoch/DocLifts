@@ -8,8 +8,8 @@
  * user's quick program is first created; changing them later renames nothing
  * already stored. Everything else is read at render time.
  *
- * Later parts add their defaults here too. `placeholderExerciseName` and
- * `defaultRestSeconds` are settings for those parts and are not used yet.
+ * Later parts add their defaults here too. `defaultRestSeconds` is Part F's
+ * and is not used yet.
  */
 export const workoutUi = {
 	/** Home's primary button when no quick workout is open. */
@@ -43,6 +43,41 @@ export const workoutUi = {
 		`Permanently delete ${label} from ${date}? This cannot be undone.`,
 	/** Part C: name of an exercise logged before its machine is identified. */
 	placeholderExerciseName: 'Unidentified machine',
+	/**
+	 * Photo in the workout (0.6.0, Part C). A photo opens a block at once on a
+	 * placeholder machine and exercise; the read runs afterwards.
+	 */
+	photoNextMachine: 'Photo next machine',
+	/** The button's label while the photo is sent. */
+	photoAdding: 'Adding photo…',
+	/** The placeholder machine's label: "Photo" and the time it was taken. */
+	photoMachineLabel: (time: string) => `Photo ${time}`,
+	/** The placeholder's equipment type until the model is known. */
+	photoPlaceholderType: 'machine-stack',
+	/** Sets a photo block opens with, and their targets. */
+	photoBlockSets: 3,
+	photoBlockRepsMin: 8,
+	photoBlockRepsMax: 12,
+	photoBlockRir: 2,
+	/** While the read runs (owner's wording, 2026-10-02). */
+	photoReading: 'Identifying machine…',
+	/** Any read that ends without a match: failure, timeout, limit, no placard. */
+	photoReadFailed: 'Could not read this photo. Name it now or later.',
+	photoReadAgain: 'Read again',
+	photoNameIt: 'Name it',
+	photoUseThis: 'Use this',
+	photoLater: 'Later',
+	photoExerciseLabel: 'Exercise',
+	photoWeightLabel: 'Record weight as',
+	/** How weight is recorded on an identified machine, by equipment type. */
+	photoConvention: {
+		'machine-plate': 'plates_per_side',
+		'machine-stack': 'displayed',
+		cable: 'displayed',
+		smith: 'displayed'
+	} as Record<string, 'plates_per_side' | 'total_plates' | 'per_arm' | 'displayed' | 'unknown'>,
+	/** Blocks still on the placeholder, on the session page and Home. */
+	machinesToName: (n: number) => `${n} ${n === 1 ? 'machine' : 'machines'} to name`,
 	/** Part F: rest timer default. */
 	defaultRestSeconds: 90
 } as const;

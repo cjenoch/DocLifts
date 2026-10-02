@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0 — photograph the machine, log your sets, name it later — not yet released
+
+- **Photo next machine.** A green button at the bottom of an open workout.
+  The photo opens a new exercise at once, as "Unidentified machine", and you
+  can log sets on it straight away while the photo is read.
+- **One tap to name it.** When the photo is read and the machine is found, the
+  exercise shows the machine, a suggested exercise name and how weight is
+  recorded, with **Use this** and **Later**. If the gym already has that
+  machine, the exercise joins it, so its history stays in one place. Your
+  logged sets are never changed.
+- **When the read fails** (no placard, no signal, the daily limit), nothing is
+  lost: one quiet line, "Could not read this photo. Name it now or later",
+  with Read again and Name it.
+- **Name it later.** You can finish a workout with machines still to name. The
+  finished workout and Home say how many are left; the photo's review page
+  names them, even after the workout.
+
 ## 0.5.5 — the app shell: tabs, an account page, a home-screen icon — 2026-10-02
 
 - **Tabs at the bottom.** Workout, Gyms, History and Reports, one row at the

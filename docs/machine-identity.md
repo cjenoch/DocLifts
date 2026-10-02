@@ -41,3 +41,25 @@ Use an isolated PostgreSQL instance. Existing `test-db.ts` can CREATE DATABASE a
 ## Intentional limits
 
 No catalog import, model equivalence, verified starting resistance data, inventory editing, persistent per-program gym defaults, template editor UI, authentication, deployment or production writes. Machine selection is explicit each workout; quick-add changes only that session. Unknown pre-existing active sessions retain legacy context (start a fresh workout for explicit occurrence binding). Reports split exercise counts by machine/convention and show historical snapshot names; differently named snapshots may appear as separate count rows after a rename.
+
+## Photo blocks (0.6.0)
+
+A photo in a workout opens a block on a placeholder machine and the user's
+placeholder exercise, before the machine is known (`docs/photos.md`, "Photos in
+a workout"). `identifySessionExercise` later fills that in. It is deliberately
+narrower than `bindSessionMachine`, and different in two ways:
+
+- **It runs after values are logged, and on a finished workout.** It is not a
+  change of machine: the block's machine was unknown, and naming it is the
+  point. It moves only identity columns: the block's exercise, machine,
+  equipment type and load convention, and the same on its sets
+  (`exercise_id`, `gym_equipment_id`, `load_convention`). It never writes an
+  executed value, a note, or a prescribed value, except the existing live-session
+  prefill, and only when nothing is logged yet on an open workout.
+- **It touches only a photo block still on the placeholder.** A block added by
+  hand, or a program's planned exercise, is "not found" to it, so the refusal
+  to rebind a machine after values are saved stays exactly as it is.
+
+One machine per model per gym: when the gym already has the model, the block
+joins that machine, its photos move with it, and the placeholder is deleted
+once nothing references it.

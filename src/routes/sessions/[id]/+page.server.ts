@@ -28,6 +28,18 @@ import {
 import type { Actions, PageServerLoad } from './$types';
 import { appendWorkoutSet, removeEmptyLastSet } from '$lib/server/workout-sets';
 import { requireUser } from '$lib/server/request-user';
+import {
+	identifySessionExercise,
+	openPhotoBlock,
+	photoBlocksForSession
+} from '$lib/server/photo-workout';
+import { isUuid, PhotoLimitError, uploadPhoto } from '$lib/server/photos';
+import { analyzePhoto } from '$lib/server/photos/analyze';
+import { photoFailure } from '$lib/server/photos/http';
+import { resolvePhotoLimits } from '$lib/server/photos/config';
+import { photoStore } from '$lib/server/photos/store';
+import { clientMeasurement, logUpload, type UploadLogLine } from '$lib/server/photos/upload-log';
+import { emptyTimings, msSince } from '$lib/server/photos/timings';
 
 const uuidParamSchema = z.string().uuid();
 
@@ -142,7 +154,11 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		choices: await machineChoices(db, requireUser(locals).id),
 		// An open workout shows its own bottom bar (Pause, Add exercise, Finish),
 		// and the layout hides the tabs for it: one bar at a time (0.5.5).
-		workoutBar: session.endedAt == null
+		workoutBar: session.endedAt == null,
+		// Photo in the workout (0.6.0): what each unidentified photo block shows,
+		// and whether the photo button is offered (an open workout with a gym).
+		photoBlocks: await photoBlocksForSession(db, requireUser(locals).id, session.id),
+		photoEnabled: session.endedAt == null && session.gymId != null
 	};
 };
 
@@ -232,13 +248,128 @@ export const actions: Actions = {
 		}
 		redirect(303, `/sessions/${params.id}`);
 	},
+	/**
+	 * Step 1 of a photo in the workout (0.6.0): store the photo and open its
+	 * block, with no model call, so set entry starts at once. The page then
+	 * submits `readPhoto` on its own. One `photo_upload` line, as on the gym page.
+	 */
+	photo: async ({ request, params, locals }) => {
+		const started = performance.now();
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid session id', setId: null });
+		}
+		const userId = requireUser(locals).id;
+		const session = await loadSession(db, userId, params.id, 'active');
+		if (!session || session.endedAt)
+			return fail(404, { message: 'Session not found', setId: null });
+		if (!session.gymId) return fail(400, { message: 'This workout has no gym', setId: null });
+		const form = await request.formData();
+		const file = form.get('photo');
+		if (!(file instanceof File) || file.size === 0) {
+			return fail(400, { message: 'Choose a photo to upload.', setId: null });
+		}
+		const requestId = String(form.get('requestId') ?? '');
+		const measured = { ...clientMeasurement(form), receivedBytes: file.size };
+		const timings = emptyTimings();
+		let result: Pick<UploadLogLine, 'outcome' | 'storedBytes' | 'photoId'> = {
+			outcome: 'refused',
+			storedBytes: null,
+			photoId: null
+		};
+		try {
+			const uploaded = await uploadPhoto(
+				db,
+				userId,
+				{
+					gymId: session.gymId,
+					bytes: new Uint8Array(await file.arrayBuffer()),
+					type: file.type,
+					name: file.name
+				},
+				{ store: photoStore(), limits: resolvePhotoLimits(), timings }
+			);
+			if (!uploaded) return fail(404, { message: 'Gym not found', setId: null });
+			result = { outcome: 'stored', storedBytes: uploaded.photo.bytes, photoId: uploaded.photo.id };
+			const block = await openPhotoBlock(db, userId, params.id, uploaded.photo.id, {
+				requestId: isUuid(requestId) ? requestId : undefined,
+				timeLabel: String(form.get('timeLabel') ?? '')
+			});
+			return { photoId: uploaded.photo.id, photoBlockId: block.id };
+		} catch (e) {
+			if (e instanceof MachineInputError) return fail(400, { message: e.message, setId: null });
+			const failed = photoFailure(e);
+			return fail(failed.status, { ...failed.data, setId: null });
+		} finally {
+			logUpload({
+				source: 'workout',
+				...measured,
+				...result,
+				...timings,
+				totalMs: msSince(started)
+			});
+		}
+	},
+	/**
+	 * Step 2: read a photo block's photo, while sets are logged. Any failure
+	 * (timeout, model error, the daily limit, no placard) leaves the block as it
+	 * is; the page then shows one quiet line. Never an error page.
+	 */
+	readPhoto: async ({ request, params, locals }) => {
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid session id', setId: null });
+		}
+		const userId = requireUser(locals).id;
+		const photoId = String((await request.formData()).get('photoId') ?? '');
+		const blocks = await photoBlocksForSession(db, userId, params.id);
+		if (!Object.values(blocks).some((b) => b.photoId === photoId))
+			return fail(404, { message: 'Photo not found', setId: null });
+		try {
+			const outcome = await analyzePhoto(db, userId, photoId, {
+				store: photoStore(),
+				limits: resolvePhotoLimits()
+			});
+			return { read: outcome?.ok ? ('done' as const) : ('failed' as const), photoId };
+		} catch (e) {
+			if (e instanceof PhotoLimitError) return { read: 'failed' as const, photoId };
+			throw e;
+		}
+	},
+	/** Step 3: "Use this" on a photo block. Also on a finished workout: name it later. */
+	identify: async ({ request, params, locals }) => {
+		if (!uuidParamSchema.safeParse(params.id).success) {
+			return fail(400, { message: 'Invalid session id', setId: null });
+		}
+		const form = Object.fromEntries(await request.formData());
+		try {
+			const done = await identifySessionExercise(
+				db,
+				requireUser(locals).id,
+				params.id,
+				String(form.occurrenceId),
+				form
+			);
+			if (!done) return fail(404, { message: 'Exercise not found in this session', setId: null });
+			return { identified: done.occurrence.id };
+		} catch (e) {
+			if (e instanceof z.ZodError || e instanceof MachineInputError)
+				return fail(400, {
+					message: e instanceof z.ZodError ? e.issues[0].message : e.message,
+					setId: null
+				});
+			throw e;
+		}
+	},
 	endSession: async ({ params, locals }) => {
 		const parsedSessionId = uuidParamSchema.safeParse(params.id);
 		if (!parsedSessionId.success) {
 			return fail(400, { message: 'Invalid session id' });
 		}
-		await endSession(db, requireUser(locals).id, parsedSessionId.data);
-		redirect(303, '/');
+		const userId = requireUser(locals).id;
+		await endSession(db, userId, parsedSessionId.data);
+		// Finishing with machines still to name is allowed; the finished
+		// workout's page lists them (0.6.0). Otherwise Home, as before.
+		const toName = await photoBlocksForSession(db, userId, parsedSessionId.data);
+		redirect(303, Object.keys(toName).length ? `/sessions/${parsedSessionId.data}` : '/');
 	},
 
 	updateSet: async ({ request, params, locals }) => {

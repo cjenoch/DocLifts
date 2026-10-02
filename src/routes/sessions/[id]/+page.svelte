@@ -8,6 +8,9 @@
 	import AddWorkoutExercise from '$lib/AddWorkoutExercise.svelte';
 	import TrashAction from '$lib/TrashAction.svelte';
 	import { workoutUi } from '$lib/workout-ui';
+	import { photoClientSettings, resizeForUpload } from '$lib/photo-client';
+	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { Action } from 'svelte/action';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let dirtyIds = $state<string[]>([]);
 	let appending = $state<string | null>(null);
@@ -36,6 +39,77 @@
 			else if (!dirty && dirtyIds.includes(id)) dirtyIds = dirtyIds.filter((v) => v !== id);
 		});
 	}
+	// Photo in the workout (0.6.0). A photo opens a block at once; the page
+	// then reads it while sets are logged. Photo ids the page should read once
+	// (just uploaded), ids being read now, and match cards put off with "Later".
+	let autoRead = $state<string[]>([]);
+	let readingIds = $state<string[]>([]);
+	let laterIds = $state<string[]>([]);
+	let photoStage = $state<string | null>(null);
+	let photoError = $state('');
+	let photoRequestId = $state('');
+	let photoForm: HTMLFormElement | undefined = $state();
+	onMount(() => {
+		photoRequestId = newRequestId();
+	});
+	const toName = $derived(Object.keys(data.photoBlocks).length);
+
+	const photoSubmit: SubmitFunction = async ({ formData, cancel }) => {
+		if (photoStage) return cancel();
+		photoError = '';
+		photoStage = photoClientSettings.labels.preparing;
+		const chosen = formData.get('photo');
+		if (!(chosen instanceof File) || chosen.size === 0) {
+			photoStage = null;
+			return cancel();
+		}
+		const sent = await resizeForUpload(chosen);
+		formData.set('photo', sent, sent.name);
+		formData.set('clientOriginalBytes', String(chosen.size));
+		formData.set('clientResized', sent === chosen ? '0' : '1');
+		// The phone's own clock for the placeholder's label ("Photo 2:32 PM").
+		formData.set(
+			'timeLabel',
+			new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+		);
+		photoStage = workoutUi.photoAdding;
+		return async ({ result, update }) => {
+			try {
+				if (result.type === 'success' && result.data?.photoId) {
+					autoRead = [...autoRead, String(result.data.photoId)];
+					photoRequestId = newRequestId();
+				} else if (result.type === 'failure') {
+					photoError = String(result.data?.message ?? workoutUi.photoReadFailed);
+				} else if (result.type === 'error') {
+					photoError = 'The photo did not get through. Try again.';
+					return;
+				}
+				await update({ reset: true });
+			} finally {
+				photoStage = null;
+			}
+		};
+	};
+
+	const readSubmit =
+		(photoId: string): SubmitFunction =>
+		() => {
+			readingIds = [...readingIds, photoId];
+			autoRead = autoRead.filter((id) => id !== photoId);
+			return async ({ update }) => {
+				try {
+					await update();
+				} finally {
+					readingIds = readingIds.filter((id) => id !== photoId);
+				}
+			};
+		};
+
+	/** Submits the block's read form once, right after its photo was added. */
+	const readOnce: Action<HTMLFormElement, boolean> = (form, go) => {
+		if (go) form.requestSubmit();
+	};
+
 	const allSets = $derived(data.groups.flatMap((g) => g.sets));
 	const completed = $derived(
 		allSets.filter((s) => s.executedLoad != null && s.executedReps != null).length
@@ -63,6 +137,9 @@
 		<progress value={completed} max={Math.max(allSets.length, 1)} aria-label="Workout completion"
 		></progress>
 	</header>
+	{#if toName}<p class="to-name" data-testid="machines-to-name">
+			{workoutUi.machinesToName(toName)}
+		</p>{/if}
 	{#if data.session.endedAt}<div class="history-tools">
 			{#if data.allowEndedSessionEdit}
 				<a href="/sessions/{data.session.id}">Done editing</a>
@@ -97,7 +174,78 @@
 					</p>
 				</div>
 			</div>
-			{#if !data.session.endedAt && group.occurrenceId}<details class="equipment">
+			{#if group.occurrenceId && data.photoBlocks[group.occurrenceId]}
+				{@const pb = data.photoBlocks[group.occurrenceId]}
+				<div class="photo-block" data-testid="photo-block">
+					{#if pb.kind === 'reading' && (readingIds.includes(pb.photoId) || autoRead.includes(pb.photoId))}
+						<p class="photo-line" aria-live="polite">{workoutUi.photoReading}</p>
+					{:else if pb.kind === 'match' && !laterIds.includes(group.occurrenceId)}
+						<form method="POST" action="?/identify" use:enhance class="identify">
+							<p class="model">{pb.modelLabel}</p>
+							<input type="hidden" name="occurrenceId" value={group.occurrenceId} />
+							<input type="hidden" name="modelId" value={pb.modelId} />
+							<label
+								>{workoutUi.photoExerciseLabel}<input
+									name="exerciseName"
+									value={pb.exerciseName}
+									maxlength="120"
+									autocomplete="off"
+									autocapitalize="words"
+									spellcheck="false"
+								/></label
+							>
+							<label
+								>{workoutUi.photoWeightLabel}<select name="loadConvention">
+									{#if pb.equipmentType === 'machine-plate'}<option
+											value="plates_per_side"
+											selected={pb.loadConvention === 'plates_per_side'}>Plates per side</option
+										><option value="total_plates" selected={pb.loadConvention === 'total_plates'}
+											>All plates combined</option
+										>{/if}
+									<option value="per_arm" selected={pb.loadConvention === 'per_arm'}
+										>Per hand / arm</option
+									><option value="displayed" selected={pb.loadConvention === 'displayed'}
+										>Total or displayed weight</option
+									><option value="unknown" selected={pb.loadConvention === 'unknown'}
+										>Not sure — keep separate</option
+									>
+								</select></label
+							>
+							<div class="identify-actions">
+								<button class="use">{workoutUi.photoUseThis}</button><button
+									type="button"
+									class="later"
+									onclick={() => (laterIds = [...laterIds, group.occurrenceId!])}
+									>{workoutUi.photoLater}</button
+								>
+							</div>
+						</form>
+					{:else if pb.kind !== 'match'}
+						<p class="photo-line">{workoutUi.photoReadFailed}</p>
+					{/if}
+					{#if pb.kind === 'reading'}
+						<form
+							method="POST"
+							action="?/readPhoto"
+							class="photo-actions"
+							use:enhance={readSubmit(pb.photoId)}
+							use:readOnce={autoRead.includes(pb.photoId)}
+						>
+							<input type="hidden" name="photoId" value={pb.photoId} />
+							{#if !readingIds.includes(pb.photoId) && !autoRead.includes(pb.photoId)}<button
+									>{workoutUi.photoReadAgain}</button
+								><a href="/photos/{pb.photoId}/review">{workoutUi.photoNameIt}</a>{/if}
+						</form>
+					{:else if pb.kind === 'none' || laterIds.includes(group.occurrenceId)}
+						<div class="photo-actions">
+							<a href="/photos/{pb.photoId}/review">{workoutUi.photoNameIt}</a>
+						</div>
+					{/if}
+				</div>
+			{/if}
+			{#if !data.session.endedAt && group.occurrenceId && !data.photoBlocks[group.occurrenceId]}<details
+					class="equipment"
+				>
 					<summary>Equipment details</summary>
 					<p class="muted">
 						Choose before logging. Changing equipment starts a separate performance history.
@@ -209,6 +357,28 @@
 </main>
 {#if !data.session.endedAt}<footer>
 		<div class="footer-inner">
+			{#if data.photoEnabled}<form
+					method="POST"
+					action="?/photo"
+					enctype="multipart/form-data"
+					class="photo-form"
+					bind:this={photoForm}
+					use:enhance={photoSubmit}
+				>
+					<input type="hidden" name="requestId" value={photoRequestId} />
+					<!-- No capture attribute: the phone offers camera, library and files (0.4.2). -->
+					<label class="photo-next" class:busy={photoStage !== null}
+						>{photoStage ?? workoutUi.photoNextMachine}<input
+							type="file"
+							name="photo"
+							accept="image/jpeg,image/png,image/webp"
+							class="sr-only"
+							disabled={photoStage !== null}
+							onchange={() => photoForm?.requestSubmit()}
+						/></label
+					>
+					{#if photoError}<p role="alert" class="photo-error">{photoError}</p>{/if}
+				</form>{/if}
 			<p aria-live="polite">
 				{dirtyIds.length
 					? `${dirtyIds.length} unsaved ${dirtyIds.length === 1 ? 'set' : 'sets'} · drafts kept in this tab`
@@ -252,7 +422,7 @@
 	.workout {
 		max-width: 680px;
 		margin: auto;
-		padding: 28px 16px 150px;
+		padding: 28px 16px 220px;
 	}
 	.back {
 		font-size: 14px;
@@ -432,5 +602,100 @@
 	.error {
 		color: #fda4af;
 		padding: 12px 0;
+	}
+	.to-name {
+		margin-bottom: 16px;
+		color: #fcd34d;
+		font-size: 14px;
+		font-weight: 600;
+	}
+	.photo-block {
+		margin-bottom: 14px;
+		font-size: 14px;
+	}
+	.photo-line {
+		color: #b6c5da;
+	}
+	.photo-actions {
+		display: flex;
+		gap: 16px;
+		align-items: center;
+		margin-top: 6px;
+	}
+	.photo-actions a,
+	.photo-actions button {
+		min-height: 44px;
+		display: inline-flex;
+		align-items: center;
+		color: #c7d2fe;
+		font-weight: 600;
+	}
+	.identify {
+		display: grid;
+		gap: 10px;
+		border: 1px solid #3b4a63;
+		border-radius: 12px;
+		padding: 12px;
+	}
+	.identify .model {
+		font-weight: 600;
+		color: #e2e8f0;
+	}
+	.identify label {
+		display: grid;
+		gap: 4px;
+		color: #b6c5da;
+		font-size: 13px;
+	}
+	.identify input,
+	.identify select {
+		background: #0b1220;
+		color: #e2e8f0;
+		border: 1px solid #46546b;
+		border-radius: 9px;
+		padding: 10px;
+		font-size: 16px;
+	}
+	.identify-actions {
+		display: flex;
+		gap: 8px;
+	}
+	.identify-actions button {
+		min-height: 44px;
+		flex: 1;
+		border-radius: 9px;
+		font-weight: 600;
+	}
+	.identify-actions .use {
+		background: #c7d2fe;
+		color: #182044;
+	}
+	.identify-actions .later {
+		border: 1px solid #46546b;
+		color: #c7d2fe;
+	}
+	.photo-form {
+		margin-bottom: 8px;
+	}
+	.photo-next {
+		min-height: 48px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 10px;
+		background: #059669;
+		color: #fff;
+		font-weight: 700;
+		font-size: 15px;
+		cursor: pointer;
+	}
+	.photo-next.busy {
+		opacity: 0.7;
+	}
+	.photo-error {
+		color: #fda4af;
+		font-size: 12px;
+		text-align: center;
+		margin-top: 6px;
 	}
 </style>

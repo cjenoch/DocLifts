@@ -22,6 +22,12 @@
 			>{workoutUi.startWorkout}</a
 		>
 	{:else}
+		{#if data.toName.count && data.toName.latestSessionId}<a
+				href="/sessions/{data.toName.latestSessionId}"
+				class="mb-3 flex min-h-11 items-center justify-between rounded-lg border border-amber-700/60 bg-amber-950/40 px-4 font-semibold text-amber-200"
+				data-testid="machines-to-name"
+				>{workoutUi.machinesToName(data.toName.count)} <span aria-hidden="true">→</span></a
+			>{/if}
 		{#if data.openQuickSessionId}
 			<a
 				href="/sessions/{data.openQuickSessionId}"

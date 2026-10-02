@@ -37,7 +37,7 @@ const row = (over: Partial<s.NewEquipmentPhoto> = {}): s.NewEquipmentPhoto => ({
 	...over
 });
 
-describe('0016 equipment_photos schema', () => {
+describe('0016 equipment_photos schema (with 0018)', () => {
 	it('has the columns, nullability and types the spec lists', async () => {
 		const cols = await handle.client<
 			{ column_name: string; is_nullable: string; data_type: string }[]
@@ -64,7 +64,9 @@ describe('0016 equipment_photos schema', () => {
 			'candidate',
 			'matched_model_id',
 			'created_model_id',
-			'gym_equipment_id'
+			'gym_equipment_id',
+			// 0018 (0.6.0): the workout block the photo opened.
+			'session_exercise_id'
 		];
 		expect(Object.keys(by).sort()).toEqual([...notNull, ...nullable].sort());
 		for (const c of notNull) expect(by[c].is_nullable, c).toBe('NO');
@@ -87,6 +89,7 @@ describe('0016 equipment_photos schema', () => {
 			'equipment_photos_gym_id_fk',
 			'equipment_photos_llm_call_id_fk',
 			'equipment_photos_matched_model_id_fk',
+			'equipment_photos_session_exercise_id_fk',
 			'equipment_photos_user_id_fk'
 		]);
 		expect(fk.equipment_photos_user_id_fk.def).toContain('REFERENCES auth."user"(id)');
@@ -99,7 +102,14 @@ describe('0016 equipment_photos schema', () => {
 			'REFERENCES equipment_models(id)'
 		);
 		expect(fk.equipment_photos_gym_equipment_id_fk.def).toContain('REFERENCES gym_equipment(id)');
-		for (const f of fks) expect(f.confdeltype, f.conname).toBe('a'); // NO ACTION
+		expect(fk.equipment_photos_session_exercise_id_fk.def).toContain(
+			'REFERENCES session_exercises(id) ON DELETE SET NULL'
+		);
+		// NO ACTION for every FK but 0018's, which lets a deleted block leave the photo.
+		for (const f of fks)
+			expect(f.confdeltype, f.conname).toBe(
+				f.conname === 'equipment_photos_session_exercise_id_fk' ? 'n' : 'a'
+			);
 
 		const others = await handle.client<{ conname: string; contype: string }[]>`
 			SELECT conname, contype FROM pg_constraint
@@ -123,9 +133,11 @@ describe('0016 equipment_photos schema', () => {
 			'equipment_photos_llm_call_idx',
 			'equipment_photos_matched_model_idx',
 			'equipment_photos_pkey',
+			'equipment_photos_session_exercise_idx',
 			'equipment_photos_storage_key_unique',
 			'equipment_photos_user_created_idx'
 		]);
+		expect(defs.equipment_photos_session_exercise_idx).toContain('(session_exercise_id)');
 		expect(defs.equipment_photos_user_created_idx).toContain('(user_id, created_at)');
 		expect(defs.equipment_photos_gym_equipment_idx).toContain('(gym_equipment_id)');
 	});

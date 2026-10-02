@@ -3,6 +3,7 @@ import { db, programs } from '$lib/server/db';
 import { requireUser } from '$lib/server/request-user';
 import { openQuickSessionId } from '$lib/server/quick-workouts';
 import { homeState } from '$lib/server/home';
+import { machinesToName } from '$lib/server/photo-workout';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -30,6 +31,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// First run (0.5.5): no programs and no workouts ever. Home then shows
 		// three lines and one button, and nothing about programs it doesn't have.
 		firstRun: activePrograms.length === 0 && !hasWorkouts,
-		hasImported
+		hasImported,
+		// Photo blocks still on the placeholder, across workouts (0.6.0).
+		toName: await machinesToName(db, userId)
 	};
 };

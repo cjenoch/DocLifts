@@ -61,6 +61,7 @@ describe('logUpload', () => {
 	it('writes one JSON line with the received size next to the client fields', () => {
 		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
 		logUpload({
+			source: 'gym_page',
 			receivedBytes: 512000,
 			clientOriginalBytes: 4000000,
 			clientResized: true,
@@ -76,6 +77,7 @@ describe('logUpload', () => {
 		expect(log).toHaveBeenCalledTimes(1);
 		expect(JSON.parse(log.mock.calls[0][0] as string)).toEqual({
 			event: 'photo_upload',
+			source: 'gym_page',
 			receivedBytes: 512000,
 			clientOriginalBytes: 4000000,
 			clientResized: true,

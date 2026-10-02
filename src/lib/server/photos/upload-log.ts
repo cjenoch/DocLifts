@@ -7,6 +7,10 @@
  * used for nothing but this line. Validation and storage read the received
  * file alone. A missing or malformed value is logged as null.
  *
+ * Since 0.6.0 it says where the upload came from (`source`), because a photo
+ * in a workout is read in a separate request and its `totalMs` is not
+ * comparable with the gym page's.
+ *
  * Since 0.5.3 the line also carries the stage timings in whole milliseconds
  * (`PhotoTimings`, timings.ts) and `totalMs`, the whole action. It is written
  * once, at the end of the action, so `modelMs` is known when it is written.
@@ -34,6 +38,12 @@ export function clientMeasurement(form: FormData): ClientMeasurement {
 export type UploadLogLine = ClientMeasurement &
 	PhotoTimings & {
 		event: 'photo_upload';
+		/**
+		 * Where the upload came from (0.6.0). `gym_page` runs the model in the same
+		 * request, so its `modelMs` and `totalMs` include the read; `workout` opens
+		 * a block and reads in a later request, so its `modelMs` is null.
+		 */
+		source: 'gym_page' | 'workout';
 		/** The bytes that actually arrived. */
 		receivedBytes: number;
 		outcome: 'stored' | 'refused';

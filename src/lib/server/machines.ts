@@ -316,7 +316,7 @@ async function machineSnapshot(db: Database, userId: string, input: unknown) {
 }
 
 // Full exercise decision, never a single-slot fallback for secondary/isolation.
-async function prefillOccurrence(
+export async function prefillOccurrence(
 	db: Database,
 	userId: string,
 	occurrence: typeof sessionExercises.$inferSelect

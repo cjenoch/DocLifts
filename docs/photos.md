@@ -483,3 +483,55 @@ upload route's `page.server.test.ts` (the upload path sends the stored bytes
 with no read-back; the line's timings and every earlier field; one line on
 refusal), the review route's test (re-analyze reads the store), and
 `e2e/photos.e2e.ts` (the five timings on the served build's line).
+
+## Photos in a workout (0.6.0)
+
+SPEC 0.5.0 Part C, first half. One path for every photo, so a failed read and
+a slow read behave like a good one (`src/lib/server/photo-workout.ts`):
+
+1. **Photo next machine** (the session page's bar, `?/photo`): the photo is
+   stored exactly as on the gym page (`uploadPhoto`, the same cap, limits and
+   log line with `"source":"workout"`), and `openPhotoBlock` adds a block at
+   once: a placeholder machine in the workout's gym labelled "Photo" and the
+   phone's time, the user's placeholder exercise ("Unidentified machine",
+   `workoutUi.placeholderExerciseName`, marked by
+   `canonical_movement = 'unidentified-machine'`), and three working sets. No
+   model call, so set entry starts straight away.
+2. **The read** (`?/readPhoto`): the page submits it on its own right after the
+   block appears, while sets are logged. It is `analyzePhoto`, unchanged. Any
+   ending without a match (timeout, model error, daily limit, no placard, model
+   off) leaves the block as it is and shows one quiet line,
+   `workoutUi.photoReadFailed`, with "Read again" and "Name it" (the review
+   page). A reload never re-reads on its own.
+3. **Identify** (`?/identify`, "Use this"): offered when the read's match is
+   preselected by `matchCandidate`, name guard included.
+   `identifySessionExercise` sets the model on the placeholder machine, or,
+   when the gym already has a machine with that model, moves the block, its
+   sets and its photo there and deletes the placeholder. The exercise is the
+   name on the card: one the user already used on that model, else the
+   catalog name; an existing exercise of that name is reused. Weight format
+   defaults by type (`workoutUi.photoConvention`). Only identity columns move;
+   no load, rep, RIR or note is written. With nothing logged yet on an open
+   workout, the sets are prefilled from that machine's history.
+
+**Naming later.** Finishing is allowed with blocks still unidentified; the
+finish goes to the finished workout's page, which says "N machines to name",
+and Home says it too. Identify works on a finished workout. The review page
+(`/photos/[id]/review`) is the full path: for a photo that opened a block,
+Link and Create name that block (no second machine) and return to the workout.
+A discarded photo leaves its block as "Unidentified machine" and drops it from
+the count.
+
+**Data.** Migration 0018: `equipment_photos.session_exercise_id`, nullable,
+`ON DELETE SET NULL`, indexed, so the photo stays with the workout record after
+a merge.
+
+**Not in 0.6.0 (next, 0.6.1):** a repeat visit identifying itself on an exact
+code (name guard, with undo) and filling last time's numbers into untouched
+sets; the photo button on a program session's planned exercises
+(`bindSessionMachine`). The button shows only on an open workout with a gym,
+which today means quick workouts.
+
+**Limits.** Each photo counts against `PHOTO_DAILY_LIMIT` (uploads and
+analyses, separately). Production is at 60 for testing; a workout uses about 6
+to 10.

@@ -2357,7 +2357,7 @@ and in History under that name, and are otherwise ordinary sessions.
 `/srv/doclifts/.env.pre-0.5.1` is the env file before step 4; the
 `PHOTO_DAILY_LIMIT` key is safe to keep (0.5.0's compose reads it too).
 
-## 26. 0.5.2 — the name guard on photo matching — NOT deployed
+## 26. 0.5.2 — the name guard on photo matching, and Trash on History — NOT deployed
 
 Code only: no migration, no env change. Deploy under development-push mode:
 quiet check, `pre-0.5.2` kept until the owner signs off, `compose-prod.sh up
@@ -2366,3 +2366,59 @@ quiet check, `pre-0.5.2` kept until the owner signs off, `compose-prod.sh up
 Check (scratch account): upload a generated placard reading gym80 / `4157` /
 PURE KRAFT BOOTY BOOSTER. Review must show the name-disagrees line, 4157
 first, 4352 among the names, and no radio preselected. Discard the photo.
+
+### Trash on History
+
+What changes: History has a "Trash (N)" section, collapsed by default, that
+lists every trashed workout of the signed-in user, quick or program, with
+Restore and Delete permanently (confirmed the same way as on the program
+page). The actions are `restoreSession` and `permanentDeleteSession` on
+`/history`; they call the same owner-scoped by-id functions as the program
+page (`restoreSoftDeletedSession`, `hardDeleteSession`). The program page's
+Trash is unchanged. Also: the session page's Move to Trash follows its
+redirect instead of showing "Could not complete that action".
+
+Check **on a fresh, empty test account created at deploy time**: never the
+owner's, and **not** `chris-phone-01`, which belongs to the owner's own
+testing. Create it with the password piped from the owner's own shell, never
+typed into a command line by an assistant:
+
+```bash
+printf '%s' "$(pass show doclifts-fresh)" | scripts/user-prod.sh create \
+  --email fresh-0.5.2@doclifts.invalid --password-stdin --name "Fresh 0.5.2"
+```
+
+Before the walk-through, note every other user's session count; it must be
+the same afterwards:
+
+```bash
+q "select count(*) from sessions s join auth.\"user\" u on u.id = s.user_id
+   where u.email <> 'fresh-0.5.2@doclifts.invalid'"
+```
+
+Signed in as it, on a phone-width page:
+
+- History shows **Trash (0)** at the bottom, closed. Opening it says
+  "Trash is empty."
+- Start workout → name a gym → Start. Add an exercise (name a new machine),
+  save one set, Finish workout.
+- History → the workout → Edit workout → **Move to Trash** → confirm. The
+  page goes to History with **no error line**. The workout is gone from the
+  month's list; **Trash (1)**, closed.
+- Open Trash: one row, **Quick workout**, today's date, **1 set logged**.
+  **Restore**: it is back in the month's list and Trash reads (0).
+- Move it to Trash again. In Trash, **Delete permanently** shows the
+  confirmation ("Permanently delete Quick workout from …? This cannot be
+  undone."); Cancel leaves it there; Delete permanently again, then confirm.
+  Trash reads (0) and the month's list does not show it.
+
+```bash
+# The fresh account has no sessions and no sets left.
+q "select count(*) from sessions s join auth.\"user\" u on u.id = s.user_id
+   where u.email = 'fresh-0.5.2@doclifts.invalid'"
+#   0
+q "select count(*) from sets st join auth.\"user\" u on u.id = st.user_id
+   where u.email = 'fresh-0.5.2@doclifts.invalid'"
+#   0
+# Every other user's session count: the same as before the walk-through.
+```

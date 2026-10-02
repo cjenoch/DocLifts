@@ -2364,7 +2364,9 @@ and in History under that name, and are otherwise ordinary sessions.
 `/srv/doclifts/.env.pre-0.5.1` is the env file before step 4; the
 `PHOTO_DAILY_LIMIT` key is safe to keep (0.5.0's compose reads it too).
 
-## 26. 0.5.2 — the name guard on photo matching, and Trash on History — DEPLOYED 2026-10-02, acceptance pending
+## 26. 0.5.2 — the name guard on photo matching, and Trash on History — DEPLOYED 2026-10-02, accepted 2026-10-02
+
+**Owner sign-off, 2026-10-02:** accepted together with 0.5.5 ("yes, it covers both"). The `pre-` image deleted after the sign-off.
 
 ```
 0.5.2    d2f0c05, tagged 0.5.2; branch CI green (test + docker); full local
@@ -2451,7 +2453,9 @@ q "select count(*) from sets st join auth.\"user\" u on u.id = st.user_id
 # Every other user's session count: the same as before the walk-through.
 ```
 
-## 27. 0.5.3 — hand the photo straight to analysis, and time each stage — DEPLOYED 2026-10-02, acceptance pending
+## 27. 0.5.3 — hand the photo straight to analysis, and time each stage — DEPLOYED 2026-10-02, accepted 2026-10-02
+
+**Owner sign-off, 2026-10-02:** accepted together with 0.5.5 ("yes, it covers both"). The `pre-` image deleted after the sign-off.
 
 ```
 0.5.3    67c359a, tagged 0.5.3; branch CI green (test + docker); full local
@@ -2509,7 +2513,9 @@ upload and no ids.
 give the owner the medians; he decides from them whether the put and the
 model call run in parallel. Nothing is parallelized before that.
 
-## 28. 0.5.4 — security updates from the first code scan — DEPLOYED 2026-10-02, acceptance pending
+## 28. 0.5.4 — security updates from the first code scan — DEPLOYED 2026-10-02, accepted 2026-10-02
+
+**Owner sign-off, 2026-10-02:** accepted together with 0.5.5 ("yes, it covers both"). The `pre-` image deleted after the sign-off.
 
 From the first CodeQL and Dependabot report (owner OK, 2026-10-02). Code
 only: no migration, no env change.

@@ -81,8 +81,8 @@ export type UploadInput = {
  *
  * Returns the row and `image`, the processed JPEG exactly as stored, so the
  * upload action can hand it to `analyzePhoto` without reading it back from the
- * store (0.5.3). `deps.timings`, when given, receives `processMs` and
- * `storePutMs` (timings.ts); measurement only.
+ * store (0.5.3). `deps.timings`, when given, receives `processWaitMs`,
+ * `processMs` and `storePutMs` (timings.ts); measurement only.
  *
  * Returns null when the gym is not this user's. Throws `PhotoInputError`
  * (size, format) or `PhotoLimitError` (daily cap) for the page to show.
@@ -103,13 +103,12 @@ export async function uploadPhoto(
 			throw new PhotoLimitError(uploadLimitMessage(limits.dailyLimit));
 		}
 	}
-	const processed = await timed(deps.timings, 'processMs', () =>
-		processPhoto(input.bytes, {
-			maxBytes: limits.maxBytes,
-			type: input.type,
-			name: input.name
-		})
-	);
+	const processed = await processPhoto(input.bytes, {
+		maxBytes: limits.maxBytes,
+		type: input.type,
+		name: input.name,
+		timings: deps.timings
+	});
 
 	const id = randomUUID();
 	const key = photoKey(userId, id);

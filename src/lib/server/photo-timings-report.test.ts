@@ -25,8 +25,13 @@ const line = (fields: Record<string, unknown>) =>
 		photoId: PHOTO_ID,
 		...fields
 	});
-const timed = (processMs: number, storePutMs: number, modelMs: number, totalMs: number) =>
-	line({ processMs, storePutMs, modelMs, totalMs });
+const timed = (
+	processWaitMs: number,
+	processMs: number,
+	storePutMs: number,
+	modelMs: number,
+	totalMs: number
+) => line({ processWaitMs, processMs, storePutMs, modelMs, totalMs });
 
 // As `docker compose logs` prints them: with and without the service prefix,
 // mixed with other app events and noise.
@@ -34,23 +39,24 @@ const FIXTURE = [
 	'==> building as aa3a51f',
 	`web-1  | ${line({})}`, // before 0.5.3: no timings
 	line({ outcome: 'refused', storedBytes: null, photoId: null }), // before 0.5.3, refused
-	`web-1  | ${timed(100, 40, 2000, 2200)}`,
-	timed(300, 60, 2600, 3000),
-	timed(200, 50, 2400, 2700),
+	`web-1  | ${timed(0, 100, 40, 2000, 2200)}`,
+	timed(150, 300, 60, 2600, 3000),
+	timed(0, 200, 50, 2400, 2700),
 	`web-1  | {"event":"login_attempt","email":"scratch-test@doclifts.invalid","userId":"${USER_ID}"}`,
-	timed(400, 80, 61000, 61500), // a model timeout still counts: the user waited
+	timed(20, 400, 80, 61000, 61500), // a model timeout still counts: the user waited
 	// A refused upload after 0.5.3: never reached the put or the model.
 	line({
 		outcome: 'refused',
 		storedBytes: null,
 		photoId: null,
+		processWaitMs: null,
 		processMs: 5,
 		storePutMs: null,
 		modelMs: null,
 		totalMs: 9
 	}),
 	// Stored, but the analysis limit refused the call before the model.
-	line({ processMs: 250, storePutMs: 70, modelMs: null, totalMs: 400 }),
+	line({ processWaitMs: 0, processMs: 250, storePutMs: 70, modelMs: null, totalMs: 400 }),
 	'{"event":"photo_upload", not json',
 	''
 ].join('\n');
@@ -69,6 +75,7 @@ describe('summarize', () => {
 	it('counts lines, keeps stored uploads for the timings, and counts the untimed', () => {
 		const sum = summarize(FIXTURE);
 		expect(sum).toMatchObject({ lines: 9, stored: 6, refused: 2, untimed: 2, unreadable: 1 });
+		expect(sum.stages.processWaitMs).toEqual({ count: 5, median: 0, p90: 150, max: 150 });
 		expect(sum.stages.processMs).toEqual({ count: 5, median: 250, p90: 400, max: 400 });
 		expect(sum.stages.storePutMs).toEqual({ count: 5, median: 60, p90: 80, max: 80 });
 		// The limit-refused analysis has no model time; the timeout does.

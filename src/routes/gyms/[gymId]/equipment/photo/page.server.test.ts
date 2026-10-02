@@ -2,7 +2,7 @@
  * The upload action (0.5.3), in process, with a counting memory store and the
  * SDK's mock model behind `complete()`. Pins the hand-off (the processed JPEG
  * goes straight to analysis; the store is not read back) and the log line
- * (the four timings, next to every field it carried before).
+ * (the stage timings, next to every field it carried before).
  */
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -99,7 +99,7 @@ async function uploadLines(fn: () => Promise<unknown>) {
 		.map((l) => JSON.parse(l) as Record<string, unknown>);
 }
 
-const TIMINGS = ['processMs', 'storePutMs', 'modelMs', 'totalMs'] as const;
+const TIMINGS = ['processWaitMs', 'processMs', 'storePutMs', 'modelMs', 'totalMs'] as const;
 const isMs = (v: unknown) => Number.isInteger(v) && (v as number) >= 0;
 
 it('upload: the processed JPEG goes straight to analysis, and the store is not read back', async () => {
@@ -121,7 +121,7 @@ it('upload: the processed JPEG goes straight to analysis, and the store is not r
 	expect(store.gets).toBe(1);
 });
 
-it('upload: the log line carries the four timings, and every field it had before', async () => {
+it('upload: the log line carries the timings, and every field it had before', async () => {
 	const png = await smallPng();
 	const lines = await uploadLines(() => upload(alice, alicesGym, png));
 	expect(lines).toHaveLength(1);
@@ -141,7 +141,11 @@ it('upload: the log line carries the four timings, and every field it had before
 	});
 	for (const k of TIMINGS) expect(isMs(line[k]), `${k}=${line[k]}`).toBe(true);
 	expect(line.totalMs as number).toBeGreaterThanOrEqual(
-		(line.processMs as number) + (line.storePutMs as number) + (line.modelMs as number) - 3
+		(line.processWaitMs as number) +
+			(line.processMs as number) +
+			(line.storePutMs as number) +
+			(line.modelMs as number) -
+			4
 	);
 });
 
@@ -161,6 +165,7 @@ it('upload: a refused upload logs one refused line; stages it never reached are 
 		outcome: 'refused',
 		storedBytes: null,
 		photoId: null,
+		processWaitMs: null, // refused from the header, never queued for a decode
 		storePutMs: null,
 		modelMs: null
 	});
@@ -170,6 +175,11 @@ it('upload: a refused upload logs one refused line; stages it never reached are 
 	// Another user's gym: a 404, refused before processing.
 	const foreign = await uploadLines(() => upload(bob, alicesGym, Buffer.from('x')));
 	expect(foreign).toHaveLength(1);
-	expect(foreign[0]).toMatchObject({ outcome: 'refused', processMs: null, modelMs: null });
+	expect(foreign[0]).toMatchObject({
+		outcome: 'refused',
+		processWaitMs: null,
+		processMs: null,
+		modelMs: null
+	});
 	expect(isMs(foreign[0].totalMs)).toBe(true);
 });

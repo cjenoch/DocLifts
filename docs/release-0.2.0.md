@@ -2376,20 +2376,29 @@ quiet check, `pre-0.5.3` kept until the owner signs off, `compose-prod.sh up
 What changes: `uploadPhoto` returns the processed JPEG with the row and the
 upload action passes it to `analyzePhoto` (no read-back from the store in the
 upload request; Re-analyze still reads the store). The `photo_upload` line
-gains `processMs`, `storePutMs`, `modelMs` and `totalMs` and is written once at
-the end of the action. The step order and the upload transaction are
+gains `processWaitMs`, `processMs`, `storePutMs`, `modelMs` and `totalMs` and
+is written once at the end of the action. Security follow-up in the same
+release: a photo over 50 megapixels (`MAX_INPUT_PIXELS`, a constant) is
+refused from its header before any decode, the decode itself is capped at the
+same number, and at most two photos are decoded at once
+(`MAX_CONCURRENT_PROCESSING`, a constant); no env or compose change. The step order and the upload transaction are
 unchanged. Details in `docs/photos.md`, "Timing each stage".
 
 Check (scratch account, `scratch-test@doclifts.invalid`): upload one generated
-placard and confirm the line carries the four timings as whole numbers, and
-the review page shows the candidate as before. Discard the photo.
+placard and confirm the line carries the five timings as whole numbers, and
+the review page shows the candidate as before. Discard the photo. Then upload
+a generated PNG whose header declares 20000×20000 (a few hundred bytes, as in
+`handmadePng` in `photos/test-fixtures.ts`) and confirm the page shows "This
+photo is 20000×20000 (400 megapixels); the limit is 50…", the log line says
+`"outcome":"refused"` with `processWaitMs` null, and memory stays flat
+(`docker stats --no-stream` on the web container before and after).
 
 ```sh
 sudo -n scripts/compose-prod.sh logs web --since 10m | grep '"event":"photo_upload"' | tail -1
 ```
 
-Expect `"outcome":"stored"` and integer `processMs`, `storePutMs`, `modelMs`,
-`totalMs` (a model read of about 2-3 s with the current model). Then run
+Expect `"outcome":"stored"` and integer `processWaitMs`, `processMs`,
+`storePutMs`, `modelMs`, `totalMs` (a model read of about 2-3 s with the current model). Then run
 `scripts/photo-timings-report.sh 1` once and confirm it prints one stored
 upload and no ids.
 

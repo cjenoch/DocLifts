@@ -12,7 +12,13 @@
 import { pathToFileURL } from 'node:url';
 
 /** The stages, in the order the request runs them. */
-export const STAGES = /** @type {const} */ (['processMs', 'storePutMs', 'modelMs', 'totalMs']);
+export const STAGES = /** @type {const} */ ([
+	'processWaitMs',
+	'processMs',
+	'storePutMs',
+	'modelMs',
+	'totalMs'
+]);
 
 const MARKER = '{"event":"photo_upload"';
 
@@ -109,11 +115,11 @@ export function formatReport(summary, period = 'the log') {
 	out.push(
 		'',
 		'stored uploads, ms:',
-		`${'stage'.padEnd(12)}${'count'.padStart(8)}${'median'.padStart(8)}${'p90'.padStart(8)}${'max'.padStart(8)}`
+		`${'stage'.padEnd(14)}${'count'.padStart(8)}${'median'.padStart(8)}${'p90'.padStart(8)}${'max'.padStart(8)}`
 	);
 	for (const s of STAGES) {
 		const st = summary.stages[s];
-		out.push(`${s.padEnd(12)}${cell(st.count)}${cell(st.median)}${cell(st.p90)}${cell(st.max)}`);
+		out.push(`${s.padEnd(14)}${cell(st.count)}${cell(st.median)}${cell(st.p90)}${cell(st.max)}`);
 	}
 	return out.join('\n');
 }

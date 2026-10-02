@@ -4,7 +4,8 @@
 
 - **For the owner: photo uploads are timed.** Each upload's log line now
   says how long each step took, in milliseconds: preparing the photo
-  (`processMs`), storing it (`storePutMs`), the model's read (`modelMs`) and
+  (`processMs`, and `processWaitMs` for any wait before it), storing it
+  (`storePutMs`), the model's read (`modelMs`) and
   the whole request (`totalMs`). `scripts/photo-timings-report.sh` prints
   the median, p90 and max per step for the last week (counts and times only).
   The first report is due a week after this is deployed; it decides whether
@@ -13,6 +14,13 @@
   the prepared photo straight to the model instead of fetching it back from
   storage. Re-analyze on the review page still fetches it. Nothing else
   changes: the steps run in the same order as before.
+- **Very large photos are refused up front.** A photo over 50 megapixels
+  (a phone photo is about 12) is turned away with a message saying its size
+  and the limit, before the server tries to open it. A file that is small
+  but claims to be a huge picture can no longer make the server run out of
+  memory.
+- **At most two photos are prepared at once.** Others wait their turn (a
+  fraction of a second in practice); the wait is logged as `processWaitMs`.
 
 ## 0.5.2 — a misread code can't pick the wrong machine — not yet released
 

@@ -12,6 +12,7 @@
  *
  * Imported only by tests. Not used by production code.
  */
+import { crc32, deflateSync } from 'node:zlib';
 import sharp from 'sharp';
 import type { EquipmentCandidate } from './analyze';
 import { MemoryPhotoStore } from './store';
@@ -113,4 +114,45 @@ export function imageSentTo(
 		| undefined;
 	if (!part) throw new Error('no image was sent');
 	return Buffer.from(part instanceof Uint8Array ? part : part.data);
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+	const len = Buffer.alloc(4);
+	len.writeUInt32BE(data.length);
+	const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+	const crc = Buffer.alloc(4);
+	crc.writeUInt32BE(crc32(body) >>> 0);
+	return Buffer.concat([len, body, crc]);
+}
+
+/**
+ * A PNG built by hand, so its header can declare any size: grayscale at
+ * `bitDepth` 1 or 8. With `idat: 'zeros'` the pixel data is valid (every row
+ * black, so a 10000 x 6000 1-bit image is a few KB). With `idat: 'broken'` it
+ * is a few bytes that do not inflate: the header still reads, and any decode
+ * fails as "could not be read" — which is how a test tells that a refusal
+ * happened before decoding.
+ */
+export function handmadePng(
+	width: number,
+	height: number,
+	{ bitDepth = 8, idat = 'broken' }: { bitDepth?: 1 | 8; idat?: 'zeros' | 'broken' } = {}
+): Buffer {
+	const ihdr = Buffer.alloc(13);
+	ihdr.writeUInt32BE(width, 0);
+	ihdr.writeUInt32BE(height, 4);
+	ihdr[8] = bitDepth;
+	ihdr[9] = 0; // grayscale
+	// [10] compression, [11] filter, [12] interlace: all 0
+	const rowBytes = 1 + Math.ceil((width * bitDepth) / 8); // filter byte + pixels
+	const data =
+		idat === 'zeros'
+			? deflateSync(Buffer.alloc(rowBytes * height), { level: 9 })
+			: Buffer.from([0x78, 0x9c, 0xff, 0xff, 0xff, 0xff]);
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		pngChunk('IHDR', ihdr),
+		pngChunk('IDAT', data),
+		pngChunk('IEND', Buffer.alloc(0))
+	]);
 }

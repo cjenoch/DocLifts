@@ -72,6 +72,23 @@ Photos that were never decided are listed on the gym's photo page under
 | `PHOTO_DAILY_LIMIT` | `20`       | Uploads per user per sliding 24 h (every photo row counts, discarded too). Analyses are counted separately against the same number. `0` refuses all.         |
 | `BODY_SIZE_LIMIT`   | `12M`      | adapter-node's request body ceiling. Its own default, 512K, refuses every phone photo before the app sees it. Keep it above `PHOTO_MAX_BYTES` plus a little. |
 
+**Pixels and memory (0.5.3).** Two more limits are named constants in
+`photos/process.ts`, not env settings (no compose line):
+
+- `MAX_INPUT_PIXELS` = 50,000,000 (50 megapixels, width × height as the file
+  declares). A photo over it is refused from its **header alone**, before any
+  pixel is decoded: "This photo is 20000×20000 (400 megapixels); the limit is 50. Take it at a lower resolution." A small file can declare an enormous
+  image, and a decode allocates for the declared size, so `PHOTO_MAX_BYTES`
+  alone does not bound memory. The decode is also given
+  `limitInputPixels: MAX_INPUT_PIXELS`, so a header that understates the size
+  still cannot force a huge decode (that case reads as "could not be read").
+  A 12 MP phone photo is a quarter of the limit.
+- `MAX_CONCURRENT_PROCESSING` = 2: at most two photos are decoded and
+  re-encoded at once in the process; the rest wait in order. The web
+  container has no memory limit, and sharp would otherwise run up to four
+  large decodes together on libuv's default pool. The time spent waiting is
+  logged as `processWaitMs`.
+
 A refusal is a message on the page, not a throttle: "The photo is 11 MB; the
 limit is 10 MB.", "You have uploaded 20 photos in the last 24 hours, the daily
 limit. Try again later." Accepted formats are JPEG, PNG and WebP. HEIC is
@@ -322,7 +339,7 @@ one JSON line per upload:
 {"event":"photo_upload","clientOriginalBytes":2513122,"clientResized":true,"receivedBytes":663080,"outcome":"stored","storedBytes":350700,"photoId":"…"}
 ```
 
-(Since 0.5.3 the line also carries four timings; see "Timing each stage".)
+(Since 0.5.3 the line also carries five timings; see "Timing each stage".)
 `receivedBytes` is what actually arrived; `storedBytes` is what `processPhoto`
 kept. The two client fields are what the browser says, parsed defensively
 (`photos/upload-log.ts`: anything but a plain integer, or `1`/`0`, is `null`)
@@ -394,7 +411,7 @@ model's confidence catches it; the name is the independent check. Part C's
 
 ## Timing each stage (0.5.3)
 
-Every `photo_upload` line carries four timings, in whole milliseconds
+Every `photo_upload` line carries five timings, in whole milliseconds
 (`performance.now()`, rounded), so the owner can decide from real medians
 whether storing the photo and the model's read should run in parallel. They
 are measurement only; nothing reads them. The steps still run one after the
@@ -402,24 +419,26 @@ other, in the same order as before: process, then (in the transaction, under
 the per-user lock) put and insert, then analysis.
 
 ```
-{"event":"photo_upload","clientOriginalBytes":2513122,"clientResized":true,"receivedBytes":663080,"outcome":"stored","storedBytes":350700,"photoId":"…","processMs":183,"storePutMs":96,"modelMs":2410,"totalMs":2790}
+{"event":"photo_upload","clientOriginalBytes":2513122,"clientResized":true,"receivedBytes":663080,"outcome":"stored","storedBytes":350700,"photoId":"…","processWaitMs":0,"processMs":183,"storePutMs":96,"modelMs":2410,"totalMs":2790}
 ```
 
-| Field        | Starts                                                                                                  | Stops                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `processMs`  | just before `processPhoto` (sharp: validate, orient, resize, re-encode, strip)                          | when it returns or throws                                 |
-| `storePutMs` | just before `store.put` of the processed JPEG, inside the upload transaction                            | when the put returns or throws                            |
-| `modelMs`    | just before the one `complete()` call in `analyzePhoto` (includes `complete()`'s own `llm_calls` write) | when `complete()` returns or throws                       |
-| `totalMs`    | the first line of the upload action, before the form is read                                            | when the response is decided: the redirect or the refusal |
+| Field           | Starts                                                                                                  | Stops                                                     |
+| --------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `processWaitMs` | when `processPhoto` asks for one of the two decode slots (after the size, format and pixel checks)      | when it gets one                                          |
+| `processMs`     | the start of `processPhoto` (sharp: validate, check pixels, orient, resize, re-encode, strip)           | when it returns or throws, minus `processWaitMs`          |
+| `storePutMs`    | just before `store.put` of the processed JPEG, inside the upload transaction                            | when the put returns or throws                            |
+| `modelMs`       | just before the one `complete()` call in `analyzePhoto` (includes `complete()`'s own `llm_calls` write) | when `complete()` returns or throws                       |
+| `totalMs`       | the first line of the upload action, before the form is read                                            | when the response is decided: the redirect or the refusal |
 
 - A stage that **fails** still reports the time it took (a model timeout shows
   as a long `modelMs`, with the review page's "analysis failed" as before).
 - A stage the request **never reached** is `null`: a refused upload has
   `storePutMs` and `modelMs` null (and `processMs` null when it was refused
-  before processing, e.g. the daily limit); an upload whose analysis was
+  before processing, e.g. the daily limit; `processWaitMs` null when it was
+  refused before asking for a decode slot, e.g. too many pixels); an upload whose analysis was
   refused by the daily analysis limit has `modelMs` null. `outcome` keeps its
   meaning (`stored` or `refused`).
-- `totalMs` is not the sum of the three: it also covers reading the form, the
+- `totalMs` is not the sum of the others: it also covers reading the form, the
   gym and limit queries, the insert, the analysis's own queries, and the
   candidate update.
 
@@ -450,11 +469,17 @@ reads a saved log instead of the container's.
 **The first median report is due one week after 0.5.3 is deployed.** The
 owner decides from it whether to run the put and the model call in parallel.
 
-**Tests:** `upload.db.test.ts` (the processed image is returned exactly as
+**Tests:** `process.test.ts` (a hand-built PNG of a few hundred bytes
+declaring 20000 × 20000 is refused with the pixel message, never queued for a
+decode, while its broken pixel data would have failed differently; the decode
+refuses 60 MP itself; a 4000 × 3000 photo passes), `processing-gate.db.test.ts`
+(four concurrent uploads with a slowed decode: never more than two inside,
+all four stored, the queued two show the wait in `processWaitMs` and not in
+`processMs`), `upload.db.test.ts` (the processed image is returned exactly as
 stored; process and put timed, also on a refusal), `analyze.db.test.ts` (with
 the image handed over the store is not read, without it it is; the same bytes
 and the same candidate either way; `modelMs` on success and failure), the
 upload route's `page.server.test.ts` (the upload path sends the stored bytes
-with no read-back; the line's four timings and every earlier field; one line on
+with no read-back; the line's timings and every earlier field; one line on
 refusal), the review route's test (re-analyze reads the store), and
-`e2e/photos.e2e.ts` (the four timings on the served build's line).
+`e2e/photos.e2e.ts` (the five timings on the served build's line).

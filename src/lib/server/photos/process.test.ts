@@ -7,8 +7,16 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { HEIC_MESSAGE, PhotoInputError, processPhoto } from './process';
-import { phonePhoto, smallPng } from './test-fixtures';
+import {
+	decodeAndEncode,
+	HEIC_MESSAGE,
+	MAX_INPUT_PIXELS,
+	PhotoInputError,
+	pixelLimitMessage,
+	processPhoto
+} from './process';
+import { handmadePng, phonePhoto, smallPng } from './test-fixtures';
+import { emptyTimings } from './timings';
 
 const MAX = 10 * 1024 * 1024;
 let phone: Buffer;
@@ -88,5 +96,47 @@ describe('processPhoto', () => {
 		await expect(processPhoto(gif, { maxBytes: MAX })).rejects.toThrow(
 			'Upload a JPEG, PNG or WebP photo.'
 		);
+	});
+});
+
+describe('the pixel limit (0.5.3)', () => {
+	it('the limit is 50 megapixels, and a 4000 x 3000 phone photo is well within it', async () => {
+		expect(MAX_INPUT_PIXELS).toBe(50_000_000);
+		const out = await processPhoto(phone, { maxBytes: MAX, type: 'image/jpeg' });
+		expect([out.width, out.height]).toEqual([1200, 1600]);
+	});
+
+	it('a small file declaring 20000 x 20000 is refused from its header, before any decode', async () => {
+		const bomb = handmadePng(20000, 20000);
+		// Small on disk, far under the byte limit: only the pixel check stops it.
+		expect(bomb.byteLength).toBeLessThan(1024);
+		expect(bomb.byteLength).toBeLessThan(MAX);
+		// Positive first: the header really declares 20000 x 20000.
+		const header = await sharp(bomb, { limitInputPixels: false }).metadata();
+		expect([header.format, header.width, header.height]).toEqual(['png', 20000, 20000]);
+
+		const timings = emptyTimings();
+		const refused = processPhoto(bomb, { maxBytes: MAX, type: 'image/png', timings });
+		await expect(refused).rejects.toThrow(new PhotoInputError(pixelLimitMessage(20000, 20000)));
+		expect(pixelLimitMessage(20000, 20000)).toBe(
+			'This photo is 20000×20000 (400 megapixels); the limit is 50. Take it at a lower resolution.'
+		);
+		// Never queued for a decode slot: the decode is inside the gate.
+		expect(timings.processWaitMs).toBeNull();
+		// And its pixel data cannot decode: had a decode run, the message would
+		// be "could not be read" — as it is for the same data at a small size.
+		await expect(
+			processPhoto(handmadePng(100, 100), { maxBytes: MAX, type: 'image/png' })
+		).rejects.toThrow('That image could not be read. Try taking the photo again.');
+	});
+
+	it('the decode itself refuses more than the limit, whatever the header check did', async () => {
+		// 10000 x 6000 = 60 MP: over the limit, under sharp's own default.
+		const big = handmadePng(10000, 6000, { bitDepth: 1, idat: 'zeros' });
+		expect(big.byteLength).toBeLessThan(64 * 1024);
+		await expect(decodeAndEncode(big)).rejects.toBeInstanceOf(PhotoInputError);
+		// Positive control: the same image at 5000 x 6000 (30 MP) decodes.
+		const ok = await decodeAndEncode(handmadePng(5000, 6000, { bitDepth: 1, idat: 'zeros' }));
+		expect(Math.max(ok.width, ok.height)).toBe(1600);
 	});
 });

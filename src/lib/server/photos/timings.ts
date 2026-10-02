@@ -9,7 +9,9 @@
  */
 
 export type PhotoTimings = {
-	/** `processPhoto` (sharp): validate, orient, resize, re-encode, strip. */
+	/** Queued for one of `MAX_CONCURRENT_PROCESSING` decode slots (process.ts). */
+	processWaitMs: number | null;
+	/** `processPhoto` (sharp): validate, orient, resize, re-encode, strip; the wait excluded. */
 	processMs: number | null;
 	/** `store.put` of the processed JPEG. */
 	storePutMs: number | null;
@@ -18,6 +20,7 @@ export type PhotoTimings = {
 };
 
 export const emptyTimings = (): PhotoTimings => ({
+	processWaitMs: null,
 	processMs: null,
 	storePutMs: null,
 	modelMs: null

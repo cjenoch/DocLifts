@@ -19,6 +19,9 @@
 # Usage (from the deploy checkout on the VPS, over SSH):
 #   scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-09-30.csv
 #   scripts/catalog-prod.sh /absolute/path/outside/the/repo/snapshot.csv
+#   scripts/catalog-prod.sh "$DOCLIFTS_DATA_DIR/catalog/snapshots/<name>.csv"
+#     (a private snapshot; your shell expands the setting before sudo drops
+#     the environment; docs/private-data.md)
 #
 # The CSV is either (scripts/catalog-csv-path.sh has the rules):
 #   - a path RELATIVE to the repository root, naming a COMMITTED file; the

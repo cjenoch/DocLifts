@@ -5,7 +5,7 @@
 	let { form, data }: { form: ActionData; data: PageData } = $props();
 </script>
 
-<svelte:head><title>Change password — DocLifts</title></svelte:head>
+<svelte:head><title>Change password · DocLifts</title></svelte:head>
 
 <main class="mx-auto max-w-sm px-4 py-10">
 	<h1 class="mb-6 text-2xl font-semibold">Change password</h1>

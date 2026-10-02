@@ -8,6 +8,7 @@
 		resistanceLabel
 	} from '$lib/catalog-labels';
 	import type { PageData } from './$types';
+	import { pageTitle } from '$lib/app-shell';
 	let { data }: { data: PageData } = $props();
 
 	// Pagination links keep every filter; only `page` changes.
@@ -29,8 +30,10 @@
 	} as const;
 </script>
 
+<svelte:head><title>{pageTitle('Equipment catalog')}</title></svelte:head>
+
 <div class="mx-auto max-w-3xl space-y-4 p-4">
-	<a href="/" class="text-indigo-300">← Home</a>
+	<a href="/gyms" class="text-indigo-300">← Gyms</a>
 	<h1 class="text-2xl font-semibold">Equipment catalog</h1>
 	<p class="text-sm text-zinc-400">
 		Manufacturer models, read from their catalogs on the snapshot date, plus any you entered

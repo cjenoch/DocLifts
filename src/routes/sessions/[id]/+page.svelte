@@ -44,7 +44,7 @@
 
 <svelte:head><title>{heading} · DocLifts</title></svelte:head>
 <main class="workout">
-	<a class="back" href={backHref}>{data.quick ? '← Home' : '← Workouts'}</a>
+	<a class="back" href={backHref}>{data.quick ? '← Workout' : '← Program'}</a>
 	<header>
 		<div class="eyebrow">DOCLIFTS / {data.session.endedAt ? 'WORKOUT HISTORY' : 'IN SESSION'}</div>
 		<h1>{heading}</h1>

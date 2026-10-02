@@ -2,6 +2,7 @@
 	import type { PageData } from './$types';
 	import { workoutUi } from '$lib/workout-ui';
 	import TrashAction from '$lib/TrashAction.svelte';
+	import { appShell, pageTitle } from '$lib/app-shell';
 
 	let { data }: { data: PageData } = $props();
 
@@ -26,6 +27,8 @@
 		t.systemKind === 'quick' ? workoutUi.quickWorkoutLabel : t.programName;
 </script>
 
+<svelte:head><title>{pageTitle('History')}</title></svelte:head>
+
 <div class="mx-auto max-w-md px-4 py-6">
 	<div class="mb-5 flex items-center justify-between gap-2">
 		<h1 class="text-2xl font-semibold tracking-tight">History</h1>
@@ -47,7 +50,9 @@
 
 	<p class="mb-4 text-sm text-zinc-500">{monthLabel} · all programs</p>
 
-	{#if data.sessions.length === 0}
+	{#if !data.hasWorkouts}
+		<p class="text-zinc-400" data-testid="empty-state">{appShell.empty.history}</p>
+	{:else if data.sessions.length === 0}
 		<p class="text-zinc-500">No workouts this month.</p>
 	{:else}
 		<ul class="space-y-2">

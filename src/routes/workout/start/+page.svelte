@@ -9,7 +9,7 @@
 <svelte:head><title>{workoutUi.startWorkout} · DocLifts</title></svelte:head>
 
 <div class="mx-auto max-w-md px-4 py-6">
-	<a href="/" class="text-sm text-indigo-400 active:underline">← Home</a>
+	<a href="/" class="text-sm text-indigo-400 active:underline">← Workout</a>
 	<h1 class="mt-2 text-2xl font-semibold tracking-tight">{workoutUi.gymStepHeading}</h1>
 
 	<form method="POST" class="mt-5 space-y-4" onsubmit={() => (busy = true)}>

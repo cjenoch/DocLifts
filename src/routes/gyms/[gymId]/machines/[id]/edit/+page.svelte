@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { defaultMachineLabel } from '$lib/catalog-labels';
 	import type { ActionData, PageData } from './$types';
+	import { pageTitle } from '$lib/app-shell';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const m = $derived(data.machine);
 	const fallback = $derived(data.model ? defaultMachineLabel(data.model) : null);
 </script>
+
+<svelte:head><title>{pageTitle('Edit machine')}</title></svelte:head>
 
 <div class="mx-auto max-w-lg space-y-5 p-4">
 	<a href={`/gyms?gym=${data.gym.id}`} class="text-indigo-300">← {data.gym.name}</a>

@@ -1,10 +1,16 @@
 <script lang="ts">
 	import { LATERALITY_LABELS } from '$lib/catalog-labels';
 	import type { ActionData, PageData } from './$types';
+	import { pageTitle } from '$lib/app-shell';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const m = $derived(data.model);
 	const title = $derived([m.manufacturer, m.code, m.name].filter(Boolean).join(' '));
 </script>
+
+<svelte:head
+	><title>{pageTitle(data.editable ? 'Edit your model' : 'Create your own copy')}</title
+	></svelte:head
+>
 
 <div class="mx-auto max-w-lg space-y-5 p-4">
 	<a href={`/equipment/${m.id}`} class="text-indigo-300">← {m.name}</a>

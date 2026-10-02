@@ -1,3 +1,4 @@
+import { homeState } from '$lib/server/home';
 import { fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
@@ -28,12 +29,13 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	}
 
 	const userId = requireUser(locals).id;
-	const [rows, trash] = await Promise.all([
+	const [rows, trash, home] = await Promise.all([
 		historyForMonth(db, userId, rangeStart, rangeEnd),
 		// Trash on History (0.5.2): every trashed workout of this user, quick or
 		// program, whatever the month. The quick program has no page, so this
 		// is the only place a trashed quick workout can be restored from.
-		listDeletedSessionsForUser(db, userId)
+		listDeletedSessionsForUser(db, userId),
+		homeState(db, userId)
 	]);
 
 	// Month nav links (no future months).
@@ -47,7 +49,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		prevMonth: fmt(prev),
 		nextMonth: rangeEnd <= new Date() ? fmt(rangeEnd) : null,
 		trashSessions: trash.sessions,
-		trashCount: trash.total
+		trashCount: trash.total,
+		hasWorkouts: home.hasWorkouts
 	};
 };
 

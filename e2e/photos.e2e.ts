@@ -221,7 +221,8 @@ run('equipment from a photo (production build)', () => {
 	it('on a phone-width screen every nav control is fully on screen', async () => {
 		// The owner's iPhone, 2026-10-01: "Gyms" cut off at the left and
 		// "Sign out" at the right, because the nav was one row that never
-		// wrapped. 390 px is an iPhone 12-15 viewport.
+		// wrapped. Since 0.5.5 the nav is the bottom tab bar plus the account
+		// button at the top. 390 px is an iPhone 12-15 viewport.
 		const page = await signedInPage();
 		await page.setViewportSize({ width: 390, height: 844 });
 		for (const path of ['/', '/gyms', `/gyms/${gymA}/equipment/photo`]) {
@@ -229,17 +230,18 @@ run('equipment from a photo (production build)', () => {
 			const nav = page.getByRole('navigation', { name: 'Main navigation' });
 			const controls = [
 				...(await nav.getByRole('link').all()),
-				nav.getByRole('button', { name: 'Sign out' })
+				page.getByRole('link', { name: 'Account', exact: true })
 			];
-			expect(controls.length, path).toBeGreaterThanOrEqual(6);
+			expect(controls.length, path).toBe(5);
 			for (const control of controls) {
 				const box = await control.boundingBox();
 				const name = await control.innerText();
 				expect(box, `${path}: ${name}`).not.toBeNull();
 				expect(box!.x, `${path}: ${name} starts on screen`).toBeGreaterThanOrEqual(0);
 				expect(box!.x + box!.width, `${path}: ${name} ends on screen`).toBeLessThanOrEqual(390);
-				// One line each: a label broken across lines reads as two links.
-				expect(box!.height, `${path}: ${name} on one line`).toBeLessThan(32);
+				// One line each, and a thumb-sized target.
+				expect(box!.height, `${path}: ${name} tap target`).toBeGreaterThanOrEqual(44);
+				expect(box!.height, `${path}: ${name} on one line`).toBeLessThan(64);
 			}
 		}
 		await page.close();

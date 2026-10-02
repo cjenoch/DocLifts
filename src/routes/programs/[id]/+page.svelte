@@ -3,6 +3,7 @@
 	import TrashPurgeForm from '$lib/TrashPurgeForm.svelte';
 	import { enhance } from '$app/forms';
 	import type { PageData } from './$types';
+	import { pageTitle } from '$lib/app-shell';
 
 	let { data }: { data: PageData } = $props();
 
@@ -37,8 +38,10 @@
 	});
 </script>
 
+<svelte:head><title>{pageTitle(data.program.name)}</title></svelte:head>
+
 <div class="mx-auto max-w-md px-4 py-6">
-	<a href="/" class="text-sm text-indigo-400 active:underline">← Programs</a>
+	<a href="/" class="text-sm text-indigo-400 active:underline">← Workout</a>
 
 	<h1 class="mt-2 text-2xl font-semibold tracking-tight">{data.program.name}</h1>
 	{#if data.program.description}

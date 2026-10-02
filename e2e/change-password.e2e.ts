@@ -104,8 +104,11 @@ describe('/account/password', () => {
 
 	it('is reached from a rendered control, and renders the form with the minimum', async () => {
 		const session = await signInAs(origin, { email: EMAIL });
+		// Home -> the account button -> Change password (0.5.5).
 		const home = await (await get('/', session)).text();
-		expect(home, 'no control links to the change-password page').toMatch(
+		expect(home, 'no account button').toMatch(/href=["']\/account["']/);
+		const account = await (await get('/account', session)).text();
+		expect(account, 'no control links to the change-password page').toMatch(
 			/href=["']\/account\/password["']/
 		);
 

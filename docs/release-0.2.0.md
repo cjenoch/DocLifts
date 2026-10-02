@@ -2539,3 +2539,33 @@ owed     the owner's own look
 CodeQL does not read `.svelte` files: its run on `main` scanned 181/181
 TypeScript, 2/2 JavaScript, 1/1 HTML and 1/1 Actions files, and none of
 the 26 components. None of them uses `{@html}`.
+
+## 29. 0.5.5 — the app shell (SPEC 0.5.0 Part E) — NOT deployed
+
+Code only: no migration, no env change. Deploy under development-push mode
+(quiet check suspended), `pre-0.5.5` kept until the owner signs off,
+`compose-prod.sh up -d --build --wait web`.
+
+What changes: the bottom tab bar (Workout, Gyms, History, Reports) replaces
+the top links; the account button opens `/account` (email, Change password,
+Sign out as a POST form); `static/manifest.webmanifest`, the icons
+(`scripts/make-icons.mjs`), `theme-color`, `apple-touch-icon` and
+`viewport-fit=cover`; Home's first-run state; empty states on Gyms, History and
+Reports; "Page · DocLifts" titles on every page; the sign-in page's name and
+tagline. The open workout's bar replaces the tabs (`workoutBar`). The phone
+crawl in `e2e/csp.e2e.ts` loads every route at 390 px.
+
+Check (assistant, production): a fresh empty account at 390x844 sees the three
+first-run lines and one button; the tabs are one row at the bottom; the
+account button reaches `/account`; Sign out works from there;
+`/manifest.webmanifest` and the three icons are served; an open workout shows
+its bar and no tabs.
+
+**Owed by the owner, on the iPhone:**
+
+- Add to Home Screen from Safari: the DocLifts icon, and it opens with no
+  browser bars.
+- Whether the installed app needs its own sign-in, separate from Safari (the
+  spec's open check). Record the answer here.
+- The tab bar clears the home indicator, and a page scrolled to the bottom
+  shows its last control above the tabs.

@@ -9,11 +9,14 @@
 		resistanceLabel
 	} from '$lib/catalog-labels';
 	import type { ActionData, PageData } from './$types';
+	import { pageTitle } from '$lib/app-shell';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const m = $derived(data.model);
 	const badge = $derived(confidenceBadge(data.model, data.userId));
 	const mine = $derived(data.model.ownerUserId === data.userId);
 </script>
+
+<svelte:head><title>{pageTitle(m.name)}</title></svelte:head>
 
 <div class="mx-auto max-w-lg space-y-5 p-4">
 	<a href="/equipment" class="text-indigo-300">← Equipment catalog</a>

@@ -2,6 +2,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { db, programs } from '$lib/server/db';
 import { requireUser } from '$lib/server/request-user';
 import { openQuickSessionId } from '$lib/server/quick-workouts';
+import { homeState } from '$lib/server/home';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -22,5 +23,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		)
 		.orderBy(programs.name);
 
-	return { programs: activePrograms, openQuickSessionId: await openQuickSessionId(db, userId) };
+	const { hasWorkouts, hasImported } = await homeState(db, userId);
+	return {
+		programs: activePrograms,
+		openQuickSessionId: await openQuickSessionId(db, userId),
+		// First run (0.5.5): no programs and no workouts ever. Home then shows
+		// three lines and one button, and nothing about programs it doesn't have.
+		firstRun: activePrograms.length === 0 && !hasWorkouts,
+		hasImported
+	};
 };

@@ -139,7 +139,10 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		quick: systemKind === 'quick',
 		groups,
 		allowEndedSessionEdit,
-		choices: await machineChoices(db, requireUser(locals).id)
+		choices: await machineChoices(db, requireUser(locals).id),
+		// An open workout shows its own bottom bar (Pause, Add exercise, Finish),
+		// and the layout hides the tabs for it: one bar at a time (0.5.5).
+		workoutBar: session.endedAt == null
 	};
 };
 

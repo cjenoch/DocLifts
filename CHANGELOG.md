@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.5 — the app shell: tabs, an account page, a home-screen icon — not yet released
+
+- **Tabs at the bottom.** Workout, Gyms, History and Reports, one row at the
+  bottom of the screen, clear of the iPhone's home indicator. Equipment lives
+  under Gyms. During an open workout the tabs step aside for the workout's own
+  bar (Pause, Add exercise, Finish workout).
+- **One account button.** The round button at the top right, showing your
+  email's first letter, opens the new Account page: your email, Change
+  password, and Sign out. They are no longer in the menu.
+- **Add it to your home screen.** DocLifts has an icon and opens full screen,
+  without the browser's bars, when added from Safari's Share menu.
+- **A first screen that says what to do.** A new account sees three steps and
+  one button, Start workout. Gyms, History and Reports say what will appear
+  there before there is anything. "Imported workout history" shows only when
+  you have some.
+- **Every page has a title** in the form "Page · DocLifts", and the sign-in
+  page says what DocLifts is.
+
 ## 0.5.4 — security updates from the first code scan — 2026-10-02
 
 - **SvelteKit 2.61.1 → 2.70.3**, which also brings `devalue` 5.8.1 → 5.9.4.

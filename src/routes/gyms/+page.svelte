@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
+	import { appShell, pageTitle } from '$lib/app-shell';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	const scopeText = $derived(
 		data.scope === 'search'
@@ -12,14 +13,23 @@
 	);
 </script>
 
+<svelte:head><title>{pageTitle('Gyms')}</title></svelte:head>
+
 <div class="mx-auto max-w-lg space-y-6 p-4">
-	<a href="/" class="text-indigo-300">← Home</a>
-	<h1 class="text-2xl font-semibold">Gyms and machines</h1>
+	<h1 class="text-2xl font-semibold">Gyms</h1>
 	<p>
 		Each named machine has its own history—even when two gyms have the same model. Known models come
 		from the <a href="/equipment" class="text-indigo-300">equipment catalog</a> or from what you enter
 		yourself.
 	</p>
+	<a
+		href="/equipment"
+		class="flex min-h-11 items-center justify-between rounded-lg border border-zinc-700 bg-zinc-900 px-4 font-semibold text-indigo-200 active:bg-zinc-800"
+		>Equipment catalog <span aria-hidden="true">→</span></a
+	>
+	{#if data.gyms.length === 0}<p class="text-zinc-400" data-testid="empty-state">
+			{appShell.empty.gyms}
+		</p>{/if}
 	{#if form?.message}<p role="status" class="text-amber-300">{form.message}</p>{/if}
 	<form method="POST" action="?/createGym" class="space-y-3 rounded border border-zinc-700 p-4">
 		<h2 class="font-semibold">Create a gym</h2>

@@ -33,7 +33,7 @@
 
 <svelte:head><title>Imported workout history · DocLifts</title></svelte:head>
 <main class="mx-auto max-w-2xl px-4 py-6 pb-20">
-	<a href="/" class="text-sm text-indigo-300">← Programs</a>
+	<a href="/" class="text-sm text-indigo-300">← Workout</a>
 	<h1 class="mt-3 text-2xl font-semibold">Your training history</h1>
 	<!-- `total` is the whole table; `estimatedCount` and the search below only
 	     cover the capped `workouts` slice, so both are labelled as such when

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ActionData } from './$types';
 	import PasswordInput from '$lib/PasswordInput.svelte';
+	import { appShell } from '$lib/app-shell';
 
 	let { form, data }: { form: ActionData; data: { demoMode?: boolean } } = $props();
 
@@ -66,9 +67,12 @@
 
 <svelte:window onpageshow={resetCountdown} />
 
-<svelte:head><title>Sign in — DocLifts</title></svelte:head>
+<svelte:head><title>Sign in · DocLifts</title></svelte:head>
 
 <main class="mx-auto max-w-sm px-4 py-16">
+	<!-- What this is, in one line (0.5.5). No sign-up link while sign-up is closed. -->
+	<p class="text-3xl font-semibold tracking-tight text-zinc-100">{appShell.appName}</p>
+	<p class="mt-2 mb-8 text-zinc-400" data-testid="tagline">{appShell.tagline}</p>
 	<h1 class="mb-6 text-2xl font-semibold">Sign in</h1>
 
 	{#if form?.error}

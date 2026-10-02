@@ -257,11 +257,12 @@ run('production build: CSP and page render', () => {
 		await harness?.end();
 	});
 
-	async function visit(path: string) {
+	async function visit(path: string, width?: number) {
 		// The crawl is AUTHENTICATED. Since T2 every page except /login is
 		// guarded, so an unauthenticated crawl would 303 to the login screen
 		// and pass while measuring nothing at all.
 		const page = await authenticatedPage(browser, cookie, origin);
+		if (width) await page.setViewportSize({ width, height: 844 });
 		const consoleErrors: string[] = [];
 		page.on('console', (msg) => {
 			if (msg.type() === 'error') consoleErrors.push(msg.text());
@@ -284,8 +285,8 @@ run('production build: CSP and page render', () => {
 	// Same crawl, no session. Only /login is reachable this way; the guard
 	// answers 303 for everything else, which is asserted in the e2e guard
 	// tests rather than here.
-	async function visitLoggedOut(path: string) {
-		const page = await browser.newPage();
+	async function visitLoggedOut(path: string, width?: number) {
+		const page = await browser.newPage(width ? { viewport: { width, height: 844 } } : {});
 		const consoleErrors: string[] = [];
 		page.on('console', (msg) => {
 			if (msg.type() === 'error') consoleErrors.push(msg.text());
@@ -358,6 +359,7 @@ run('production build: CSP and page render', () => {
 		'/programs/{id}/edit',
 		'/sessions/{id}',
 		'/workout/start',
+		'/account',
 		'/account/password',
 		'/login'
 	] as const;
@@ -402,6 +404,34 @@ run('production build: CSP and page render', () => {
 		const missing = ROUTE_PATTERNS.filter((p) => !reached.has(p));
 		expect(missing, `never reached: ${missing.join(', ')}`).toEqual([]);
 	});
+
+	// The phone crawl (0.5.5, feedback item 1.2): every route at 390 px, an
+	// iPhone 12-15 viewport. No page scrolls sideways, and where the tab bar
+	// is shown it is one row, fully on screen.
+	for (const pattern of ROUTE_PATTERNS) {
+		it(`${pattern} fits a 390 px screen`, async () => {
+			const path = resolvePattern(pattern);
+			const { page } =
+				pattern === '/login' ? await visitLoggedOut(path, 390) : await visit(path, 390);
+			const layout = await page.evaluate(() => {
+				const tabs = [...document.querySelectorAll('nav[aria-label="Main navigation"] a')];
+				return {
+					scrollWidth: document.documentElement.scrollWidth,
+					tabs: tabs.map((a) => {
+						const r = a.getBoundingClientRect();
+						return { top: Math.round(r.top), left: r.left, right: r.right };
+					})
+				};
+			});
+			expect(layout.scrollWidth, `${path} scrolls sideways`).toBeLessThanOrEqual(390);
+			for (const t of layout.tabs) {
+				expect(t.top, `${path}: tabs on one row`).toBe(layout.tabs[0].top);
+				expect(t.left, path).toBeGreaterThanOrEqual(0);
+				expect(t.right, path).toBeLessThanOrEqual(390);
+			}
+			await page.close();
+		});
+	}
 
 	it('client-side navigation stays clean and the route announcer stays hidden', async () => {
 		const { page } = await visit('/');

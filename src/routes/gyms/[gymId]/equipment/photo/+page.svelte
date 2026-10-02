@@ -3,6 +3,7 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { photoClientSettings, resizeForUpload } from '$lib/photo-client';
 	import type { ActionData, PageData } from './$types';
+	import { pageTitle } from '$lib/app-shell';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	/** null when idle; the button's label while a submit is under way. */
 	let stage: string | null = $state(null);
@@ -44,8 +45,10 @@
 	};
 </script>
 
+<svelte:head><title>{pageTitle('Add a machine from a photo')}</title></svelte:head>
+
 <div class="mx-auto max-w-lg space-y-5 p-4">
-	<a href="/gyms" class="text-indigo-300">← Gyms and machines</a>
+	<a href="/gyms" class="text-indigo-300">← Gyms</a>
 	<h1 class="text-2xl font-semibold">Add a machine from a photo</h1>
 	<p class="text-zinc-300">
 		{data.gym.name}: take a photo of the machine's placard (the label with the maker and model

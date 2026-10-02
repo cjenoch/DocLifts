@@ -6,6 +6,7 @@
 		defaultMachineLabel
 	} from '$lib/catalog-labels';
 	import type { ActionData, PageData } from './$types';
+	import { pageTitle } from '$lib/app-shell';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	/** Below this, a field is marked for the user to check against the photo. */
@@ -33,6 +34,8 @@
 	const NAME_DISAGREES =
 		"The model code matches a machine whose name doesn't match the name read, so nothing is chosen for you. The code match is first, then the closest names: pick the one that is this machine.";
 </script>
+
+<svelte:head><title>{pageTitle('Review the photo')}</title></svelte:head>
 
 <div class="mx-auto max-w-lg space-y-5 p-4">
 	<a href={`/gyms/${data.gym.id}/equipment/photo`} class="text-indigo-300"

@@ -217,7 +217,11 @@ describe('signed-in requests', () => {
 	});
 
 	it('offers a way to sign out, and that way is a POST form', async () => {
-		const res = await fetch(new URL('/', origin), { headers: { cookie } });
+		// Since 0.5.5 every page links to /account (the account button), and
+		// sign-out lives there.
+		const home = await (await fetch(new URL('/', origin), { headers: { cookie } })).text();
+		expect(home, 'no account button').toMatch(/href=["']\/account["']/);
+		const res = await fetch(new URL('/account', origin), { headers: { cookie } });
 		const html = await res.text();
 		// A working POST action existed the whole time and was never rendered
 		// anywhere, so there was no way to log out from the UI at all.

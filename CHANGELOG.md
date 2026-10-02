@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.4 — security updates from the first code scan — not yet released
+
+- **SvelteKit 2.61.1 → 2.70.3**, which also brings `devalue` 5.8.1 → 5.9.4.
+  This closes a slow-request flaw any visitor could trigger, signed in or not
+  (GHSA-29g2-3rmr-qm68), and the `devalue` advisories. Nothing in the app
+  changes.
+- **CI runs with a read-only token**, stated in the workflow instead of
+  relying on the repository's default setting.
+
 ## 0.5.3 — photo uploads are timed — 2026-10-02
 
 - **For the owner: photo uploads are timed.** Each upload's log line now

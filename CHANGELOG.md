@@ -20,7 +20,7 @@
   workout had gone to Trash. It now takes you to History (a quick workout) or
   the program page.
 
-## 0.5.1 — start a workout without a program — deployed 2026-10-02, acceptance pending
+## 0.5.1 — start a workout without a program — 2026-10-02
 
 - **Start a workout with no setup.** Home has a big "Start workout" button
   above "Create program". Pick your gym (the one you used last is already

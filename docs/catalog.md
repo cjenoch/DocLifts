@@ -179,7 +179,9 @@ pnpm catalog:import data/catalog/equipment_models_seed_2026-09-30.csv
 2. `pnpm catalog:import <new csv> --dry-run` locally against a restore of the
    production dump. Read the `update` lines: each names the columns that change.
 3. Commit, then in production `scripts/catalog-prod.sh <new csv>`: verified
-   dump, dry run printed, real run only when you type `IMPORT`.
+   dump, dry run printed, real run only when you type `IMPORT`. A snapshot
+   kept out of this public repository is not committed; pass its absolute
+   path instead (below).
 
 A code added to a model that had none is a promotion (above): same row, now
 with the code. A code **corrected** between snapshots is a recode when the new
@@ -196,8 +198,33 @@ replace.
 `scripts/catalog-prod.sh <csv>` mirrors `migrate-prod.sh`: a verified
 pre-import `pg_dump`, the builder image on the Compose network, `DATABASE_URL`
 built from `POSTGRES_PASSWORD`, the dry run first and printed, then the real run
-only on typed confirmation. It needs the owner's explicit "go", like every
-`*-prod.sh`.
+only on typed confirmation. It runs under the production rules in `CLAUDE.md`,
+like every `*-prod.sh`.
+
+The CSV is one of two things (since 0.5.1; the rules are in
+`scripts/catalog-csv-path.sh`):
+
+- **A committed file, by a path relative to the repository root**, such as
+  `data/catalog/equipment_models_seed_2026-09-30.csv`. The builder image
+  carries the checkout, and the importer reads the file at that path inside
+  it. A path inside the repository that is not committed, or has uncommitted
+  changes, is refused: the image would carry something no commit records.
+- **A file outside the repository, by its absolute path**, such as a
+  researched snapshot the owner keeps in a private directory on the VPS. It is
+  bind-mounted read-only into the import container at `/import/catalog.csv`
+  and the importer is given that path; it never enters the image or the repo.
+  Its sha256 is printed before the dry run and checked again after `IMPORT`,
+  so the import refuses a file that changed in between.
+
+A missing, unreadable or empty file is refused before the dump, each with a
+one-line reason. The confirmation prompt is printed as a whole line and the
+answer read on the next, so a runner that reads output line by line sees it
+(`read -p` prints no newline, and one hung on it on 2026-10-02).
+
+The path rules are tested without docker or production:
+`src/lib/server/catalog-prod.test.ts` sources only the resolver in bash
+against a throwaway git repository, and reads the wrapper as text. The
+wrapper itself is never run by a test.
 
 Narrow undo of an import (the full undo is the pre-import dump):
 

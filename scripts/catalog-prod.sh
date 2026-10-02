@@ -14,34 +14,54 @@
 # (manufacturer, product_line, name) for codeless rows. It never touches a row
 # a user owns. Any row it cannot map aborts the run with nothing written.
 #
-# Nothing touches production without the owner's explicit "go" in the current
-# session (CLAUDE.md, "Shipping and production").
+# It runs under the production rules in CLAUDE.md ("Shipping and production").
 #
 # Usage (from the deploy checkout on the VPS, over SSH):
 #   scripts/catalog-prod.sh data/catalog/equipment_models_seed_2026-09-30.csv
+#   scripts/catalog-prod.sh /absolute/path/outside/the/repo/snapshot.csv
 #
-# The CSV path is relative to the repository root, because the importer reads
-# it from inside the image, where the checkout is copied to /app.
+# The CSV is either (scripts/catalog-csv-path.sh has the rules):
+#   - a path RELATIVE to the repository root, naming a COMMITTED file; the
+#     importer reads it from inside the image, where the checkout is copied to
+#     /app. The public snapshots in data/catalog/ are passed this way; or
+#   - an ABSOLUTE path to a readable file OUTSIDE the repository, such as a
+#     private snapshot kept on the VPS. It is bind-mounted read-only into the
+#     import container at /import/catalog.csv and never enters the image.
+# A path inside the repository that is not committed, or a missing, unreadable
+# or empty file, is refused before anything else runs.
 set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=scripts/catalog-csv-path.sh
+source "${REPO_ROOT}/scripts/catalog-csv-path.sh"
 
 ENV_FILE="${DOCLIFTS_PROD_ENV:-/srv/doclifts/.env}"
 BACKUP_DIR="${DOCLIFTS_BACKUP_DIR:-/srv/doclifts/backups}"
 
 if [[ $# -ne 1 ]]; then
-	echo "Usage: scripts/catalog-prod.sh <csv path relative to the repo root>" >&2
+	echo "Usage: scripts/catalog-prod.sh <committed csv, relative to the repo root | absolute path to a csv outside the repo>" >&2
 	exit 2
 fi
-CSV="$1"
-case "$CSV" in
-/* | *..*)
-	echo "the CSV path must be relative to the repository root and stay inside it: $CSV" >&2
-	exit 2
-	;;
-esac
-if [[ ! -f "$CSV" ]]; then
-	echo "CSV not found in this checkout: $CSV (it must be committed, so the image carries it)" >&2
-	exit 1
+status=0
+resolve_catalog_csv "$1" "$REPO_ROOT" || status=$?
+if [[ $status -ne 0 ]]; then
+	exit "$status"
 fi
+CSV="$CATALOG_CSV_ARG"
+MOUNT_ARGS=()
+CSV_SHA256=""
+if [[ -n "$CATALOG_CSV_MOUNT" ]]; then
+	MOUNT_ARGS=(-v "${CATALOG_CSV_MOUNT}:${CATALOG_CSV_CONTAINER_PATH}:ro")
+	# The dry run and the import read the same host file; this proves it did
+	# not change in between (the image pins a repository file by itself).
+	CSV_SHA256="$(sha256sum "$CATALOG_CSV_MOUNT" | cut -d' ' -f1)"
+	echo "==> CSV outside the repository: ${CATALOG_CSV_MOUNT} (sha256 ${CSV_SHA256}), mounted read-only at ${CSV}"
+else
+	echo "==> CSV committed in the repository: ${CSV}"
+fi
+# The relative CSV path and the image build below are both read from the
+# repository root, wherever this was started from.
+cd "$REPO_ROOT"
 if [[ ! -f "$ENV_FILE" ]]; then
 	echo "production env file not found: $ENV_FILE" >&2
 	exit 1
@@ -94,6 +114,7 @@ docker build --target builder -t doclifts-migrations:local .
 run_import() {
 	docker run --rm --network doclifts_default \
 		-e DATABASE_URL \
+		"${MOUNT_ARGS[@]}" \
 		doclifts-migrations:local pnpm catalog:import "$CSV" "$@"
 }
 
@@ -105,10 +126,19 @@ if ! run_import --dry-run; then
 fi
 
 # ------------------------------------------------------------ confirmation ----
+# The prompt is a whole line. `read -p` prints it with no newline, and an
+# automated runner reading output line by line waited forever for it
+# (2026-10-02).
 echo
-read -r -p "Apply this import to ${DB_NAME}? Type IMPORT to continue: " answer
+echo "Apply this import to ${DB_NAME}? Type IMPORT to continue:"
+answer=""
+read -r answer || true
 if [[ "$answer" != "IMPORT" ]]; then
 	echo "not confirmed — nothing was written" >&2
+	exit 1
+fi
+if [[ -n "$CSV_SHA256" && "$(sha256sum "$CATALOG_CSV_MOUNT" | cut -d' ' -f1)" != "$CSV_SHA256" ]]; then
+	echo "the CSV changed since the dry run — nothing was written; run again" >&2
 	exit 1
 fi
 

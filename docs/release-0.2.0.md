@@ -2117,7 +2117,14 @@ the URL and the selected file are unchanged, nothing is stored, and the retry
 reaches review. Watched failing with the first Part A handler (the page was
 replaced and the alert never appeared).
 
-## 25. 0.5.1 — start a workout with no program — deployed 2026-10-02, acceptance pending
+## 25. 0.5.1 — start a workout with no program — DEPLOYED 2026-10-02, accepted 2026-10-02
+
+**Owner sign-off, 2026-10-02:** walked on his iPhone with a fresh empty
+account (`chris-phone-01@doclifts.invalid`): signed in, Start workout, typed a
+new gym at the gym step, added an exercise, saved 2 sets, finished at 02:48
+UTC; also a photo upload (3.2 MB chosen, 962 KB received) read and confirmed.
+Accepted. `pre-0.5.1` deleted after the sign-off. His notes on the exercise
+picker (machine picker or tree) are for later.
 
 ```
 0.5.1    14922ff, tagged 0.5.1; branch CI green (test + docker); full local
@@ -2128,7 +2135,7 @@ restore  0017 applied to a FRESH pg_dump of production taken just before
          2 users); migrations 17 -> 18; all four names present
 quiet    open workouts active in 6 h: 0; last write 56 min before; app
          events in the last 30 min: 0
-image    pre-0.5.1 kept until the owner signs off
+image    pre-0.5.1 kept until the owner signed off; deleted after
 env      PHOTO_DAILY_LIMIT=60 (owner default for testing); backup
          /srv/doclifts/.env.pre-0.5.1; passthrough check 17 keys
 migrate  verified dump predeploy-20261002T022254Z.dump; 18 migration rows

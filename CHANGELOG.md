@@ -10,7 +10,7 @@
   saying why. When the code and the name agree, it is pre-picked as before.
   The maker's name and product line ("Pure Kraft") don't count as agreement.
 
-## 0.5.1 — start a workout without a program — deployed 2026-10-02, acceptance pending
+## 0.5.1 — start a workout without a program — 2026-10-02
 
 - **Start a workout with no setup.** Home has a big "Start workout" button
   above "Create program". Pick your gym (the one you used last is already

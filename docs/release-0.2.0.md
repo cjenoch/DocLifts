@@ -3062,7 +3062,9 @@ same section.
 Check (assistant, production, scratch account): a quick workout saved as a
 new program, and a workout added as a day of an existing one, at 390 px.
 
-## 40. 0.13.0 — faster set entry (SPEC 0.5.0, Part F) — DEPLOYED 2026-10-03, acceptance pending
+## 40. 0.13.0 — faster set entry (SPEC 0.5.0, Part F) — DEPLOYED 2026-10-03, accepted 2026-10-03
+
+**Owner sign-off, 2026-10-03:** "I sign off on 0.13.0 and 0.13.1." `pre-0.13.0` deleted after the sign-off.
 
 ```
 0.13.0   6242931, tagged 0.13.0; branch CI green; full local gate 849 (+2
@@ -3103,7 +3105,9 @@ tab; RIR stays a plain optional field.
 Check (assistant, production, scratch account): one-tap save, the steppers,
 and the timer across a reload, at 390 px.
 
-## 41. 0.13.1 — free weights keep their weight format into a program — DEPLOYED 2026-10-03, acceptance pending
+## 41. 0.13.1 — free weights keep their weight format into a program — DEPLOYED 2026-10-03, accepted 2026-10-03
+
+**Owner sign-off, 2026-10-03:** "I sign off on 0.13.0 and 0.13.1." `pre-0.13.1` deleted after the sign-off.
 
 ```
 0.13.1   a1abda7, tagged 0.13.1; branch CI green; full local gate 851 (+2

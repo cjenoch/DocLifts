@@ -2797,7 +2797,9 @@ workout's add form, present on its past workout); restore it; change a
 machine's model in place (same id) and take the stack offer; merge two
 machines and undo.
 
-## 34. 0.8.0 — the add sheet, free weights, the Exercises page (machines spec, second release, first half) — DEPLOYED 2026-10-03, acceptance pending
+## 34. 0.8.0 — the add sheet, free weights, the Exercises page (machines spec, second release, first half) — DEPLOYED 2026-10-03, accepted 2026-10-03
+
+**Owner sign-off, 2026-10-03:** "Approve." `pre-0.8.0` deleted after the sign-off.
 
 ```
 0.8.0    be18885, tagged 0.8.0; branch CI green; full local gate 798 (+2

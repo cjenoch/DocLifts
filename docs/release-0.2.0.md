@@ -2846,7 +2846,9 @@ exercise adds at once with no machine (psql); create an exercise from typed
 text; the Exercises page renames and hides one, which leaves the sheet, and
 restores it.
 
-## 35. 0.8.1 — a planned exercise's machine, in the sheet (machines spec, second release, second half) — DEPLOYED 2026-10-03, acceptance pending
+## 35. 0.8.1 — a planned exercise's machine, in the sheet (machines spec, second release, second half) — DEPLOYED 2026-10-03, accepted 2026-10-03
+
+**Owner sign-off, 2026-10-03:** "I approve this is my sign off." `pre-0.8.1` deleted after the sign-off.
 
 ```
 0.8.1    82cb09e, tagged 0.8.1; branch CI green; full local gate 799 (+2

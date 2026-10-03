@@ -2879,3 +2879,24 @@ Part N rebuilds that screen and names this picker; it is built there.
 
 Check (assistant, production, scratch account): a program workout's planned
 machine exercise binds through the sheet; the button is gone after a set.
+
+## 36. 0.9.0 — four starter templates (editor spec, Part D) — NOT deployed
+
+Code only. `src/lib/starter-templates.ts` builds Barbell Strength, Machine
+Full Body and Machines and Dumbbells as editor drafts beside
+`traveling-ppl.ts`, and `STARTER_TEMPLATES` lists all four. The program editor
+offers them as buttons ("Use …") until Part N's phone editor replaces that
+screen. Library rows are reused only on an exact name, equipment type and
+lower-body match; template names and types follow the starter list where they
+overlap, since `(user_id, name)` is unique and a differently typed collision
+is refused on save. MAIN lifts are a top set plus backoffs (the validator's
+shape for MAIN); the plank is timed with no RIR; the deadlift is one top set.
+
+Owner's account: one collision found by a read-only check (his `Deadlift`
+was not lower body). At his choice (2026-10-03) it was set to lower body,
+one row, after a verified dump
+(`/srv/backups/doclifts/pre-deadlift-lower-body-2026-10-03.dump`); no
+collisions remain across the 33 shared names.
+
+Check (assistant, production, scratch account): pick a template, save it,
+start day one, save a set at 390 px.

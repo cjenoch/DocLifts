@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 — four starter programs — 2026-10-03
+
+- **Start from a template.** Creating a program now offers four starting
+  points: Traveling PPL, Barbell Strength (4 days), Machine Full Body (two
+  workouts alternated, 3 days a week) and Machines and Dumbbells (4 days).
+  Each opens as a draft you can edit; nothing is saved until you save it.
+- Exercises you already have are reused when the name, equipment and
+  lower-body setting match; the rest are added for you. No starting weights:
+  your history supplies them.
+
 ## 0.8.1 — choose a program exercise's machine in the sheet — 2026-10-03
 
 - **In a program workout,** a planned machine exercise has a "Choose machine"

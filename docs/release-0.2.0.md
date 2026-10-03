@@ -2915,7 +2915,25 @@ collisions remain across the 33 shared names.
 Check (assistant, production, scratch account): pick a template, save it,
 start day one, save a set at 390 px.
 
-## 37. 0.10.0 — edit a live workout (editor spec, Part L) — NOT deployed
+## 37. 0.10.0 — edit a live workout (editor spec, Part L) — DEPLOYED 2026-10-03, acceptance pending
+
+```
+0.10.0   b75ce85, tagged 0.10.0; branch CI green; full local gate 831 (+2
+         skipped) / 3 / 31 / 150. No CLAUDE.md, auth or schema change:
+         deployed under development-push mode after the owner's "start Part L"
+image    pre-0.10.0 kept until the owner signs off
+web      healthy; version.json b75ce85
+check    scratch account, 390x844, "090 check Barbell Strength" day 1: Face
+         pull moved up; Barbell row removed, Undo kept it, removed again and
+         gone after the 5 s window; Barbell bench press swapped to Dumbbell
+         press "From now on" (confirm shown); Overhead press set 1 saved 65 x 5,
+         swap shown closed, Skip the rest; finished with "Your program now uses
+         the swapped exercise". psql: press 1 set (logged), dumbbell press 3
+         linked, face pull 2; old program inactive; new version's day 1 is
+         Overhead press, Dumbbell press, Barbell row, Face pull. No overflow,
+         no 5xx, 0 page errors.
+owed     the owner editing a live workout on his phone
+```
 
 Code only, no migration: program exercises already get their own
 `session_exercises` row and position at session start. `src/lib/server/live-edit.ts`

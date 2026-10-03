@@ -29,12 +29,24 @@
 		sessionId,
 		open = $bindable(false),
 		/** The workout's own gym, where "Photo a machine" can file a photo. */
-		photoGymId = null
+		photoGymId = null,
+		/**
+		 * Bind mode (0.8.1): choose the machine for a planned exercise of a
+		 * program workout. Machines only, of the exercise's type, then a
+		 * confirm step; posts to `?/bindMachine`.
+		 */
+		bind = null
 	}: {
 		picker: PickerData;
 		sessionId: string;
 		open?: boolean;
 		photoGymId?: string | null;
+		bind?: {
+			occurrenceId: string;
+			exerciseId: string;
+			exerciseName: string;
+			equipmentType: string;
+		} | null;
 	} = $props();
 
 	type NewMachine = { id: null; label: string; equipmentType: string; bodyRegion: null };
@@ -52,7 +64,8 @@
 		| { kind: 'machine'; machine: PickerMachine }
 		| { kind: 'newMachine' }
 		| { kind: 'create' }
-		| { kind: 'format'; exercise: ExerciseChoice; machine: MachineChoice | null };
+		| { kind: 'format'; exercise: ExerciseChoice; machine: MachineChoice | null }
+		| { kind: 'confirm'; machine: MachineChoice };
 
 	const tabKey = $derived(`doclifts:sheet-tab:${sessionId}`);
 	let tab = $state<'machines' | 'exercises'>('machines');
@@ -80,10 +93,13 @@
 	const exerciseById = $derived(new Map(picker.exercises.map((e) => [e.id, e])));
 	const gymMachines = $derived(picker.machines.filter((m) => m.gymId === gymId));
 	const typeFilter = $derived(
-		exerciseContext && !FREE_TYPES.includes(exerciseContext.equipmentType as never)
-			? exerciseContext.equipmentType
-			: null
+		bind
+			? bind.equipmentType
+			: exerciseContext && !FREE_TYPES.includes(exerciseContext.equipmentType as never)
+				? exerciseContext.equipmentType
+				: null
 	);
+	let bindFormEl: HTMLFormElement | undefined = $state();
 
 	onMount(() => {
 		requestId = newRequestId();
@@ -93,8 +109,9 @@
 		} catch {
 			/* A remembered tab is optional. */
 		}
-		tab =
-			saved === 'machines' || saved === 'exercises'
+		tab = bind
+			? 'machines'
+			: saved === 'machines' || saved === 'exercises'
 				? saved
 				: gymMachines.length
 					? 'machines'
@@ -210,8 +227,32 @@
 		machineQuery = '';
 		setTab('machines');
 	}
+	function confirmBind(machine: MachineChoice) {
+		if (!bind) return;
+		format =
+			(machine.id ? picker.conventions[`${bind.exerciseId}|${machine.id}`] : null) ??
+			conventionsFor(bind.equipmentType).preset;
+		view = { kind: 'confirm', machine };
+	}
+	async function submitBind(machine: MachineChoice) {
+		if (!bind) return;
+		const fields: Record<string, string> = {
+			occurrenceId: bind.occurrenceId,
+			equipmentType: bind.equipmentType,
+			loadConvention: format,
+			// The confirm step is the old "CHANGE" checkbox (machines spec Part I).
+			confirm: 'CHANGE'
+		};
+		if (gymId) fields.gymId = gymId;
+		if (machine.id) fields.gymEquipmentId = machine.id;
+		else fields.newMachineName = machine.label;
+		payload = fields;
+		await tick();
+		bindFormEl?.requestSubmit();
+	}
 	function chooseMachine(machine: PickerMachine) {
 		message = '';
+		if (bind) return confirmBind(machine);
 		if (exerciseContext) {
 			if (exerciseContext.equipmentType !== machine.equipmentType) {
 				message = `${machine.label} is a ${equipmentLabel(machine.equipmentType).toLowerCase()} machine.`;
@@ -262,6 +303,7 @@
 			equipmentType: newMachineType,
 			bodyRegion: null
 		};
+		if (bind) return confirmBind(machine);
 		// Came from an exercise: it goes on this new machine now.
 		if (exerciseContext) return addOrAsk(exerciseContext, machine);
 		machineContext = machine;
@@ -310,7 +352,9 @@
 	<div class="sheet" role="dialog" aria-modal="true" aria-label={ui.addExercise}>
 		<header class="sheet-head">
 			<div class="flex items-center justify-between gap-2">
-				<h2 class="text-lg font-semibold">{ui.addExercise}</h2>
+				<h2 class="text-lg font-semibold">
+					{bind ? ui.chooseMachineFor(bind.exerciseName) : ui.addExercise}
+				</h2>
 				<button class="min-h-11 px-2 text-indigo-200" onclick={close}>{ui.close}</button>
 			</div>
 			{#if gym}
@@ -337,7 +381,7 @@
 					{/if}
 				</div>
 			{/if}
-			<div class="tabs" role="tablist">
+			<div class="tabs" role="tablist" hidden={!!bind}>
 				<button role="tab" aria-selected={tab === 'machines'} onclick={() => setTab('machines')}
 					>{ui.machinesTab}</button
 				>
@@ -362,7 +406,27 @@
 		{/if}
 
 		<div class="sheet-body">
-			{#if view.kind === 'machine'}
+			{#if view.kind === 'confirm'}
+				<p class="font-semibold" data-testid="bind-confirm">
+					{ui.useMachineFor(view.machine.label)}
+				</p>
+				<p class="mt-1 text-sm text-zinc-400">{ui.bindNote}</p>
+				<p class="mt-3 mb-2 text-sm text-zinc-300">{ui.weightFormat}</p>
+				<div class="flex flex-wrap gap-2">
+					{#each conventionsFor(view.machine.equipmentType).options as c (c)}
+						<button class="chip" aria-pressed={format === c} onclick={() => (format = c)}
+							>{conventionLabel(c)}</button
+						>
+					{/each}
+				</div>
+				<button
+					class="cta mt-4"
+					disabled={busy}
+					onclick={() => view.kind === 'confirm' && submitBind(view.machine)}
+					>{ui.useThisMachine}</button
+				>
+				<button class="row mt-2" onclick={reset}>{ui.back}</button>
+			{:else if view.kind === 'machine'}
 				{@const m = view.machine}
 				<p class="font-semibold">{m.label}</p>
 				{#if m.modelName}<p class="text-sm text-zinc-400">{m.modelName}</p>{/if}
@@ -470,7 +534,7 @@
 			{:else if tab === 'machines'}
 				{#if !exerciseContext}
 					<div class="space-y-2">
-						{#if photoGymId && photoGymId === gymId}<button
+						{#if photoGymId && photoGymId === gymId && !bind}<button
 								class="row primary"
 								onclick={() => {
 									// The workout bar's photo input: close the sheet and open the picker.
@@ -543,6 +607,36 @@
 			{/if}
 		</div>
 
+		<form
+			method="POST"
+			action="?/bindMachine"
+			bind:this={bindFormEl}
+			class="hidden"
+			use:enhance={() => {
+				busy = true;
+				message = '';
+				return async ({ result, update }) => {
+					try {
+						if (result.type === 'redirect' || result.type === 'success') {
+							await update({ reset: false });
+							close();
+						} else if (result.type === 'failure') {
+							message = String(result.data?.message ?? 'Could not use that machine.');
+						} else if (result.type === 'error') {
+							message = 'That did not get through. Try again.';
+						}
+					} finally {
+						busy = false;
+					}
+				};
+			}}
+		>
+			{#each Object.entries(payload) as [name, value] (name)}<input
+					type="hidden"
+					{name}
+					{value}
+				/>{/each}
+		</form>
 		<form
 			method="POST"
 			action="?/addExercise"

@@ -308,6 +308,55 @@ it('bindMachine binds a machine and redirects back to the session', async () => 
 	expect(updated.gymEquipmentId).toBe(machine.id);
 });
 
+it('bindMachine from the add sheet (0.8.1): a machine named there is made and bound; a refused bind makes none', async () => {
+	const db = testDb.db!;
+	const { sessionId } = await startWorkout();
+	const gym = await createGym(db, userId, { name: 'Sheet G' });
+	const [occurrence] = await db
+		.select()
+		.from(s.sessionExercises)
+		.where(eq(s.sessionExercises.sessionId, sessionId));
+	const machinesNamed = (label: string) =>
+		db.select().from(s.gymEquipment).where(eq(s.gymEquipment.localLabel, label));
+	const thrown = await Promise.resolve(
+		actions.bindMachine(
+			post(sessionId, {
+				occurrenceId: occurrence.id,
+				gymId: gym.id,
+				newMachineName: 'Leg press by the window',
+				equipmentType: occurrence.equipmentType,
+				loadConvention: 'plates_per_side',
+				confirm: 'CHANGE'
+			})
+		)
+	).catch((e: unknown) => e);
+	expect((thrown as { status?: number })?.status).toBe(303);
+	const [made] = await machinesNamed('Leg press by the window');
+	const [bound] = await db
+		.select()
+		.from(s.sessionExercises)
+		.where(eq(s.sessionExercises.id, occurrence.id));
+	expect(bound.gymEquipmentId).toBe(made.id);
+
+	// A logged set: the bind is refused, and the machine it named is not made.
+	await db
+		.update(s.sets)
+		.set({ executedLoad: 90, executedReps: 8 })
+		.where(eq(s.sets.sessionExerciseId, occurrence.id));
+	const refused = await actions.bindMachine(
+		post(sessionId, {
+			occurrenceId: occurrence.id,
+			gymId: gym.id,
+			newMachineName: 'Second press',
+			equipmentType: occurrence.equipmentType,
+			loadConvention: 'plates_per_side',
+			confirm: 'CHANGE'
+		})
+	);
+	expect(refused).toMatchObject({ status: 400 });
+	expect(await machinesNamed('Second press')).toEqual([]);
+});
+
 it('marks a quick workout, and moving an ended one to Trash returns to History', async () => {
 	// 0.5.1: a quick workout's program has no page to return to.
 	const { startQuickSession } = await import('$lib/server/quick-workouts');

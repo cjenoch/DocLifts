@@ -86,6 +86,13 @@ export const pickerUi = {
 	add: 'Add',
 	back: 'Back',
 	useMachine: (label: string) => `Use ${label}`,
+	// Bind mode (0.8.1): a program workout's planned exercise.
+	chooseMachine: 'Choose machine',
+	changeMachine: 'Change machine',
+	chooseMachineFor: (exercise: string) => `Machine for ${exercise}`,
+	useMachineFor: (label: string) => `Use ${label} for this exercise?`,
+	bindNote: 'Changing the machine starts its own history. It can be changed until a set is logged.',
+	useThisMachine: 'Use this machine',
 	last: (date: string, load: number, reps: number) => `${date} · ${load} × ${reps}`,
 	manageExercises: 'Manage exercises',
 	// The Exercises page

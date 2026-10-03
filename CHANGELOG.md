@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.1 — choose a program exercise's machine in the sheet — not yet released
+
+- **In a program workout,** a planned machine exercise has a "Choose machine"
+  button (or "Change machine"). It opens the add sheet on the gym's machines
+  of that type: tap the one you're at, check the weight format, and confirm
+  "Use … for this exercise?". You can also add a machine by name there. The
+  old equipment form and its checkbox are gone.
+- As before, the machine can't be changed once a set is logged; the button
+  disappears then.
+
 ## 0.8.0 — the add sheet: machine first, exercise in a tap — 2026-10-03
 
 - **A new way to add to a workout.** "Add exercise" opens a full-screen sheet

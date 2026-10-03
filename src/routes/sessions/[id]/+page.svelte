@@ -4,9 +4,8 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import type { ActionData, PageData } from './$types';
 	import SetRow from './SetRow.svelte';
-	import MachinePicker from '$lib/MachinePicker.svelte';
 	import AddSheet from '$lib/AddSheet.svelte';
-	import { pickerUi } from '$lib/picker-ui';
+	import { FREE_TYPES, pickerUi } from '$lib/picker-ui';
 	import TrashAction from '$lib/TrashAction.svelte';
 	import { workoutUi } from '$lib/workout-ui';
 	import { photoClientSettings, resizeForUpload } from '$lib/photo-client';
@@ -18,6 +17,15 @@
 	// The add sheet opens on a tap (0.8.0). An empty quick workout no longer
 	// opens it by itself: it is full-screen, and would cover "Photo next machine".
 	let pickerOpen = $state(false);
+	// Bind mode (0.8.1): which planned exercise is choosing its machine.
+	let bindOpen = $state(false);
+	let bindTarget = $state<{
+		occurrenceId: string;
+		exerciseId: string;
+		exerciseName: string;
+		equipmentType: string;
+	} | null>(null);
+	const FREE_WEIGHT_UI = new Set(FREE_TYPES as readonly string[]);
 	const heading = $derived(data.quick ? workoutUi.sessionHeading : data.day.name);
 	const backHref = $derived(data.quick ? '/' : `/programs/${data.session.programId}`);
 	let appendError = $state('');
@@ -264,25 +272,22 @@
 					><button>{workoutUi.photoUndo}</button>
 				</form>
 			{/if}
-			{#if !data.session.endedAt && group.occurrenceId && !data.photoBlocks[group.occurrenceId]}<details
-					class="equipment"
+			{#if !data.session.endedAt && group.occurrenceId && !data.photoBlocks[group.occurrenceId] && !FREE_WEIGHT_UI.has(group.equipmentType) && !group.sets.some((x) => x.executedLoad != null || x.executedReps != null || x.executedRir != null || x.notes)}
+				<!-- The machine for a planned exercise (0.8.1): the add sheet in bind mode,
+				     with a confirm step. Refused by the server once a set is logged. -->
+				<button
+					class="secondary"
+					onclick={() => {
+						bindTarget = {
+							occurrenceId: group.occurrenceId!,
+							exerciseId: group.exerciseId,
+							exerciseName: group.exerciseName,
+							equipmentType: group.equipmentType
+						};
+						bindOpen = true;
+					}}>{group.machineLabel ? pickerUi.changeMachine : pickerUi.chooseMachine}</button
 				>
-					<summary>Equipment details</summary>
-					<p class="muted">
-						Choose before logging. Changing equipment starts a separate performance history.
-					</p>
-					<form method="POST" action="?/bindMachine">
-						<input type="hidden" name="occurrenceId" value={group.occurrenceId} /><MachinePicker
-							gyms={data.choices.gyms}
-							machines={data.choices.machines}
-							equipmentType={data.choices.exercises.find((e) => e.id === group.exerciseId)
-								?.equipmentType}
-						/><label class="confirm"
-							><input type="checkbox" name="confirm" value="CHANGE" required /> Confirm equipment and
-							weight format</label
-						><button class="secondary">Apply equipment</button>
-					</form>
-				</details>{/if}
+			{/if}
 			<ul>
 				<!--
 					Keyed by the set's identity, not its id alone (0.6.2): SetRow captures
@@ -387,6 +392,16 @@
 			photoGymId={data.photoEnabled ? data.session.gymId : null}
 			bind:open={pickerOpen}
 		/>
+		{#if bindTarget}
+			{#key bindTarget.occurrenceId}
+				<AddSheet
+					picker={data.picker}
+					sessionId={data.session.id}
+					bind={bindTarget}
+					bind:open={bindOpen}
+				/>
+			{/key}
+		{/if}
 	{/if}
 </main>
 {#if !data.session.endedAt}<footer>
@@ -534,20 +549,6 @@
 	}
 	.exercise-heading p {
 		margin-top: 5px;
-	}
-	.equipment {
-		font-size: 13px;
-		margin-bottom: 14px;
-	}
-	summary {
-		cursor: pointer;
-		padding: 10px 0;
-		color: #b6c5da;
-	}
-	.confirm {
-		display: flex;
-		gap: 8px;
-		margin-top: 12px;
 	}
 	.secondary {
 		min-height: 44px;

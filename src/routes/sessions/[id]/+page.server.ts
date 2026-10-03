@@ -22,7 +22,7 @@ import { z } from 'zod';
 import {
 	addSessionExercise,
 	bindSessionMachine,
-	machineChoices,
+	createMachine,
 	MachineInputError
 } from '$lib/server/machines';
 import type { Actions, PageServerLoad } from './$types';
@@ -113,6 +113,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		loadConvention: string;
 		exerciseId: string;
 		exerciseName: string;
+		/** The block's equipment type (0.8.1: the sheet's bind filter). */
+		equipmentType: string;
 		tier: 'main' | 'secondary' | 'isolation' | null;
 		progressionPolicy: 'standard' | 'cautious' | 'hold' | null;
 		sets: SetRow[];
@@ -134,6 +136,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 				loadConvention: s.loadConvention,
 				exerciseId: s.exerciseId,
 				exerciseName: s.exerciseName,
+				equipmentType: s.equipmentType,
 				tier: s.occurrenceTier ?? meta?.tier ?? null,
 				progressionPolicy: s.occurrencePolicy ?? meta?.progressionPolicy ?? null,
 				sets: []
@@ -156,7 +159,6 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		quick: systemKind === 'quick',
 		groups,
 		allowEndedSessionEdit,
-		choices: await machineChoices(db, requireUser(locals).id),
 		// The add sheet's data (0.8.0); only an open workout adds exercises.
 		picker: session.endedAt ? null : await pickerData(db, requireUser(locals).id, session.gymId),
 		// An open workout shows its own bottom bar (Pause, Add exercise, Finish),
@@ -242,14 +244,26 @@ export const actions: Actions = {
 			return fail(400, { message: 'Invalid session id', setId: null });
 		}
 		const form = Object.fromEntries(await request.formData());
+		const userId = requireUser(locals).id;
 		try {
-			await bindSessionMachine(
-				db,
-				requireUser(locals).id,
-				params.id,
-				String(form.occurrenceId),
-				form
-			);
+			// From the add sheet (0.8.1): a machine named there is made first, in
+			// the same transaction, so a refused bind leaves no new machine behind.
+			await db.transaction(async (tx) => {
+				let input = form;
+				if (
+					!form.gymEquipmentId &&
+					typeof form.newMachineName === 'string' &&
+					form.newMachineName.trim()
+				) {
+					const machine = await createMachine(tx, userId, {
+						gymId: form.gymId,
+						localLabel: form.newMachineName,
+						equipmentType: form.equipmentType
+					});
+					input = { ...form, gymEquipmentId: machine.id };
+				}
+				await bindSessionMachine(tx, userId, params.id, String(form.occurrenceId), input);
+			});
 		} catch (e) {
 			if (e instanceof z.ZodError || e instanceof MachineInputError)
 				return fail(400, { message: e.message, setId: null });

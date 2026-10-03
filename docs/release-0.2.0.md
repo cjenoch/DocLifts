@@ -2845,3 +2845,19 @@ exercise, adds with last time's numbers and no format question; a dumbbell
 exercise adds at once with no machine (psql); create an exercise from typed
 text; the Exercises page renames and hides one, which leaves the sheet, and
 restores it.
+
+## 35. 0.8.1 — a planned exercise's machine, in the sheet (machines spec, second release, second half) — NOT deployed
+
+Code only. `AddSheet.svelte` gains bind mode: a planned exercise's "Choose
+machine" opens it on the gym's machines of the exercise's type, then a confirm
+step with the weight format posts to `?/bindMachine` (`confirm=CHANGE`, as
+before). "Add by name" there makes the machine and binds it in one transaction,
+so a refused bind leaves no new machine. `bindSessionMachine`'s refusal after a
+logged set is unchanged, and the button is hidden then. `MachinePicker.svelte`
+and the old equipment form are removed.
+
+Not in 0.8.1, on purpose: the picker in the program editor. The editor spec's
+Part N rebuilds that screen and names this picker; it is built there.
+
+Check (assistant, production, scratch account): a program workout's planned
+machine exercise binds through the sheet; the button is gone after a set.

@@ -13,6 +13,8 @@ export type PhotoTimings = {
 	processWaitMs: number | null;
 	/** `processPhoto` (sharp): validate, orient, resize, re-encode, strip; the wait excluded. */
 	processMs: number | null;
+	/** Pre-storage safety classifier, including refusals. */
+	safetyMs: number | null;
 	/** `store.put` of the processed JPEG. */
 	storePutMs: number | null;
 	/** The one `complete()` call: the model's read of the photo. */
@@ -22,6 +24,7 @@ export type PhotoTimings = {
 export const emptyTimings = (): PhotoTimings => ({
 	processWaitMs: null,
 	processMs: null,
+	safetyMs: null,
 	storePutMs: null,
 	modelMs: null
 });

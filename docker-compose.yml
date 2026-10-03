@@ -24,6 +24,7 @@ services:
       start_period: 5s
 
   web:
+    networks: [default, photo_safety]
     build:
       context: .
       dockerfile: Dockerfile
@@ -38,6 +39,12 @@ services:
     # Default is unchanged, so every existing invocation behaves identically.
     image: ${DOCLIFTS_WEB_IMAGE:-doclifts-web:vps}
     container_name: doclifts-web
+    mem_limit: 2g
+    memswap_limit: 2g
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    ulimits:
+      core: { soft: 0, hard: 0 }
     restart: unless-stopped
     depends_on:
       db:
@@ -113,6 +120,11 @@ services:
       # read (PhotoConfigError naming it). Empty means unset. Defaults match
       # src/lib/server/photos/config.ts. The S3 credentials are secrets: they
       # live only in production's env file, never here.
+      PHOTO_SAFETY_MODE: ${PHOTO_SAFETY_MODE:-paused}
+      PHOTO_SAFETY_TIMEOUT_MS: ${PHOTO_SAFETY_TIMEOUT_MS:-5000}
+      PHOTO_SAFETY_NSFW_THRESHOLD: ${PHOTO_SAFETY_NSFW_THRESHOLD:-0.5}
+      PHOTO_SAFETY_HOURLY_LIMIT: ${PHOTO_SAFETY_HOURLY_LIMIT:-60}
+      PHOTO_SAFETY_LOCAL_URL: http://safety:8000/scan
       PHOTO_STORE: ${PHOTO_STORE:-s3}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_REGION: ${S3_REGION:-}
@@ -142,9 +154,42 @@ services:
       retries: 12
       start_period: 10s
 
+  safety:
+    networks: [photo_safety]
+    build: ./services/photo-safety
+    image: doclifts-photo-safety:alpha
+    profiles: ['safety']
+    restart: unless-stopped
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    cpus: 2
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+    ulimits:
+      core: { soft: 0, hard: 0 }
+    # Internal Docker network only. No published port or production credentials.
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2)"
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+
   cloudflared:
     image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
     profiles: ['public']
+    mem_limit: 256m
+    memswap_limit: 256m
+    ulimits:
+      core: { soft: 0, hard: 0 }
     restart: unless-stopped
     user: '1000:1000'
     read_only: true
@@ -165,3 +210,7 @@ services:
 
 volumes:
   doclifts_pgdata:
+
+networks:
+  photo_safety:
+    internal: true

@@ -4,7 +4,8 @@ export const RESOURCE = 'https://doclifts-mcp.runthe.ai/mcp';
 export async function oauthFixture(
 	origin: string,
 	cookie?: string,
-	scopes = 'workouts:read programs:read equipment:read offline_access'
+	scopes = 'workouts:read programs:read equipment:read offline_access',
+	includeResource = true
 ) {
 	const registration = await fetch(origin + '/api/auth/oauth2/register', {
 		method: 'POST',
@@ -29,6 +30,7 @@ export async function oauthFixture(
 		code_challenge: createHash('sha256').update(verifier).digest('base64url'),
 		state: randomUUID()
 	});
+	if (!includeResource) query.delete('resource');
 	const authorize = origin + '/api/auth/oauth2/authorize?' + query;
 	const response = cookie
 		? await fetch(authorize, {

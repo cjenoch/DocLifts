@@ -3376,3 +3376,16 @@ Full workout/photo checks also passed on build1e52b4c. A/B safety remains live a
 signup closed. Previous38ff199 and the1e52b4c image are retained; future builds
 must retain at least two prior recovery images under the new policy. Owner's
 first actual agent connection is pending, not inferred from SDK tests.
+
+## 49. 0.16.2 Alpha — Muse resource compatibility — NOT DEPLOYED
+
+Owner reached a400 Invalid connection resource page after Muse login. Muse omitted
+the resource parameter. A new served-build browser regression reproduced the same
+consent failure without resource, while the explicit-resource flow passed.
+
+The authorization hook defaults only an absent resource on an unsigned initial
+request to the single DocLifts MCP resource, before provider validation/signing.
+Consent and bearer checks stay strict. The targeted regression now passes both
+flows through read, refresh and revoke; explicit wrong targets and signed-request
+tampering remain refused. Full release gates and deployment checks still required.
+No schema, environment or Cloudflare changes. Existing Muse client ID stays valid.

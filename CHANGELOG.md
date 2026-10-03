@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.2 Alpha — OAuth resource compatibility — not deployed
+
+- OAuth clients such as Muse can omit the authorization resource parameter.
+  DocLifts supplies its single MCP resource before provider validation and signing,
+  keeping consent, authorization codes and tokens bound to that resource.
+- Explicit resource values and signed continuations are never rewritten.
+  Wrong targets, tampered requests, consent and revocation checks remain enforced.
+- Browser regression coverage exercises login, consent, SDK reads, refresh and
+  revocation with and without an explicit resource. No schema or tunnel changes.
+
 ## 0.16.1 Alpha — MCP live — deployed, acceptance pending
 
 - The production acceptance checks read the current Alpha test-account file and

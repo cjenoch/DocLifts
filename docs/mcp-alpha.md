@@ -24,7 +24,11 @@ export and note scribing remain later features; these reads are not a backup.
 
 Better Auth OAuth Provider 1.7.7, paired with Better Auth 1.7.7. Authorization code
 with S256 PKCE and rotating refresh tokens. No client-credentials/password grant.
-Resource is the exact MCP URL; issuer is the main app's /api/auth URL. Discovery
+Resource is the exact MCP URL; issuer is the main app's /api/auth URL.
+For clients that omit resource, the 0.16.2 authorization hook adds this single
+resource before provider validation/signing. Explicit targets and signed
+continuations are never rewritten. Consent and access-token checks still require
+the exact audience; token exchange/refresh can inherit the bound resource. Discovery
 is served at canonical protected-resource and authorization-server metadata paths.
 Dynamic client registration supports current clients; CIMD is not implemented in
 this Alpha. OAuth metadata advertises supported mechanisms, no invented support.

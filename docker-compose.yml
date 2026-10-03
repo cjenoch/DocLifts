@@ -7,7 +7,7 @@
 # VPS tailnet IP (100.118.77.26:3000), reachable only from the tailnet — no
 # public exposure, no Caddy, no public TLS termination.
 #
-# T6: Tailscale Serve terminates TLS at https://enochnvps.tail29bbdb.ts.net and
+# T6: Tailscale Serve terminates TLS at the configured PUBLIC_ORIGIN and
 # proxies to the tailnet IP above. The app still speaks plain HTTP to the proxy;
 # only the edge is encrypted. That is why the port publish is 100.118.77.26 and
 # not 127.0.0.1 — the app does not listen on loopback, so Serve must reach it at
@@ -77,17 +77,8 @@ services:
       #
       # Set both to the same value, and never let them drift.
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in the production env file; use scripts/compose-prod.sh}
-      # Behind Tailscale Serve the socket sees plain HTTP and a Host of
-      # localhost unless these say otherwise. Without them adapter-node builds
-      # url.origin as http://localhost, every POST 403s on the CSRF check, and
-      # the app redirects to a non-https URL. Naming the trusted headers lets it
-      # reconstruct the real https://enochnvps... origin.
-      #
-      # Safe here specifically because the app binds to the tailnet IP, not
-      # 0.0.0.0, so nothing off-tailnet can forge X-Forwarded-Host. Do not change
-      # the ports publish to 0.0.0.0 without re-reading this.
-      PROTOCOL_HEADER: x-forwarded-proto
-      HOST_HEADER: x-forwarded-host
+      # adapter-node 5.5.4 uses ORIGIN before forwarded host/protocol headers.
+      # Do not configure HOST_HEADER or PROTOCOL_HEADER: there is one browser origin.
       # Better Auth signs session cookies with this. Without it auth.ts throws
       # at module load and the container never opens its listener — which is
       # the intended behaviour, but it means the secret MUST be passed into
@@ -108,6 +99,8 @@ services:
       #
       # Every tunable needs a line here. The defaults are documented in
       # .env.example; uncomment to override.
+      # Empty preserves tailnet/dev XFF behavior. Set cf-connecting-ip at cutover.
+      CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}
       LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-10}
       LOGIN_FAILURE_WINDOW_SEC: ${LOGIN_FAILURE_WINDOW_SEC:-900}
       LOGIN_DELAY_AFTER_FAILURES: ${LOGIN_DELAY_AFTER_FAILURES:-5}

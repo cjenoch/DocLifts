@@ -19,11 +19,9 @@
  * HTTP, SvelteKit, Better Auth, or the database, which is what makes it
  * testable with a fake clock instead of real waits.
  *
- * Two keys, both checked: the client IP and the normalized email. Either can
- * refuse. The IP alone cannot stop a spray across many addresses from one
- * host; the email alone cannot stop one address being attacked from many
- * hosts. Together they cover both, and the email key survives the proxy hop
- * only because the address is part of the key, not the log.
+ * Both IP and normalized email count failures and can delay a sign-in.
+ * Only the IP can refuse it: an attacker who knows an email must not be able
+ * to lock its owner out from another address. The email delay stays capped.
  *
  * STORAGE AND ITS LIMITS — READ THIS BEFORE SCALING
  * -------------------------------------------------
@@ -355,7 +353,7 @@ export class LoginThrottle {
 		// "0 disables" semantics are checked here rather than assumed.
 		const atCeiling =
 			this.config.maxFailures > 0
-				? counts.find(({ count }) => count >= this.config.maxFailures)
+				? counts.find(({ key, count }) => key.type === 'ip' && count >= this.config.maxFailures)
 				: undefined;
 		if (atCeiling) {
 			const stored = this.failures.get(this.keyId(atCeiling.key)) ?? [];

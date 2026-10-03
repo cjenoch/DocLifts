@@ -232,13 +232,12 @@ Better Auth's own limiter charges successes, which is how 0.2.0 shipped a state
 where four correct-password sign-ins in quick succession left a user unable to
 get back in.
 
-Below the ceiling, wrong guesses get a progressive delay (1s, 2s, 4s, 8s, 16s,
-then 30s each). The delay is logged but not yet announced on the page, so it
-reads as a slow response. At the ceiling, even a
-correct password is refused for the remainder of the window, and the page says
-how many seconds to wait. `LOGIN_MAX_FAILURES=0` disables the ceiling: failures
-only ever slow, never lock — which is why the cap defaults to 30s rather than a
-few seconds.
+The email key can only delay, never refuse a sign-in. Below the IP ceiling,
+wrong guesses get a progressive delay (1s, 2s, 4s, 8s, 16s, then 30s each).
+The page reports the wait. At the IP ceiling, even a correct password from
+that address is refused until the oldest failure expires, and the page says
+how many seconds to wait. `LOGIN_MAX_FAILURES=0` disables the IP ceiling;
+failures still trigger the capped delay.
 
 **Tuning from the log.** Each refusal and each delay emits one structured line:
 

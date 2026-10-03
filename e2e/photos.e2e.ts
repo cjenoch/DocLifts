@@ -535,7 +535,7 @@ run('equipment from a photo (production build)', () => {
 			headers: { cookie: cookieA }
 		});
 		expect(asA.status).toBe(200); // positive first
-		expect(asA.headers.get('cache-control')).toMatch(/no-store/);
+		expect(asA.headers.get('cache-control')).toMatch(/private, no-store/);
 		expect(asA.headers.get('content-type')).toBe('image/jpeg');
 
 		const asB = await fetch(`${origin}/photos/${aPhoto.id}/image`, {

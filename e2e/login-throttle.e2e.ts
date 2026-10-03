@@ -258,13 +258,15 @@ describe('sign-in throttle — failures do count', () => {
 		);
 	}, 60_000);
 
-	it('counts the email, not just the address, so a spray cannot help', async () => {
+	it('allows the account owner after failures from other IPs', async () => {
 		// A different IP every time. Per-IP control alone would never see this
-		// pattern; the email key is what catches it.
+		// pattern; the email key may delay but must never refuse the owner.
 		for (let i = 0; i < Number(MAX_FAILURES); i++) await wrong(`198.51.100.${i + 1}`);
 
 		const res = await correct('198.51.100.250');
-		expect((await envelopeOf(res)).type, 'a fresh IP must not reset the email key').toBe('failure');
+		expect((await envelopeOf(res)).type, 'the email alone must never lock out its owner').toBe(
+			'redirect'
+		);
 	}, 60_000);
 
 	it('does not refuse one account because ANOTHER email was attacked', async () => {

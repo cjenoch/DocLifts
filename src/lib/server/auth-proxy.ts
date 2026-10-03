@@ -26,28 +26,9 @@
  * auth route and hands it to `auth.handler`, which is the documented, limited
  * path. One code path, not two.
  *
- * THE IP HEADER IS LOAD-BEARING
- * -----------------------------
- * The limiter keys on the client IP, read from `x-forwarded-for`
- * (`advanced.ipAddress.ipAddressHeaders` defaults to exactly that — verified in
- * @better-auth/core 1.7.6 dist/utils/ip.mjs, DEFAULT_IP_HEADERS).
- *
- * Two facts from that same file shape this function:
- *
- *   1. `getIPFromHeader` returns null when the header holds MORE THAN ONE value
- *      and no `trustedProxies` are configured. Null means no IP, and in
- *      production (`isTest() || isDevelopment()` false) a null IP disables rate
- *      limiting for that request. So forwarding the raw header verbatim would
- *      silently disable the very control this file exists to restore, the
- *      moment a proxy appends to the chain instead of overwriting it.
- *
- *   2. The leftmost entry of X-Forwarded-For is client-supplied and therefore
- *      spoofable. Tailscale Serve OVERWRITES the header with the connecting
- *      tailnet node's address, so the single value it sends is trustworthy
- *      here. That is a property of this deployment, not a general one — see
- *      the public-cutover item in the T8 list, which needs `trustedProxies`.
- *
- * Hence: forward ONE value, taken from the left of the chain, and say why.
+ * IP identity comes from client-ip.ts. A configured proxy header is the only
+ * source; legacy development uses the first X-Forwarded-For value. Forward the
+ * same normalized value the failure throttle and attempt log use.
  *
  * ---------------------------------------------------------------------------
  * A SECOND, LATER DEFECT THIS FILE SURVIVED: the auth route 404'd entirely
@@ -85,6 +66,8 @@
  */
 
 import { auth } from './auth';
+import { clientIpFrom, clientIpHeader } from './client-ip';
+export { clientIpFrom } from './client-ip';
 
 /**
  * The absolute origin the auth handler should see.
@@ -134,12 +117,6 @@ export const SIGN_OUT_ROUTE = '/api/auth/sign-out';
  * no reason.
  */
 const FORWARDED = [
-	// The limiter's key. Reduced to a single value — see the file comment.
-	'x-forwarded-for',
-	// Better Auth builds its own origin check from these; behind Tailscale
-	// Serve the socket values are the proxy's, not the browser's.
-	'x-forwarded-proto',
-	'x-forwarded-host',
 	// Per-client identity for audit logging.
 	'user-agent',
 	// Origin and Referer, on BOTH paths.
@@ -174,27 +151,6 @@ const FORWARDED = [
 ] as const;
 
 /**
- * The single client IP for a request, or `null` if it cannot be determined.
- *
- * Deliberately the same value Better Auth's limiter would key on: the leftmost
- * entry of `x-forwarded-for`, reduced to one. `forwardedHeaders` does the same
- * reduction, and the two MUST agree — if the throttle keyed on one IP and the
- * backstop on another, the log would describe a different attacker from the
- * one being refused.
- *
- * `null` is a real possibility and is NOT treated as a distinct bucket. Under
- * Tailscale Serve the header is always present and always single-valued. Behind
- * a proxy that appends rather than overwrites, it would not be — see the
- * `trustedProxies` item in the T8 list.
- */
-export function clientIpFrom(headers: Headers): string | null {
-	const raw = headers.get('x-forwarded-for');
-	if (!raw) return null;
-	const first = raw.split(',')[0]?.trim();
-	return first ? first : null;
-}
-
-/**
  * Build the headers for the proxied auth request.
  *
  * `content-type` is set by the caller because the body is JSON regardless of
@@ -210,17 +166,11 @@ export function forwardedHeaders(
 		const value = incoming.get(name);
 		if (value === null) continue;
 
-		if (name === 'x-forwarded-for') {
-			// Exactly one value. See the file comment: a multi-value header
-			// resolves to no IP at all, and no IP means no rate limit.
-			const first = value.split(',')[0]?.trim();
-			if (first) out.set('x-forwarded-for', first);
-			continue;
-		}
-
 		out.set(name, value);
 	}
 
+	const ip = clientIpFrom(incoming);
+	if (ip) out.set(clientIpHeader(), ip);
 	return out;
 }
 

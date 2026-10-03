@@ -3143,3 +3143,25 @@ which is why it missed this.
 
 Check (assistant, production, scratch account): "0120 check from workout"
 day 1 shows last time's dumbbell weights.
+
+## 42. 0.14.0 — public-address preparation — NOT DEPLOYED
+
+Parts 1–2 of SPEC-public-address. No schema or training-data change.
+Runtime origin, trusted client address, email delay-only throttle and app
+response headers. See `docs/public-address.md` for configuration and limits.
+
+Before merge: full local gate, branch CI, and owner review of the auth,
+origin and CSRF diff. Keep the current PUBLIC_ORIGIN and leave CLIENT_IP_HEADER
+empty for the first tailnet deployment; do not enable the tunnel in this step.
+Retain the current image as `pre-0.14.0` until acceptance. No rollback image
+from 0.13.x remains, so create this tag before building the replacement.
+
+After approved deploy: check the scratch account on the real screens,
+record deployed/pending acceptance here, then record owner acceptance separately.
+
+Validation on the VPS: lint, TypeScript/Svelte check, Drizzle snapshot chain,
+863 server tests (+2 existing skips), 3 demo, 40 component, production build,
+and 160 served-build e2e tests passed. Controlled mutations produced two
+unit-test failures and five served-build failures: trusted header selection,
+email refusal, the old origin allowlist, response policy, and Better Auth's
+header configuration. All mutated source files were restored.

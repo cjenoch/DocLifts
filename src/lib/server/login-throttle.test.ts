@@ -201,16 +201,19 @@ describe('LoginThrottle', () => {
 			expect(decision.keyType).toBe('ip');
 		});
 
-		it('refuses on the email from a different IP — the case per-IP cannot catch', () => {
-			const t = new LoginThrottle({ ...DEFAULT_THROTTLE_CONFIG, maxFailures: 3 }, fakeClock().now);
-			// A spray: every attempt from a different address, one account.
-			const spray = [1, 2, 3].map((n) => ({ type: 'ip' as const, value: `10.0.0.${n}` }));
-			for (const key of spray) t.recordFailure([key, EMAIL]);
-
-			const decision = t.check([{ type: 'ip', value: '10.0.0.99' }, EMAIL]);
-			if (decision.kind !== 'refuse') throw new Error('expected a refusal');
-			// The address is brand new; only the email key can have caught it.
-			expect(decision.keyType).toBe('email');
+		it('a distributed attack can delay an email but never refuse its owner', () => {
+			const t = new LoginThrottle(DEFAULT_THROTTLE_CONFIG, fakeClock().now);
+			for (let i = 1; i <= 20; i++) {
+				t.recordFailure([{ type: 'ip', value: `192.0.2.${i}` }, EMAIL]);
+			}
+			expect(t.check([OTHER_IP, EMAIL])).toEqual({
+				kind: 'delay',
+				delayMs: 30000,
+				keyType: 'email',
+				count: 20
+			});
+			t.clear([OTHER_IP, EMAIL]);
+			expect(t.check([OTHER_IP, EMAIL])).toEqual({ kind: 'allow' });
 		});
 
 		it('clearing the email does not clear the IP', () => {
@@ -359,7 +362,7 @@ describe('LOGIN_MAX_FAILURES=0 disables the ceiling', () => {
 	// this suite fail for a reason that has nothing to do with the ceiling —
 	// worth stating because that is exactly how it went wrong the first time.
 	const config = { ...DEFAULT_THROTTLE_CONFIG, maxFailures: 0 };
-	const keys: ThrottleKey[] = [{ type: 'email', value: 'owner@doclifts.invalid' }];
+	const keys: ThrottleKey[] = [IP, { type: 'email', value: 'owner@doclifts.invalid' }];
 
 	it('does not refuse an account with zero recorded failures', () => {
 		const t = new LoginThrottle(config, () => 1_000_000);

@@ -36,6 +36,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { clientIpFrom } from './client-ip';
 
 /** Why an attempt ended the way it did. */
 export type LoginAttemptReason =
@@ -171,7 +172,7 @@ export function logLoginAttempt(
 		const { email = '', password = '', ...event } = fields;
 		const line: LoginAttemptEvent = {
 			...event,
-			ipHash: shortHash(clientIpFromRequest(request)),
+			ipHash: shortHash(clientIpFrom(request.headers) ?? 'unknown'),
 			emailHash: email ? hashEmail(email) : 'none',
 			...describePassword(password),
 			uaHash: hashUserAgent(request.headers.get('user-agent'))
@@ -180,23 +181,4 @@ export function logLoginAttempt(
 	} catch (cause) {
 		console.error('[login_attempt] logging failed:', cause);
 	}
-}
-
-/**
- * The client IP, same reduction the throttle uses.
- *
- * Duplicated rather than imported to keep this module free of a dependency on
- * auth-proxy, which imports the auth instance: a logging helper that pulls in
- * the whole auth graph is a liability in a path that runs on every attempt,
- * including failures.
- */
-function clientIpFromRequest(request: Request): string {
-	const forwarded = request.headers.get('x-forwarded-for');
-	if (forwarded) {
-		// A multi-value chain resolves to no IP in better-auth and silently
-		// disables rate limiting, so take the first entry deliberately.
-		const first = forwarded.split(',')[0]?.trim();
-		if (first) return first;
-	}
-	return request.headers.get('x-real-ip') ?? request.headers.get('cf-connecting-ip') ?? 'unknown';
 }

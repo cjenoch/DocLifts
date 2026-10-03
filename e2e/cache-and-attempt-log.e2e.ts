@@ -63,6 +63,7 @@ describe('every rendered page is uncacheable', () => {
 	it('sends no-store on /login, which is public and must still not be cached', async () => {
 		const res = await fetch(new URL('/login', origin));
 		expect(res.status).toBe(200);
+		expect(res.headers.get('strict-transport-security')).toBeNull();
 		// Before 0.2.2 this header was absent entirely, and Safari held a stale
 		// copy of the sign-in form across a password change.
 		expect(

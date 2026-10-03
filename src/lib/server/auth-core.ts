@@ -34,6 +34,7 @@
  * create an account that the running server cannot authenticate.
  */
 import { betterAuth } from 'better-auth';
+import { clientIpHeader } from './client-ip';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { exercises } from './db/schema';
 import { authTables } from './db/auth-schema';
@@ -289,6 +290,7 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 		},
 
 		advanced: {
+			ipAddress: { ipAddressHeaders: [clientIpHeader()], ipv6Subnet: 64 },
 			defaultCookieAttributes: {
 				sameSite: 'lax'
 			},

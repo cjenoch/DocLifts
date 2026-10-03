@@ -186,7 +186,30 @@ const betterAuth: Handle = ({ event, resolve }) =>
  * Better Auth's own endpoints. But the allowlist is for the GUARD's benefit, not
  * a claim about routing order.
  */
-export const handle: Handle = sequence(betterAuth, guard);
+/** Cover direct auth-handler responses and guard redirects as well as rendered pages. */
+const responsePolicy: Handle = async ({ event, resolve }) => {
+	const response = await resolve(event);
+	const headers = new Headers(response.headers);
+	headers.set('x-content-type-options', 'nosniff');
+	headers.set('referrer-policy', 'strict-origin-when-cross-origin');
+	if (event.url.protocol === 'https:') {
+		headers.set('strict-transport-security', 'max-age=86400');
+	}
+	if (!isAssetPath(event.url.pathname)) {
+		headers.set('cache-control', 'private, no-store, must-revalidate');
+		const vary = headers.get('vary');
+		if (!vary?.split(',').some((name) => name.trim().toLowerCase() === 'cookie')) {
+			headers.set('vary', vary ? `${vary}, Cookie` : 'Cookie');
+		}
+	}
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers
+	});
+};
+
+export const handle: Handle = sequence(responsePolicy, betterAuth, guard);
 
 /**
  * Runs once when the server starts, before it listens.

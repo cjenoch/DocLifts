@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.0 — public-address preparation — unreleased
+
+- The browser address is controlled by runtime `PUBLIC_ORIGIN`, with no
+  cross-origin CSRF exceptions or forwarded host/protocol trust.
+- `CLIENT_IP_HEADER` selects the trusted proxy header. Login throttling,
+  Better Auth and attempt logs use the same normalized address; IPv6 uses /64.
+- Failures against an email can delay its owner, but only an IP can trigger
+  a hard refusal. Successful sign-in still clears both counters.
+- App responses include security headers and private, no-store caching,
+  including direct auth responses. HTTPS responses start with one-day HSTS.
+- This release prepares the existing deployment; the tunnel and public DNS
+  cutover remain separate, reviewed steps.
+
 ## 0.13.1 — free weights remember their weight format in programs — 2026-10-03
 
 - **Fixed:** a program saved from a quick workout showed no weight for free

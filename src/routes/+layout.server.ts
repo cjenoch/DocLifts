@@ -1,5 +1,3 @@
-import { env } from '$env/dynamic/private';
-
 /**
  * Supplies page data only. The auth GUARD is in src/hooks.server.ts `handle`,
  * not here: a form action executes before any `load`, so a guard in the
@@ -7,7 +5,6 @@ import { env } from '$env/dynamic/private';
  */
 export function load({ locals }: { locals: App.Locals }) {
 	return {
-		demoMode: env.DOCLIFTS_DEMO === '1',
 		user: locals.user ?? null
 	};
 }

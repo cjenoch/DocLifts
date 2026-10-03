@@ -542,8 +542,8 @@ production, not what the change is.
 
 **`main` moves only on a green gate, twice.** Push `main` only after the full
 local gate passes the way CI runs it — `pnpm lint`, `pnpm check`,
-`pnpm exec drizzle-kit check` (with `DATABASE_URL` set), the `server`, `demo`
-and `client` projects, `pnpm build`, and `pnpm test:e2e` under `CI=1` so a
+`pnpm exec drizzle-kit check` (with `DATABASE_URL` set), the `server`
+and `client` projects (the demo was retired by owner request on 2026-10-03), `pnpm build`, and `pnpm test:e2e` under `CI=1` so a
 missing prerequisite fails instead of skipping — **and** CI is green on the
 branch. Watch it with `gh run watch`; do not infer it.
 
@@ -685,8 +685,6 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 ## File conventions
 
 - `src/lib/server/db/schema.ts` — all Drizzle table definitions
-- `src/lib/server/db/seed.ts` — guarded fictional demo seed CLI; requires `DOCLIFTS_DEMO=1` and a `doclifts_demo` database. Never use it to seed production.
-- `src/lib/server/demo.ts` — transactional fictional fixtures; refuses populated non-demo databases and never truncates existing data.
 - `src/lib/server/auth-core.ts` — `createAuth(db, opts)`, the Better Auth configuration with **no `$env`/`$app` imports**, so it runs outside SvelteKit. `auth.ts` is only the SvelteKit singleton that supplies the secret and build phase. Do not move configuration back into `auth.ts`: that is what made the T5 CLI unrunnable.
 - `src/lib/server/starter-exercises.ts` — the 23 exercises copied into every new account by the auth create hook.
 - `src/lib/server/users.ts` — `createUser(auth, db, input)` / `setPassword(auth, db, input)`. The auth instance is an explicit argument because the CLI must build its own outside SvelteKit.
@@ -700,7 +698,6 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `scripts/make-icons.mjs` — draws the app icon and writes `static/favicon.svg` and the PNGs `static/manifest.webmanifest` and iOS use. Rerun it after changing the drawing; commit its output.
 - `src/lib/server/data-dir.ts` — `dataDir()`, the private data directory named by `DOCLIFTS_DATA_DIR`, for scripts and private tests only; `private-data.test.ts` skips when it is unset, as in public CI. See `docs/private-data.md`.
 - `src/lib/photo-client.ts` — resize on the phone before upload (0.5.0): `photoClientSettings` is the only place its numbers and progress labels live (`enabled`, `maxEdgePx`, `jpegQuality`, `skipBelowBytes`, `timeoutMs`, `labels`). `resizeForUpload` never throws and falls back to the original file; the server's `processPhoto` stays the authority.
-- `compose.demo.yml` — isolated, localhost-only temporary demo; does not mount production data or read `.env`.
 - `src/lib/server/db/index.ts` — Drizzle client singleton
 - `src/lib/server/progression.ts` — engine + history helpers
 - `src/lib/server/plates.ts` — plate snap algorithms + router

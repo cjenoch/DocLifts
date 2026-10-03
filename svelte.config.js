@@ -9,6 +9,10 @@ const config = {
 	},
 	kit: {
 		adapter: adapter(),
+		// csrfBoundary in hooks runs BEFORE auth and page actions. It preserves
+		// same-origin forms, with one cookie-free native OAuth token exception.
+		// The served-build MCP and auth tests exercise both sides of this boundary.
+		csrf: { trustedOrigins: ['*'] },
 		// Stale-build detection.
 		//
 		// The 0.2.1 lockout ended with a browser unable to sign in and no way to
@@ -44,7 +48,7 @@ const config = {
 				'frame-ancestors': ['none']
 			}
 		}
-		// Same-origin CSRF uses runtime ORIGIN; no cross-origin exceptions.
+		// Same-origin form protection uses runtime ORIGIN in csrfBoundary.
 	}
 };
 

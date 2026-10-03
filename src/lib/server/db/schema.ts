@@ -1131,3 +1131,13 @@ export type LlmCall = typeof llmCalls.$inferSelect;
 export type NewLlmCall = typeof llmCalls.$inferInsert;
 export type EquipmentPhoto = typeof equipmentPhotos.$inferSelect;
 export type NewEquipmentPhoto = typeof equipmentPhotos.$inferInsert;
+
+export {
+	oauthClient,
+	oauthResource,
+	oauthClientResource,
+	oauthRefreshToken,
+	oauthAccessToken,
+	oauthConsent,
+	oauthClientAssertion
+} from './auth-schema';

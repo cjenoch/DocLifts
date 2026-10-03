@@ -37,7 +37,11 @@ const ALLOWLIST: readonly string[] = [
 	'/favicon',
 	'/robots.txt',
 	'/manifest',
-	'/health'
+	'/health',
+	'/mcp',
+	'/account/connections/start',
+	'/.well-known/oauth-protected-resource',
+	'/.well-known/oauth-authorization-server'
 ];
 
 /**

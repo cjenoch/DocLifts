@@ -23,6 +23,11 @@
 		>Change password</a
 	>
 
+	<a
+		href="/account/connections"
+		class="mb-3 flex min-h-11 items-center justify-center rounded border border-zinc-700 px-4"
+		>Connected agents</a
+	>
 	<!--
 		Sign out. A <form method="POST" action="/logout"> and not an <a href>:
 		the route answers 405 to GET on purpose, so a link, a prefetch, or an

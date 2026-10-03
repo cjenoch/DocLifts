@@ -38,6 +38,7 @@ import { sequence } from '@sveltejs/kit/hooks';
 import { redirect, type Handle, type ServerInit } from '@sveltejs/kit';
 import { loginThrottle, throttleConfigLogLine } from '$lib/server/login-throttle';
 import { auth } from '$lib/server/auth';
+import { csrfBoundary } from '$lib/server/csrf-boundary';
 import { db } from '$lib/server/db';
 import { isAssetPath, isPublicPath, resolveAuthRedirect } from '$lib/server/request-user';
 import { redirectWithNoStore } from '$lib/server/redirect-no-store';
@@ -209,7 +210,7 @@ const responsePolicy: Handle = async ({ event, resolve }) => {
 	});
 };
 
-export const handle: Handle = sequence(responsePolicy, betterAuth, guard);
+export const handle: Handle = sequence(responsePolicy, csrfBoundary, betterAuth, guard);
 
 /**
  * Runs once when the server starts, before it listens.

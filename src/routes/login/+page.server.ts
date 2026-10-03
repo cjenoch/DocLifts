@@ -24,7 +24,7 @@ const toSeconds = (ms: number): number | null => (ms > 0 ? Math.ceil(ms / 1000) 
 /** No throttle wait to report: validation and the refusal never sleep. */
 const NO_WAIT = { heldSeconds: null, nextDelaySeconds: null };
 
-export const load: PageServerLoad = async ({ request }) => {
+export const load: PageServerLoad = async ({ request, url }) => {
 	// `locals.user` is NOT set on this route: the guard resolves the session
 	// only for non-public paths, and /login is public, so that a page render
 	// and every static asset cost no database round trip. The already-signed-in
@@ -33,8 +33,10 @@ export const load: PageServerLoad = async ({ request }) => {
 	// This is the one place that pays the lookup deliberately: knowing whether
 	// to bounce is the entire purpose of the page.
 	const session = await auth.api.getSession({ headers: request.headers, returnHeaders: false });
-	if (session?.user) redirect(303, '/');
-	return {};
+	const next = url.searchParams.get('next');
+	const safeNext = isSafeNext(next) ? next : '/';
+	if (session?.user) redirect(303, safeNext);
+	return { next: safeNext };
 };
 
 export const actions: Actions = {

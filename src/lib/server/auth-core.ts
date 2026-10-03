@@ -1,3 +1,5 @@
+import { oauthProvider } from '@better-auth/oauth-provider';
+import { MCP_SCOPES, mcpResource, tokenHash } from './mcp/config';
 /**
  * The Better Auth configuration as a FUNCTION, with no SvelteKit imports.
  *
@@ -16,10 +18,7 @@
  * a server module reaches for another virtual, and makes the CLI depend on the
  * app's module graph in a way nothing else in the repo does. Rejected.
  *
- * The way taken instead is the one `db/seed.ts` already uses: build the pieces
- * from `process.env` outside the framework. seedDemo sidestepped this only
- * because it imports just the schema; it needs `createUser`, which needs auth,
- * so there was no sidestep available.
+ * The CLI builds the pieces from `process.env` outside the framework.
  *
  * So the configuration lives here as `createAuth(db, opts)`, and `auth.ts`
  * becomes the SvelteKit singleton that supplies the two values this file cannot
@@ -124,10 +123,32 @@ export function passwordMinLength(env: Record<string, string | undefined> = proc
 	return parsed;
 }
 
-export function createAuth(db: Database, opts: CreateAuthOptions) {
+function configuredAuth(db: Database, opts: CreateAuthOptions) {
 	return betterAuth({
 		baseURL: opts.baseURL,
 		secret: opts.secret,
+		plugins: [
+			oauthProvider({
+				loginPage: '/account/connections/start',
+				consentPage: '/account/connections/consent',
+				disableJwtPlugin: true,
+				scopes: [...MCP_SCOPES, 'offline_access'],
+				grantTypes: ['authorization_code', 'refresh_token'],
+				accessTokenExpiresIn: 900,
+				refreshTokenExpiresIn: 60 * 60 * 24 * 30,
+				storeTokens: { hash: tokenHash },
+				resources: [
+					{ identifier: mcpResource(), allowedScopes: [...MCP_SCOPES, 'offline_access'] }
+				],
+				clientRegistrationDefaultResources: [mcpResource()],
+				clientRegistrationDefaultScopes: ['workouts:read', 'programs:read', 'equipment:read'],
+				clientRegistrationAllowedScopes: ['notes:read', 'offline_access'],
+				allowDynamicClientRegistration: true,
+				allowUnauthenticatedClientRegistration: true,
+				clientPrivileges: async () => false,
+				resourcePrivileges: async () => false
+			})
+		],
 
 		database: drizzleAdapter(db, {
 			provider: 'pg',
@@ -215,7 +236,7 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 		 * `databaseHooks.user.create.after` rather than a call inside
 		 * `createUser`, because createUser is not the only way an account comes
 		 * into being: this hook fires for `pnpm user:bootstrap`,
-		 * `pnpm user:create`, seedDemo's demo user, and any future open
+		 * `pnpm user:create` and any future open
 		 * sign-up, with no path able to forget it. A call inside createUser
 		 * would be one more place to remember.
 		 *
@@ -225,9 +246,7 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 		 *
 		 * onConflictDoNothing on (user_id, name), the unique index created by
 		 * 0010 (`exercises_user_id_name_unique`), so re-running is a no-op
-		 * rather than a duplicate. seedDemo depends on that too: the demo
-		 * user's nine exercises arrive from HERE, and its own inserts collide
-		 * by design.
+		 * rather than a duplicate.
 		 *
 		 * A failure here must not roll back the account: `user.create.after`
 		 * runs after the user exists, so throwing would leave a user with no
@@ -321,4 +340,22 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 	});
 }
 
+/** OAuth resource initialization touches the DB. Defer it until a runtime caller
+ * uses auth; importing server modules during a source-less build must not connect.
+ * The same deferral lets test migrations finish before auth is first exercised. */
+export function createAuth(
+	db: Database,
+	opts: CreateAuthOptions
+): ReturnType<typeof configuredAuth> {
+	passwordMinLength(); // Preserve eager configuration validation without opening a DB connection.
+	let instance: ReturnType<typeof configuredAuth> | undefined;
+	return new Proxy({} as ReturnType<typeof configuredAuth>, {
+		get(target, property) {
+			// Preserve explicit overrides (including handler spies in proxy tests).
+			if (Object.hasOwn(target, property)) return Reflect.get(target, property);
+			instance ??= configuredAuth(db, opts);
+			return Reflect.get(instance, property);
+		}
+	});
+}
 export type Auth = ReturnType<typeof createAuth>;

@@ -41,6 +41,8 @@ describe('isPublicPath', () => {
 			'/sessions/1',
 			'/workout/start',
 			'/account',
+			'/account/connections',
+			'/account/connections/consent',
 			'/account/password'
 		]) {
 			expect(isPublicPath(p), p).toBe(false);
@@ -154,6 +156,8 @@ describe('route inventory', () => {
 		const expectedGuarded = new Set([
 			'/',
 			'/account',
+			'/account/connections',
+			'/account/connections/consent',
 			'/account/password',
 			'/equipment',
 			'/equipment/x',

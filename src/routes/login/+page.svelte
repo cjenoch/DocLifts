@@ -3,14 +3,7 @@
 	import PasswordInput from '$lib/PasswordInput.svelte';
 	import { appShell } from '$lib/app-shell';
 
-	let { form, data }: { form: ActionData; data: { demoMode?: boolean } } = $props();
-
-	// Demo mode is a fictional, disposable dataset on a throwaway local stack
-	// (compose.demo.yml, localhost only). Surfacing the shared credentials is
-	// what makes the demo usable at all; it is never shown in any other mode,
-	// and the values match the defaults in src/lib/server/demo.ts.
-	const demoEmail = 'demo@doclifts.local';
-	const demoPassword = 'doclifts-demo-2026';
+	let { form, data }: { form: ActionData; data: { next?: string } } = $props();
 
 	const seconds = (n: number) => `${n} second${n === 1 ? '' : 's'}`;
 
@@ -71,9 +64,10 @@
 
 <main class="mx-auto max-w-sm px-4 py-16">
 	<!-- What this is, in one line (0.5.5). No sign-up link while sign-up is closed. -->
-	<p class="text-3xl font-semibold tracking-tight text-zinc-100">{appShell.appName}</p>
+	<h1 class="text-3xl font-semibold tracking-tight text-zinc-100">{appShell.signInHeadline}</h1>
+	<p class="mt-2 text-sm font-medium text-zinc-400">{appShell.appName}</p>
 	<p class="mt-2 mb-8 text-zinc-400" data-testid="tagline">{appShell.tagline}</p>
-	<h1 class="mb-6 text-2xl font-semibold">Sign in</h1>
+	<h2 class="mb-6 text-2xl font-semibold">Sign in</h2>
 
 	{#if form?.error}
 		<p
@@ -114,6 +108,7 @@
 	{/if}
 
 	<form method="POST" class="space-y-4" onsubmit={startCountdown}>
+		<input type="hidden" name="next" value={data.next ?? '/'} />
 		{#if form?.email}
 			<input type="hidden" name="email" value={form.email} />
 		{/if}
@@ -142,17 +137,4 @@
 			Sign in
 		</button>
 	</form>
-
-	{#if data?.demoMode}
-		<div class="mt-8 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm">
-			<p class="font-medium text-amber-900">Demo mode</p>
-			<p class="mt-1 text-amber-800">Fictional sample data on a local throwaway stack.</p>
-			<dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-amber-900">
-				<dt class="font-medium">Email</dt>
-				<dd><code>{demoEmail}</code></dd>
-				<dt class="font-medium">Password</dt>
-				<dd><code>{demoPassword}</code></dd>
-			</dl>
-		</div>
-	{/if}
 </main>

@@ -22,7 +22,7 @@
  * (user_id, name) is unique — that is `exercises_user_id_name_unique`, created
  * by 0010 when it dropped the global `exercises_name_unique`. So the copy is
  * naturally idempotent per user, which is what the hook's onConflictDoNothing
- * relies on, and what lets seedDemo re-run without duplicating.
+ * relies on.
  *
  * NAME MATCHING IS THE WHOLE STORY
  * --------------------------------
@@ -51,12 +51,6 @@ export type StarterExercise = {
 /**
  * One row per movement, grouped the way someone actually trains.
  *
- * The first nine are deliberately the same nine `seedDemo` inserts. That is not
- * duplication for its own sake: it makes the demo account receive the starter
- * list from the hook and then have seedDemo's inserts collide on
- * (user_id, name), so the `onConflictDoNothing` + select-ids-back path runs
- * against real rows in the test suite instead of only being asserted in a
- * comment. Demo exercise counts therefore stay at nine.
  */
 export const STARTER_EXERCISES: readonly StarterExercise[] = [
 	// Push

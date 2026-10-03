@@ -3015,7 +3015,9 @@ Check (assistant, production, scratch account): a three-day program built
 and saved at 390 px with no sideways scroll; an existing program edited and
 saved as a new version.
 
-## 39. 0.12.0 — save a workout as a program (editor spec, Part M) — DEPLOYED 2026-10-03, acceptance pending
+## 39. 0.12.0 — save a workout as a program (editor spec, Part M) — DEPLOYED 2026-10-03, accepted 2026-10-03
+
+**Owner sign-off, 2026-10-03:** "I Sign off." `pre-0.12.0` deleted after the sign-off.
 
 ```
 0.12.0   670a113, tagged 0.12.0; branch CI green; full local gate 849 (+2

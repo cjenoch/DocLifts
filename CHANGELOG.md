@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.14.1 — Cloudflare Tunnel deployment — deployed 2026-10-03, acceptance pending
+## 0.14.1 — Cloudflare Tunnel deployment — accepted 2026-10-03
 
 - Optional `public` Compose profile runs a pinned tunnel connector alongside
   the app, with a private read-only config directory and no new public port.
@@ -8,9 +8,9 @@
   cache bypass, HTTPS redirect and managed firewall protection.
 - Scratch-account sign-in, saved set and photo checks passed through the tunnel.
   Private-address rollback passed in 8.1 seconds, then public sign-in passed again.
-  Owner cellular/home-screen and full-workout acceptance is pending.
+  Owner approved both 0.14.0 and 0.14.1 on 2026-10-03.
 
-## 0.14.0 — public-address preparation — deployed 2026-10-03, acceptance pending
+## 0.14.0 — public-address preparation — accepted 2026-10-03
 
 - The browser address is controlled by runtime `PUBLIC_ORIGIN`, with no
   cross-origin CSRF exceptions or forwarded host/protocol trust.

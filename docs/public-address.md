@@ -1,7 +1,7 @@
 # Public-address preparation
 
 Production is live at https://doclifts.runthe.ai as of 2026-10-03 (0.14.1).
-Assistant cutover checks passed; owner phone acceptance remains pending.
+Assistant cutover checks passed; owner approved both releases on 2026-10-03.
 
 `PUBLIC_ORIGIN` is the sole browser origin. Compose also passes it as adapter-node's
 `ORIGIN`. Change it and restart to move the same build. Adapter-node 5.5.4 builds
@@ -79,4 +79,5 @@ The address rollback restored private sign-in/history and stopped public access
 in 8.1 seconds. Public sign-in/history passed after restoration. Compose's
 `--dry-run up --wait` incorrectly waited on the deliberately stopped connector;
 use `--dry-run up -d` for planning, followed by real `up -d --wait` for health.
-Retain pre-0.14.0 and pre-0.14.1 images until owner acceptance.
+The pre-0.14.0 and pre-0.14.1 images were removed after owner approval on
+2026-10-03; verified database backups remain retained.

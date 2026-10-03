@@ -2972,7 +2972,22 @@ an existing one), and filtering the swap list by what this gym has.
 Check (assistant, production, scratch account): move, remove with Undo,
 swap, skip and finish on a program workout at 390 px.
 
-## 38. 0.11.0 — the program editor for a phone (editor spec, Part N) — NOT deployed
+## 38. 0.11.0 — the program editor for a phone (editor spec, Part N) — DEPLOYED 2026-10-03, acceptance pending
+
+```
+0.11.0   7d78402, tagged 0.11.0; branch CI green; full local gate 844 (+2
+         skipped) / 3 / 32 / 151. No CLAUDE.md, auth or schema change:
+         deployed under development-push mode after the owner's "start Part N"
+image    pre-0.11.0 kept until the owner signs off
+web      healthy; version.json 7d78402
+check    scratch account, 390x844: "0110 check three-day" built on three
+         screens (Push / Pull / Legs, one exercise each from the picker, one
+         tap on More sets: "Leg press · 4 × 8–12 · RIR 2"), reviewed and
+         saved; then edited: Legs' leg press to 5 sets, saved as a new
+         version. psql: original archived with 4 sets, new version active
+         with 5. 0 px sideways overflow on 15 screens; no 5xx, 0 page errors.
+owed     the owner building or editing a program on his phone
+```
 
 Code only; no server change. `ProgramEditor.svelte` keeps its contract (the
 same `payload` + `requestId` POST, review step, size limits, recovery of a

@@ -53,6 +53,10 @@
 			requestId: string;
 			draft: ProgramDraft;
 			sourceProgramId: string | null;
+			/** Which stored draft this page keeps (Part M: one per source workout). */
+			draftKey?: string;
+			/** Open on this day's screen (Part M: the day built from a workout). */
+			openDay?: number | null;
 		};
 		form?: { error?: string; draft?: unknown; requestId?: string } | null;
 	} = $props();
@@ -128,7 +132,13 @@
 	}
 	let draft = $state<ProgramDraft>(untrack(initialDraft));
 	let requestId = $state(untrack(() => form?.requestId || data.requestId));
-	let view = $state<View>({ level: 'program' });
+	let view = $state<View>(
+		untrack(() =>
+			data.openDay != null && !form?.draft
+				? { level: 'day', d: data.openDay }
+				: { level: 'program' }
+		)
+	);
 	let reviewing = $state(false);
 	let validationError = $state('');
 	let submitting = $state(false);
@@ -138,7 +148,9 @@
 
 	// The draft survives a reload: one stored draft per new program, and one per
 	// program being edited. Browser storage is a convenience; it may be absent.
-	const storageKey = $derived(`doclifts:program-draft:${data.sourceProgramId ?? 'new'}`);
+	const storageKey = $derived(
+		`doclifts:program-draft:${data.draftKey ?? data.sourceProgramId ?? 'new'}`
+	);
 	let restored = $state(false);
 	onMount(() => {
 		if (!form?.draft) {

@@ -3014,3 +3014,27 @@ new program.
 Check (assistant, production, scratch account): a three-day program built
 and saved at 390 px with no sideways scroll; an existing program edited and
 saved as a new version.
+
+## 39. 0.12.0 — save a workout as a program (editor spec, Part M) — NOT deployed
+
+Code only, no migration. `src/lib/server/workout-to-program.ts` builds a
+draft from an ended workout of the owner (`workoutDay`: blocks by position,
+only sets with a saved value, roles as recorded, the rep range the exact
+reps done across working sets with warm-ups ranged on their own, RIR 2, the
+editor's default rest, tier and policy from the block, no load, no machine;
+a block still on the photo placeholder gets no exercise, so it must be
+chosen before the draft validates). `/programs/new?fromSession=` opens it as
+a new one-day program ("Workout · <date>", day "Workout");
+`/programs/<id>/edit?fromSession=` opens that program's edit draft with the
+workout added as its last day (named "Workout", or "Workout 2"…). Both open
+on that day, keep their own stored draft (`draftKey`), and save through
+`saveProgramDraft` as before. `listProgramExercises` no longer offers the
+photo placeholder.
+
+"Finish screen": the app had none (finishing went Home). A quick workout now
+finishes on its own page, which carries "Save as program"; a program workout
+still finishes on Home, and any ended workout reached from History shows the
+same section.
+
+Check (assistant, production, scratch account): a quick workout saved as a
+new program, and a workout added as a day of an existing one, at 390 px.

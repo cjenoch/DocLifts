@@ -36,6 +36,7 @@ import {
 	WorkoutEditError
 } from '$lib/server/live-edit';
 import { requireUser } from '$lib/server/request-user';
+import { programsToAddTo } from '$lib/server/workout-to-program';
 import { pickerData } from '$lib/server/picker';
 import {
 	autoIdentifyRepeatVisit,
@@ -179,6 +180,10 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		groups,
 		allowEndedSessionEdit,
 		programUpdate,
+		// A finished workout can become a program, or a day of one (Part M).
+		saveAsProgram: session.endedAt
+			? { programs: await programsToAddTo(db, requireUser(locals).id) }
+			: null,
 		// The add sheet's data (0.8.0); only an open workout adds exercises.
 		picker: session.endedAt ? null : await pickerData(db, requireUser(locals).id, session.gymId),
 		// An open workout shows its own bottom bar (Pause, Add exercise, Finish),
@@ -491,9 +496,14 @@ export const actions: Actions = {
 				redirect(303, `/sessions/${parsedSessionId.data}?program=${swaps.reason}`);
 		}
 		// Finishing with machines still to name is allowed; the finished
-		// workout's page lists them (0.6.0). Otherwise Home, as before.
+		// workout's page lists them (0.6.0). A quick workout also lands there,
+		// where it can be saved as a program (Part M). Otherwise Home.
 		const toName = await photoBlocksForSession(db, userId, parsedSessionId.data);
-		redirect(303, Object.keys(toName).length ? `/sessions/${parsedSessionId.data}` : '/');
+		const session = await loadSession(db, userId, parsedSessionId.data, 'ended-active');
+		const quick = session
+			? (await loadSessionDay(db, userId, session.dayId)).systemKind === 'quick'
+			: false;
+		redirect(303, Object.keys(toName).length || quick ? `/sessions/${parsedSessionId.data}` : '/');
 	},
 
 	updateSet: async ({ request, params, locals }) => {

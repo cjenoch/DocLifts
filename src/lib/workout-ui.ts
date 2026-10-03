@@ -117,6 +117,12 @@ export const workoutUi = {
 			'The program was not changed: the new version did not pass its checks. It is as it was.'
 	},
 	viewProgram: 'View program',
+	/** Save a finished workout as a program (editor spec, Part M). */
+	saveAsProgram: 'Save as program',
+	saveAsProgramNote:
+		'Its exercises, sets and the reps you did become a draft you review before saving.',
+	newProgramFromWorkout: 'New program',
+	addAsDayTo: (name: string) => `Add as a day to ${name}`,
 	/** Part F: rest timer default. */
 	defaultRestSeconds: 90
 } as const;

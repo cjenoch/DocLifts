@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0 — save a workout as a program — 2026-10-03
+
+- **A finished workout can become a program.** Its page has "Save as
+  program": start a new program from it, or add it as a new day of one you
+  already have. The program editor opens on that day, filled in: the
+  exercises in the order you did them, the sets you logged, and the reps you
+  actually did as the range (10, 9 and 8 become 8 to 10). Nothing is saved
+  until you review and save, and the workout itself is not changed.
+- **A quick workout finishes on its own page**, where "Save as program" is,
+  instead of going straight to Home.
+- A machine still named "Unidentified machine" has to be named in the editor
+  before the program can be saved.
+
 ## 0.11.0 — the program editor, rebuilt for a phone — 2026-10-03
 
 - **Three short screens in place of one long form.** Program: name,

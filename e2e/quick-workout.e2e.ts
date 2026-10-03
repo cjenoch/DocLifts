@@ -176,7 +176,11 @@ run('quick workout from Home (production build)', () => {
 		// Two of the three sets are empty, so Finish asks first.
 		page.once('dialog', (d) => d.accept());
 		await page.getByRole('button', { name: 'Finish workout' }).click();
-		await page.waitForURL(origin + '/');
+		// A quick workout finishes on its own page, where it can become a
+		// program (editor spec, Part M); Home is one tap away.
+		await page.waitForURL(firstUrl);
+		expect(await page.getByTestId('save-as-program').isVisible()).toBe(true);
+		await page.goto(origin + '/', { waitUntil: 'networkidle' });
 
 		// Second workout: the gym used last is preselected; one tap starts it.
 		await page.getByRole('link', { name: workoutUi.startWorkout, exact: true }).click();

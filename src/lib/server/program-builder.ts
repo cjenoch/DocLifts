@@ -11,6 +11,7 @@ import {
 	programDraftRequests
 } from './db/schema';
 import type { Database } from './progression';
+import { PLACEHOLDER_MOVEMENT } from './photo-workout';
 import { duplicateProgramForEditInTransaction, type ProgramTransaction } from './programs';
 
 export async function listProgramExercises(
@@ -25,7 +26,14 @@ export async function listProgramExercises(
 			isLowerBody: exercises.isLowerBody
 		})
 		.from(exercises)
-		.where(eq(exercises.userId, userId))
+		.where(
+			and(
+				eq(exercises.userId, userId),
+				// The photo placeholder is never a program exercise (Part M: a
+				// block still on it must be named before its draft can be saved).
+				sql`${exercises.canonicalMovement} IS DISTINCT FROM ${PLACEHOLDER_MOVEMENT}`
+			)
+		)
 		.orderBy(asc(exercises.name), asc(exercises.id));
 }
 

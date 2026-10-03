@@ -254,6 +254,20 @@
 				>{/if}
 		</p>
 	{/if}
+	{#if data.saveAsProgram && !data.session.deletedAt}
+		<section class="save-program" data-testid="save-as-program">
+			<h2>{workoutUi.saveAsProgram}</h2>
+			<p class="muted">{workoutUi.saveAsProgramNote}</p>
+			<a class="save-link primary" href="/programs/new?fromSession={data.session.id}"
+				>{workoutUi.newProgramFromWorkout}</a
+			>
+			{#each data.saveAsProgram.programs as program (program.id)}
+				<a class="save-link" href="/programs/{program.id}/edit?fromSession={data.session.id}"
+					>{workoutUi.addAsDayTo(program.name)}</a
+				>
+			{/each}
+		</section>
+	{/if}
 	{#if pendingRemove}
 		<p class="undo-bar" role="status" data-testid="undo-remove">
 			<span>{workoutUi.removedLine(pendingRemove.name)}</span>
@@ -757,6 +771,33 @@
 		padding: 8px 12px;
 		font-size: 13px;
 		color: #a1a1aa;
+	}
+	.save-program {
+		margin-bottom: 20px;
+		padding: 14px 18px;
+		border: 1px solid #2b3648;
+		border-radius: 18px;
+		background: #121a28;
+	}
+	.save-program h2 {
+		margin-bottom: 4px;
+	}
+	.save-link {
+		display: flex;
+		align-items: center;
+		min-height: 44px;
+		margin-top: 8px;
+		padding: 0 14px;
+		border: 1px solid #3f3f46;
+		border-radius: 10px;
+		color: #c7d2fe;
+	}
+	.save-link.primary {
+		justify-content: center;
+		border-color: #6366f1;
+		background: #4f46e5;
+		color: #fff;
+		font-weight: 600;
 	}
 	.undo-bar,
 	.program-update {

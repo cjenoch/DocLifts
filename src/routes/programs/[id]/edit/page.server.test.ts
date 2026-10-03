@@ -32,6 +32,7 @@ afterAll(async () => {
 const event = (id: string) =>
 	({
 		params: { id },
+		url: new URL(`http://localhost/programs/${id}/edit`),
 		locals: { user: { id: userId } } as App.Locals
 	}) as Parameters<PageServerLoad>[0];
 

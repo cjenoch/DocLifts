@@ -10,19 +10,33 @@ import {
 	saveProgramDraft
 } from '$lib/server/program-builder';
 import { requireUser } from '$lib/server/request-user';
+import { programDraftWithWorkoutDay, WorkoutNotFoundError } from '$lib/server/workout-to-program';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (!z.uuid().safeParse(params.id).success) error(400, 'Invalid program id');
 	const userId = requireUser(locals).id;
+	// Part M: a finished workout added as this program's last day.
+	const fromSession = url.searchParams.get('fromSession');
 	const [library, draft] = await Promise.all([
 		listProgramExercises(db, userId),
-		loadProgramDraft(db, userId, params.id).catch((cause: unknown) => {
+		(fromSession
+			? programDraftWithWorkoutDay(db, userId, params.id, fromSession)
+			: loadProgramDraft(db, userId, params.id)
+		).catch((cause: unknown) => {
 			if (cause instanceof ProgramNotFoundError) error(404, 'Program not found');
+			if (cause instanceof WorkoutNotFoundError) error(404, 'Workout not found');
 			throw cause;
 		})
 	]);
-	return { library, requestId: randomUUID(), draft, sourceProgramId: params.id };
+	return {
+		library,
+		requestId: randomUUID(),
+		draft,
+		sourceProgramId: params.id,
+		draftKey: fromSession ? `${params.id}:from:${fromSession}` : params.id,
+		openDay: fromSession ? draft.days.length - 1 : null
+	};
 };
 
 export const actions: Actions = {

@@ -2846,7 +2846,23 @@ exercise adds at once with no machine (psql); create an exercise from typed
 text; the Exercises page renames and hides one, which leaves the sheet, and
 restores it.
 
-## 35. 0.8.1 — a planned exercise's machine, in the sheet (machines spec, second release, second half) — NOT deployed
+## 35. 0.8.1 — a planned exercise's machine, in the sheet (machines spec, second release, second half) — DEPLOYED 2026-10-03, acceptance pending
+
+```
+0.8.1    82cb09e, tagged 0.8.1; branch CI green; full local gate 799 (+2
+         skipped) / 3 / 30 / 148. No CLAUDE.md, auth or schema change:
+         deployed under development-push mode after the owner's "next"
+image    pre-0.8.1 kept until the owner signs off
+web      healthy; version.json 82cb09e
+check    scratch account, 390x844: "Check 081 program" (one day, Leg
+         press) saved through the program editor and started; "Choose
+         machine" opened the sheet as "Machine for Leg press" with only
+         plate-loaded machines; Add by name "081 check leg press", confirm
+         "Use 081 check leg press for this exercise?", Use this machine:
+         bound (psql: plates_per_side); a set saved; after a reload the
+         machine button is gone; finished. No 5xx, 0 page errors.
+owed     the owner choosing a machine in a program workout
+```
 
 Code only. `AddSheet.svelte` gains bind mode: a planned exercise's "Choose
 machine" opens it on the gym's machines of the exercise's type, then a confirm

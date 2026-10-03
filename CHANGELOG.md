@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.1 — choose a program exercise's machine in the sheet — not yet released
+## 0.8.1 — choose a program exercise's machine in the sheet — 2026-10-03
 
 - **In a program workout,** a planned machine exercise has a "Choose machine"
   button (or "Change machine"). It opens the add sheet on the gym's machines

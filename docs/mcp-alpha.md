@@ -1,7 +1,9 @@
-# DocLifts MCP — Alpha 0.16.1 specification
+# DocLifts MCP — Alpha 0.16.2 specification
 
-Status: 0.16.1 is live on the unchanged gated app build 1e52b4c; real-agent
-acceptance is pending. Public browser/SDK connect, read, refresh and revoke passed.
+Status:0.16.2 is live on gated build3d1c4a6; real-agent acceptance pending.
+Public browser/SDK consent, read, refresh and revoke passed with resource omitted
+at authorization, exchange and refresh. Start a fresh Muse connection with the
+registered client ID after upgrading.
 0.16.0 was briefly rolled back because the acceptance harness referenced a retired
 credential file. Corrected checks preflight the current Alpha test account before
 network work. The owner authorized fixing forward with retained recovery images.

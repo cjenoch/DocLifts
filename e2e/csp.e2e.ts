@@ -1,3 +1,4 @@
+import { oauthFixture } from './mcp-fixture';
 /**
  * End-to-end pass against a PRODUCTION build served by adapter-node.
  *
@@ -94,6 +95,7 @@ run('production build: CSP and page render', () => {
 	let gymId: string;
 	let photoId: string;
 	let machineId: string;
+	let consentPath: string;
 
 	beforeAll(async () => {
 		harness = await freshTestDb();
@@ -242,6 +244,9 @@ run('production build: CSP and page render', () => {
 		serverLog = started.log();
 
 		cookie = await signInAs(origin);
+		const oauth = await oauthFixture(origin, cookie);
+		if (!oauth.consent) throw new Error('No consent redirect');
+		consentPath = new URL(oauth.consent, origin).pathname + new URL(oauth.consent, origin).search;
 
 		// 0.4.0: a photo uploaded to that gym through the served build's own
 		// form action, so /gyms/{gymId}/equipment/photo and /photos/{id}/review
@@ -362,12 +367,15 @@ run('production build: CSP and page render', () => {
 		'/workout/start',
 		'/account',
 		'/account/password',
+		'/account/connections',
+		'/account/connections/consent',
 		'/login'
 	] as const;
 	type RoutePattern = (typeof ROUTE_PATTERNS)[number];
 	const reached = new Set<string>();
 
 	function resolvePattern(pattern: RoutePattern): string {
+		if (pattern === '/account/connections/consent') return consentPath;
 		if (pattern === '/programs/{id}') return `/programs/${programId}`;
 		if (pattern === '/programs/{id}/edit') return `/programs/${programId}/edit`;
 		if (pattern === '/sessions/{id}') return `/sessions/${sessionId}`;

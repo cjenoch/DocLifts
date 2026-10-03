@@ -101,39 +101,12 @@ export default defineConfig({
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
-					// demo.db.test.ts runs in its own project. It is not merely
-					// duplicated: it REQUIRES a database other than
-					// doclifts_test, because seedDemo creates its owner through
-					// the auth singleton and that singleton is bound to
-					// DATABASE_URL at import. Run here it would create the user
-					// in the wrong database and fail a unique violation.
-					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}', 'src/lib/server/demo.db.test.ts'],
+					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
 					// DB integration tests share a single doclifts_test database, so
 					// test files must run one-at-a-time. Pure-function files would be
 					// safe to parallelize, but the cost of running everything serial
 					// is small and avoids per-file partitioning gymnastics.
 					fileParallelism: false
-				}
-			},
-
-			{
-				// The demo seed must have DATABASE_URL and TEST_DATABASE_URL both
-				// pointing at doclifts_demo_test, because `createUser` writes
-				// through the `auth` singleton and the demo rows go to the
-				// handle the caller passes. Keying that off the base config is
-				// not possible: vitest 4 does not pass the project name to the
-				// config function, so the rewrite cannot be conditional on it.
-				// A sibling config file sets the variable before importing this
-				// one, which is the earliest point it can take effect. See the
-				// file's own comment.
-				extends: './vite.demo.config.ts',
-				test: {
-					name: 'demo',
-					environment: 'node',
-					include: ['src/lib/server/demo.db.test.ts'],
-					fileParallelism: false,
-					hookTimeout: 120_000,
-					testTimeout: 60_000
 				}
 			},
 

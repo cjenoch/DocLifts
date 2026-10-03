@@ -59,7 +59,7 @@ export function assertTestDatabaseUrl(url: string): string {
 // 127.0.0.1:5432 answers with a real Postgres, so a variable left over from a
 // migration run binds a real database rather than failing loudly.
 //
-// Mirrors the seedDemo guard: same shape, same intent, same error style.
+// Refuse test runs against a database without the explicit test suffix.
 if (process.env.VITEST) assertTestDatabaseUrl(env.DATABASE_URL);
 
 const client = postgres(env.DATABASE_URL, { max: 10 });

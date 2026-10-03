@@ -108,6 +108,7 @@ services:
       # LLM_MODEL are present. They still need lines here, for the same reason
       # as LOGIN_*: a key in the env file without a line is absent from the
       # container. Empty means unset. Defaults match src/lib/server/llm/config.ts.
+      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-https://doclifts-mcp.runthe.ai/mcp}
       LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_VISION_MODEL: ${LLM_VISION_MODEL:-}

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.16.0 Alpha — read-only agent access — not deployed
+
+- Six account-scoped MCP tools expose workouts, programs, equipment and a data
+  dictionary. Notes require separate permission; photos and pain records are excluded.
+- OAuth authorization code with PKCE, account consent, rotating refresh tokens
+  and immediate revocation from Account → Connected agents.
+- Historical exercise and machine labels accompany prescribed/executed values.
+  Bounded pagination and read-only transactions constrain agent reads.
+- Sign-in leads with “Document your Lifts” and preserves the validated return path
+  to agent consent. Browser forms retain origin protection through an explicit
+  boundary with one cookie-free native OAuth token-exchange exception.
+- Retired the disposable demo stack, shared demo login and seed command.
+  Rewrote the README around the hosted Alpha and current functionality.
+- Planned endpoint: https://doclifts-mcp.runthe.ai/mcp through the existing tunnel.
+  Auth, CSRF and tunnel diffs require owner review before release. Signup stays closed.
+- See [MCP specification](docs/mcp-alpha.md). Client-specific acceptance remains pending.
+
 ## 0.15.2 Alpha — image safety live — accepted 2026-10-03
 
 - The production test explicitly selects Exercises when the picker opens on

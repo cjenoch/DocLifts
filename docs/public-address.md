@@ -6,8 +6,11 @@ Assistant cutover checks passed; owner approved both releases on 2026-10-03.
 `PUBLIC_ORIGIN` is the sole browser origin. Compose also passes it as adapter-node's
 `ORIGIN`. Change it and restart to move the same build. Adapter-node 5.5.4 builds
 the request URL from `origin || get_origin(req.headers)`; forwarded host and
-protocol settings have been removed. SvelteKit's same-origin CSRF protection
-stays enabled, with no trusted-origin exceptions. Cookies are host-only; HTTPS
+protocol settings have been removed. In the deployed 0.15.x release, SvelteKit's same-origin CSRF protection
+stays enabled with no trusted-origin exceptions. The proposed 0.16.0 MCP
+release replaces that framework-global check with an explicit same-origin
+form boundary and one cookie-free native token-exchange exception; see
+[MCP authorization](mcp-alpha.md). That change requires owner review. Cookies are host-only; HTTPS
 selects Secure cookies. The served-build tests verify these attributes.
 
 At tunnel cutover set `CLIENT_IP_HEADER=cf-connecting-ip`. Only that header is

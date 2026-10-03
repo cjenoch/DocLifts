@@ -1,323 +1,121 @@
-# DocLifts
+# DocLifts — Document your Lifts
 
 [![CI](https://github.com/cjenoch/DocLifts/actions/workflows/ci.yml/badge.svg)](https://github.com/cjenoch/DocLifts/actions/workflows/ci.yml)
 
-A single-user weightlifting log for training across gyms: record what you lifted, get suggestions for the next set, and keep your training history together. Self-hosted on a private VPS with Docker Compose and Tailscale access.
+**Photograph a machine. Log your sets. See your progress.**
 
-This is the personal project behind [DocLifts — Training, AI-Assisted Development, and QA](https://enoch.ai/case-studies/doclifts/). AI tools support development and review; the app's training logic does not depend on an LLM.
+DocLifts is a workout log built around the equipment you actually use. Take a picture, start recording sets while identification runs, and review the machine match when you are ready. AI helps with identification; you stay in control of your workout.
 
-## Try the demo
+**[Open DocLifts Alpha](https://doclifts.runthe.ai)** · [Release history](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
-```sh
-docker compose -f compose.demo.yml up --build -d
-```
+The hosted app is live on Android, iPhone and desktop browsers. Alpha access is currently operator-managed; public signup is closed. This is an actively developed test system. The former disposable demo has been retired.
 
-Open **http://localhost:4179** after initialization. This separate, temporary stack contains fictional workouts and equipment. It needs no `.env` or access to the author's VPS, and never mounts a production database. [Demo setup, reset, and troubleshooting](docs/demo.md).
+## Built for the workout
 
-DocLifts is source-available under the **Functional Source License, Version 1.1, ALv2 Future License** (FSL-1.1-ALv2). Internal use, self-hosting, non-commercial use, and professional services are permitted; offering it as a competing commercial product or service is not. Each version becomes Apache-2.0 two years after release. Versions 0.1.0 and earlier remain Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), and [contribution guidance](CONTRIBUTING.md).
+- **Photo first, keep lifting.** A photo opens a workout block so you can log before identification completes. Review uncertain matches; a failed identification does not prevent manual logging. Previously used machines can be recognized from an agreeing placard code and name, with an undo option.
+- **History belongs to the right equipment.** Machines keep their own performance history. Free-weight exercise history follows you between gyms. Weight conventions distinguish total weight, per-hand and per-side loads.
+- **Programs you can change.** Start with Traveling PPL, Barbell Strength, Machine Full Body, or Machines and Dumbbells, then edit days, exercises and sets. Phone-oriented Program → Day → Exercise screens retain drafts through reloads.
+- **Adapt during a session.** Add, move, remove, skip or swap exercises. “Just today” and “From now on” separate a workout adjustment from a program change. Record warmups, working sets, backoffs and set notes.
+- **Progression with an explanation.** Suggested loads use completed training history, the exercise's progression policy and equipment-aware plate calculations. You can override them. The progression engine is deterministic and does not need an LLM.
+- **A usable training record.** Review history and reports, edit recorded workouts, and restore workouts from Trash. Prescriptions are snapshotted so later program changes do not rewrite what was planned for a past session.
+- **Your account, your records.** Application sign-in and owner-scoped data access separate users' workouts, programs, gyms and machines. Each new account starts with an editable exercise list.
 
-## Features and engineering
+Set drafts remain in the current browser tab until saved; they are not synced workout records. Finishing a workout prompts you to save unfinished entries first.
 
-- Machine identity, equipment-aware plate snapping, and session quick-add.
-- A phone-friendly workout screen with searchable exercise selection, inline gym/equipment setup, and working/warmup/backoff sets added directly to an exercise. The last empty set can be removed without renumbering existing sets.
-- Explicit saving/error states and unfinished set drafts retained through Pause/Resume and reload in the same browser tab. Drafts are not saved workout records or synced between devices; use Save to persist them. Finishing a workout prompts you to save unfinished entries first.
-- MAIN backoff suggestions derived from the top set actually performed.
-- A drag-and-drop program editor with transactional draft handling and a Traveling Push/Pull/Legs preset.
-- Workout history editing, soft deletion, and restoration.
-- A searchable imported-history archive at `/imported-history`. Original notes, recalled estimates, and uncertain dates are preserved. Archive records do not feed progression or operational workout-report totals. The September 2026 import added 107 records without changing the existing 31 sessions and 467 sets. Personal import payloads are not distributed in this repository.
-- Session-start concurrency protection in the interface, server, and database, backed by an integration test.
-- One CI workflow, run inside the Playwright container image: Prettier, svelte-check, server tests against PostgreSQL, component tests in Chromium, a production build, and an end-to-end Content-Security-Policy pass against that build. Consult the workflow and its results for current coverage rather than a fixed test-count claim.
+## AI that assists
 
-## Current deployment
+Photo uploads are rebuilt as cleaned images in memory, then screened before storage and identification. A rejected image is not stored; scanner failures refuse the upload. Manual workout logging remains available. Local and OpenRouter safety providers support controlled A/B testing. See [photo safety](docs/photo-safety.md).
 
-The production application and PostgreSQL run together on an Ubuntu 24.04 VPS on **Akamai Cloud (Linode) in Dallas**.
+Identification requests go through one model-call interface with structured-output validation, timeouts, per-user limits and usage records. A machine match is a suggestion, not an instruction to change a saved set. See [the model-call interface](docs/llm.md) and [machine identity](docs/machine-identity.md).
 
-| Component          | Configuration                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| Application        | SvelteKit, Svelte 5 runes, TypeScript, Tailwind, Zod                                  |
-| Web container      | `doclifts-web`; Node 24 Alpine, adapter-node, production dependencies                 |
-| Database container | `doclifts-db`; PostgreSQL 16, Drizzle ORM and migrations                              |
-| Compose services   | `web` and `db`, project `doclifts`                                                    |
-| Persistence        | Named volume `doclifts_pgdata` (normally `doclifts_doclifts_pgdata` for this project) |
-| Access             | Web port 3000 published only on the configured Tailscale IP                           |
-| Database network   | Service name `db`, port 5432 on the Compose network; no host port published           |
-| Health checks      | `pg_isready` for the DB; HTTP GET on `127.0.0.1:3000` inside the web container        |
+## Your data beyond the app
 
-The Dockerfile has builder and runtime stages. The builder installs locked dependencies and runs `pnpm build`. The runtime installs production dependencies, including `drizzle-orm` and `postgres`, copies the built app, and starts `node .` from `/app/build`.
+The next release, **0.16.0 Alpha, is under review and not deployed**. It adds read-only MCP access to your workouts, programs and equipment, with explicit account consent, optional access to notes and revocation from Account → Connected agents. The [MCP specification](docs/mcp-alpha.md) describes the six tools, permissions, data dictionary and client acceptance work. The proposed endpoint is `https://doclifts-mcp.runthe.ai/mcp`.
 
-The old systemd/release-symlink deployment and Tailscale Serve configuration are historical, not the VPS deployment path. Legacy deployment scripts and `deploy/doclifts.service` are not instructions for updating this Compose stack.
+A separate imported-history archive already preserves original notes, recalled estimates and uncertain dates. Those archive records do not feed progression or operational workout totals. Personal import payloads are kept outside this repository.
 
-### Access and authentication
+Self-service notebook ingestion, portable full-data import/export, custom fields, and beginner machine guidance/videos are planned work, not current features. The intended direction is straightforward: document your training in a form you can understand, keep and use elsewhere.
 
-There is no application login. Access is restricted through Tailscale; do not publish the web port on a public interface. Authentication is required before introducing public access.
+## How it runs
 
-The VPS currently serves HTTP inside the encrypted tailnet. An app-specific Tailscale identity and HTTPS address are planned, not configured by this repository. As of the September 13 inspection, the old app-specific HTTPS bookmark still reached the earlier server. Confirm the destination before assuming a bookmark reaches the VPS.
+| Layer          | Implementation                                                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| App            | SvelteKit, Svelte 5, TypeScript, Tailwind and Zod                                                                                      |
+| Runtime        | Node 24, adapter-node, Docker Compose                                                                                                  |
+| Data           | PostgreSQL 16, Drizzle schema and append-only migrations                                                                               |
+| Authentication | Better Auth, host-only session cookies and server-side ownership checks                                                                |
+| Photos         | Private S3-compatible storage; safety screening before storage                                                                         |
+| Public access  | Cloudflare Tunnel to the VPS; the database has no public port                                                                          |
+| Quality checks | Formatting, type checks, migration checks, PostgreSQL integration tests, browser component tests and production-build end-to-end tests |
 
-CSRF checking remains enabled. `svelte.config.js` allowlists the supported tailnet origins, and Compose sets the runtime `ORIGIN` from `PUBLIC_ORIGIN`. When changing the browser-facing address, update both the allowlist and environment and rebuild the web image. Changing `PUBLIC_ORIGIN` alone does not change the published port binding or Tailscale DNS.
+Production runs on an Akamai Cloud (Linode) VPS. The tunnel provides public access; it does not provide a second application server or database. Off-host backup automation and measured launch-capacity targets are separate operations work, not availability guarantees.
 
-## Configure the VPS stack
+Application source and fictional test fixtures live here. Credentials, personal workout data, production dumps and private host configuration do not. See [private-data policy](docs/private-data.md).
 
-Prerequisites: Docker Engine with Compose, an active Tailscale connection, and permission to use Docker. Run the following Linux shell commands from the repository root.
+## Local development
 
-`docker-compose.yml` is configured for the existing VPS: its web port binding contains that machine's tailnet IP. On a different host, change the binding to that host's Tailscale IP and update the trusted origins. Do not replace the binding with `0.0.0.0`.
-
-Production's env file is created **outside the repository** — by default
-`/srv/doclifts/.env`, overridable with `DOCLIFTS_PROD_ENV`. Never create it in
-the checkout and never symlink the checkout's `.env` to it: the checkout is the
-working copy for tests and tooling, and a symlink makes every tool run here read
-production credentials by default.
-
-```sh
-sudo install -m 600 -o "$USER" /dev/null /srv/doclifts/.env
-sudoedit /srv/doclifts/.env
-```
-
-```dotenv
-POSTGRES_PASSWORD=REPLACE_WITH_A_STRONG_URL_SAFE_PASSWORD
-PUBLIC_ORIGIN=http://YOUR_TAILSCALE_HOSTNAME:3000
-```
-
-Use the same password in both values. The Compose web service constructs its
-own database URL from `POSTGRES_PASSWORD`; `scripts/migrate-prod.sh` constructs
-the same URL for migration commands, so **no `DATABASE_URL` needs to be present
-in this file or exported by hand.** `db` resolves inside the Compose network,
-not from a host development process.
-
-The development checkout has its own `.env`, created from `.env.example`. It
-points at the development and test databases and deliberately omits
-`POSTGRES_PASSWORD`, so a bare `docker compose` run from the checkout fails on
-the missing variable instead of silently reusing production's.
-
-Protect the production env file with restrictive file permissions (mode 600) and
-never commit it.
-
-Changing `POSTGRES_PASSWORD` in `.env` does not change the password of an already-initialized PostgreSQL volume. Coordinate database credential changes separately.
-
-## Build, migrate, and start
-
-For a new empty installation:
-
-```sh
-scripts/compose-prod.sh up -d --wait db
-scripts/migrate-prod.sh
-scripts/compose-prod.sh up -d --build --wait web
-```
-
-Both scripts pass the production env file explicitly, so the checkout's `.env`
-is never consulted. `scripts/migrate-prod.sh` takes a verified pre-migrate dump
-before it applies anything, and refuses to migrate if that dump fails or cannot
-be parsed.
-
-The migration runner uses the builder image because the slim web runtime does not include the migration tooling or source migration directory. Run migrations through Drizzle so its migration journal stays consistent. Startup does not automatically migrate, seed, or import personal history.
-
-Create a program through the UI for a new personal installation. The default seed now supplies fictional demo data only and refuses to run against a production database. Use the separate [demo stack](docs/demo.md) to try sample workouts.
-
-The VPS migration used the legacy Docker builder to work around a host build-environment issue. If that same issue occurs on the existing host, prefix the build commands with `DOCKER_BUILDKIT=0`; it is not a requirement for every Docker installation.
-
-### Updating an existing deployment
-
-1. Check `git status`, preserve concurrent work, and use `git pull --ff-only` to obtain the intended release.
-   The web container will not start without `BETTER_AUTH_SECRET`: the server
-   graph throws at module load, so the process exits before the listener opens.
-   The healthcheck and the container logs name the variable. This is boot-time
-   on purpose — better than failing on the first request, because no traffic is
-   ever served on a broken auth config.
-2. If there are new migrations, run `scripts/migrate-prod.sh` — it dumps and verifies a backup first, then applies them. Review compatibility with the running app before applying schema changes.
-3. Build the web image with `scripts/compose-prod.sh build web` while the existing app runs.
-4. Switch the web container with `scripts/compose-prod.sh up -d --no-deps --no-build --wait web`.
-5. Verify health, open the app from an actual tailnet device, and check the affected user flow.
-6. If this release included `0011_ownership_not_null`, run `scripts/user-prod.sh bootstrap --email you@example.com --password '...'` **before** signing in. Every pre-existing row was backfilled to a placeholder owner; bootstrap claims that sentinel for a real account, keeping its id so the backfilled rows stay attached. Until it runs, the app loads with a single sentinel-owned dataset rather than your own history. See `docs/migrations.md` §0011, including why 0011 is not worth reverting once bootstrap has claimed the rows.
-
-Rollback is a documented manual step, not automatic:
-
-```sh
-docker exec -i doclifts-db pg_restore --clean --if-exists --no-owner --no-privileges \
-  -U doclifts -d doclifts < /srv/doclifts/backups/predeploy-<timestamp>.dump
-```
-
-`--clean` drops only objects present in the dump, so objects a migration
-_created_ (the `auth` schema, the ownership columns) survive a restore and need
-explicit drops — see `docs/migrations.md`.
-
-### Accounts
-
-There is no sign-up UI in this release and no email flow of any kind. Every
-account is created by an operator, on the server, with these three commands:
-
-| Command                                                              | What it does                                                                                                                                                                                                                                                                                                                               |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm user:bootstrap --email <addr> --password <pw> [--name "Name"]` | **The required first-run step after migration 0011.** Claims the 0011 sentinel — a placeholder row with no password that every backfilled row points at — for a real account, keeping its id so the existing workouts stay attached. On a database with no sentinel, creates a fresh account instead. Refuses if real users already exist. |
-| `pnpm user:create --email <addr> --password <pw> --name "Name"`      | Adds an account to a database already in use.                                                                                                                                                                                                                                                                                              |
-| `pnpm user:set-password --email <addr> --password <pw>`              | Replaces an account's password. There is no password-reset email, so this is how a locked-out account is fixed.                                                                                                                                                                                                                            |
-
-Every new account starts with a 23-exercise starter list, added automatically.
-
-Locally these run with `pnpm user:…` (they read `.env`). In production, run
-them through `scripts/user-prod.sh`, which builds `DATABASE_URL` from the
-production env file and runs the command on the Compose network inside the
-builder image — the runtime image has no `tsx`:
-
-```sh
-scripts/user-prod.sh bootstrap --email you@example.com --password '...'
-```
-
-The password is visible in the process list while the command runs. That is
-fine for an operator tool run by hand over SSH; do not put one in a script or a
-CI job.
-
-A Git push does not itself establish that the VPS has rebuilt. The checked-in GitHub workflows run CI; follow the deployment steps unless a separate deployment trigger has been configured and verified.
-
-## Operations and backups
-
-```sh
-docker compose -p doclifts ps
-docker compose -p doclifts logs --tail=100 web
-docker compose -p doclifts logs --tail=100 db
-docker compose -p doclifts exec db pg_isready -U doclifts -d doclifts
-docker compose -p doclifts exec web wget -qO- http://127.0.0.1:3000/
-```
-
-Open `http://<configured-tailnet-host>:3000/` from a device connected to the tailnet. Container health confirms basic serving; it does not prove that every form, bookmark, or client can reach the intended deployment.
-
-`scripts/backup-db.sh` dumps the production container to `/srv/backups/doclifts/doclifts-YYYY-MM-DD.sql.gz`. It promotes a completed dump and then prunes backups older than 30 days. The executing account needs Docker access and write access to that directory. Daily scheduling is a host cron responsibility; `docker compose up` does not install the cron job.
-
-```sh
-bash scripts/backup-db.sh
-```
-
-Before relying on a backup, restore it into an isolated test database and verify its contents. Do not restore over the live database merely to test a dump. Restores were exercised during development/import validation; verify current backups independently. Keep private dumps outside Git. Avoid `docker compose down -v`: it removes this stack's persistent database volume.
-
-## Tuning
-
-These are read from the environment at startup. None are required: every one
-has a default. A malformed `LOGIN_*` value (non-numeric or negative) **stops
-the server at boot** with a message naming the variable — it is never quietly
-replaced by the default, because then the env file says one thing and the
-process does another. The values in force are logged once at startup as a
-`login_config` line, next to the `login_attempt` lines they govern. To change
-one, edit the production env file and restart the web container — no release,
-no migration.
-
-Every variable here must also have a passthrough line in `docker-compose.yml`;
-compose does not forward the env file into the container on its own.
-`scripts/compose-prod.sh` checks this before every `up` and refuses, naming the
-key, if the env file sets anything compose never reads.
-
-```sh
-sudo scripts/compose-prod.sh up -d --wait web
-```
-
-| Variable                     | Default | Meaning                                                           |
-| ---------------------------- | ------- | ----------------------------------------------------------------- |
-| `LOGIN_MAX_FAILURES`         | `10`    | Wrong passwords per key per window before a refusal               |
-| `LOGIN_FAILURE_WINDOW_SEC`   | `900`   | Sliding window; a refusal lasts until the oldest failure ages out |
-| `LOGIN_DELAY_AFTER_FAILURES` | `5`     | Failure count at which the progressive delay starts               |
-| `LOGIN_DELAY_BASE_MS`        | `1000`  | First delay step; doubles per further failure                     |
-| `LOGIN_DELAY_MAX_MS`         | `30000` | Ceiling on that delay                                             |
-| `SESSION_EXPIRES_DAYS`       | `30`    | Session lifetime, sliding                                         |
-| `PASSWORD_MIN_LENGTH`        | `12`    | Minimum length when a password is set; 8–128, else boot fails     |
-
-**Password policy is length only.** No symbol, digit or case rules at any
-length (NIST SP 800-63B). Set `PASSWORD_MIN_LENGTH` to the length you will
-actually type. It applies when a password is set — the change-password page
-and the `user:*` CLI — never at sign-in, so raising it cannot lock out a
-password that already exists.
-
-### How the sign-in throttle works
-
-It counts **failed** sign-ins only, on two keys — the client IP and the
-normalized email — and either can refuse. A successful sign-in clears both, so
-signing out and straight back in never costs an attempt. That is deliberate:
-Better Auth's own limiter charges successes, which is how 0.2.0 shipped a state
-where four correct-password sign-ins in quick succession left a user unable to
-get back in.
-
-The email key can only delay, never refuse a sign-in. Below the IP ceiling,
-wrong guesses get a progressive delay (1s, 2s, 4s, 8s, 16s, then 30s each).
-The page reports the wait. At the IP ceiling, even a correct password from
-that address is refused until the oldest failure expires, and the page says
-how many seconds to wait. `LOGIN_MAX_FAILURES=0` disables the IP ceiling;
-failures still trigger the capped delay.
-
-**Tuning from the log.** Each refusal and each delay emits one structured line:
-
-```json
-{
-	"event": "login_throttle",
-	"kind": "refuse",
-	"key_type": "email",
-	"count": 10,
-	"retry_after_s": 612
-}
-```
-
-The address is never logged — `key_type` and a truncated hash in the
-implementation are enough to correlate one account without writing it to disk.
-Read a month of it: no refusals means the numbers are generous; refusals on a
-real person's key means loosen; many failures on one email from scattered
-addresses means the per-account control is doing its job.
-
-**Limits, before you scale.** The counters are in-memory in the web process, so
-a restart clears them and a second replica would get its own empty counter.
-Before running more than one instance, move the store to a table — do not
-raise the numbers to compensate.
-
-## LLM
-
-Since 0.3.1 the server has one optional LLM seam, `complete()` in
-`src/lib/server/llm/`: a typed object from a model, validated against a zod
-schema, with a per-user hourly cap, a timeout, and one `llm_calls` row per call
-on every path. Nothing calls a provider SDK any other way. **No feature uses it
-yet**, and the training logic does not depend on it.
-
-It is **not needed to run the app.** With no LLM variable set the app boots,
-serves, and passes CI; a call then fails with `LlmNotConfigured`. To enable it,
-add `OPENROUTER_API_KEY` and `LLM_MODEL` to the production env file (both
-already have `docker-compose.yml` passthrough lines), restart the web
-container, and run the smoke test `pnpm llm:ping --email <account>` once in the
-builder image. Prompts are not stored unless `LLM_STORE_PROMPTS=1`. The key is
-a secret: never in a commit, log, doc, chat, or command line.
-
-Variables, defaults, statuses, and the production ping command:
-[docs/llm.md](docs/llm.md).
-
-## Local development and tests
-
-The production Compose file does not publish PostgreSQL to the host and is tied to the VPS tailnet binding. For a host-based development server, use a separate local database container and volume:
+Use Node 24 and the pnpm version pinned in `package.json`. Start an isolated PostgreSQL instance for development; never point test tooling at production:
 
 ```sh
 docker run -d --name doclifts-dev-db \
-  -e POSTGRES_USER=doclifts -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=doclifts \
+  -e POSTGRES_USER=doclifts -e POSTGRES_PASSWORD=dev-only -e POSTGRES_DB=doclifts \
   -p 127.0.0.1:55432:5432 \
   -v doclifts_dev_pgdata:/var/lib/postgresql/data postgres:16
+cp .env.example .env
 ```
 
-On a new checkout, copy `.env.example` to `.env` and change both URLs to the local port:
+Set these development values in `.env`, and generate a separate local `BETTER_AUTH_SECRET` as described there:
 
 ```dotenv
-DATABASE_URL=postgresql://doclifts:dev@127.0.0.1:55432/doclifts
-TEST_DATABASE_URL=postgresql://doclifts:dev@127.0.0.1:55432/doclifts_test
+DATABASE_URL=postgresql://doclifts:dev-only@127.0.0.1:55432/doclifts
+TEST_DATABASE_URL=postgresql://doclifts:dev-only@127.0.0.1:55432/doclifts_test
+PUBLIC_ORIGIN=http://localhost:5173
 ```
 
-Use Node 24 and the pnpm version pinned in `package.json`. Wait until the database accepts connections, then:
+Once PostgreSQL is ready:
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm db:migrate
+pnpm user:bootstrap --email lifter@example.invalid --password-stdin
 pnpm exec playwright install chromium
-pnpm check
-pnpm test
 pnpm dev
 ```
 
-Integration tests create/use the separate test database and reset its tables. Never point `TEST_DATABASE_URL` at production. `pnpm build` builds the application; the Dockerfile builds the deployable container image.
+The account command reads the password from standard input. Create a program through the app; there is no demo seed command. Photo identification requires additional provider/storage settings from `.env.example`; manual logging does not require an AI provider.
 
-**No test, probe, or control is ever exercised against the owner's account, email, or address.** Not in a test fixture, not in a check against production, not to "just confirm" a throttle or a sign-in. Use the scratch account, `scratch-test@doclifts.invalid`, and invented addresses under `.invalid` in tests. On 2026-09-30 a throttle check sent ten wrong passwords at the owner's email and locked him out of a working password for fifteen minutes, while a scratch account existed the whole time. Passwords for the scratch account reach the CLI through `--password-stdin`, never as an argument.
+The full development gate is:
 
-## Project guidance
+```sh
+pnpm lint
+pnpm check
+node --env-file=.env node_modules/drizzle-kit/bin.cjs check
+pnpm run test:unit --project server
+pnpm run test:unit --project client
+pnpm build
+CI=1 pnpm test:e2e
+```
 
-`CLAUDE.md` records application invariants and coding conventions. Its older references to cloud deployment being out of scope, backup paths, and systemd hosting predate the owner-approved VPS migration; use the checked-in Compose/Docker configuration and this README for current operations.
+Integration tests create/reset the separate test database. Browser tests need Chromium; `PW_EXECUTABLE_PATH` can select an installed browser. `CI=1` makes missing browser/build prerequisites fail instead of silently skipping coverage. See [contribution guidance](CONTRIBUTING.md) and [project rules](CLAUDE.md).
+
+## Deployment and operations
+
+This repository's Compose configuration targets the existing VPS. It is not a generic one-command public installation. Review its private-interface binding and the [public-address guide](docs/public-address.md) before adapting it to another host.
+
+Production secrets live outside the checkout, normally in `/srv/doclifts/.env`, with restrictive permissions. Use `scripts/compose-prod.sh`, `scripts/migrate-prod.sh` and `scripts/user-prod.sh` on the VPS; they pass the production environment explicitly. Never symlink a development `.env` to the production file. Every runtime setting needs its Compose passthrough.
+
+A Git push runs CI; it does not deploy the app. Releases require a green local gate and branch CI, a verified backup/restore rehearsal for migrations, retention of the previous image, and checks against the real public screens using a scratch account. Authentication, CSRF and tunnel changes require owner diff review. Phone acceptance is recorded separately from deployment.
+
+Useful references:
+
+- [Release log and acceptance](docs/release-0.2.0.md)
+- [Migrations and recovery](docs/migrations.md)
+- [Public address and tunnel](docs/public-address.md)
+- [Photo storage](docs/photos.md) and [screening](docs/photo-safety.md)
+- [Equipment catalog](docs/catalog.md) and [program editor](docs/program-builder.md)
+
+Backups must be restored and checked in isolation before they are relied on. Never test a restore over the live database or use `docker compose down -v` on a production stack.
 
 ## License
 
-Copyright 2026 Enoch AI LLC. Licensed under the [Functional Source License, Version 1.1, ALv2 Future License](./LICENSE) (FSL-1.1-ALv2). Each version converts to the Apache License, Version 2.0 on the second anniversary of its release. Versions 0.1.0 and earlier were released under Apache-2.0 and remain so. See [NOTICE](./NOTICE) for attribution.
+Copyright 2026 Enoch AI LLC. Source-available under the [Functional Source License, Version 1.1, ALv2 Future License](LICENSE) (FSL-1.1-ALv2). Each version converts to Apache-2.0 on the second anniversary of its release. Versions 0.1.0 and earlier remain Apache-2.0. See [NOTICE](NOTICE) and [contribution terms](CONTRIBUTING.md).

@@ -15,7 +15,8 @@ export type Tab = {
 export const appShell = {
 	appName: 'DocLifts',
 	/** One line on the sign-in page. No sign-up link while sign-up is closed. */
-	tagline: 'Log your lifts at the gym. Photograph each machine and log your sets on it.',
+	signInHeadline: 'Document your Lifts',
+	tagline: 'Photograph a machine. Log your sets. See your progress.',
 	tabs: [
 		{
 			href: '/',

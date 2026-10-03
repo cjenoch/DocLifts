@@ -56,11 +56,7 @@ function dbNameFromUrl(testUrl: string): string {
 }
 
 /**
- * `urlOverride` is for the one caller that must reach a different database than
- * the rest of the suite: demo.db.test.ts, whose seed writes through the app's
- * `auth` singleton and therefore needs DATABASE_URL and TEST_DATABASE_URL to
- * name the same demo database (see vite.demo.config.ts). Every other caller
- * passes nothing and is unaffected.
+ * `urlOverride` supports isolated tests against another test database.
  *
  * The override is still checked against the same `_test` rule db/index.ts
  * enforces, reimplemented locally rather than imported — that module builds

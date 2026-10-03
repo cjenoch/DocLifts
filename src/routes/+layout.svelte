@@ -22,9 +22,6 @@
 	<meta name="theme-color" content="#09090b" />
 	<meta name="apple-mobile-web-app-title" content={appShell.appName} />
 </svelte:head>
-{#if data.demoMode}<div class="bg-indigo-950 px-4 py-2 text-center text-sm text-indigo-100">
-		Demo · Fictional workouts · Changes are temporary
-	</div>{/if}
 {#if data.user}
 	<!--
 		The account button: one tap from any page (Part E). Password and Sign

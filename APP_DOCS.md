@@ -157,8 +157,6 @@ Four actions across three pages. All four extract their business logic into help
 docker compose up -d              # Start Postgres
 pnpm install
 pnpm db:migrate                   # Apply schema
-pnpm db:seed                      # Demo seed (fictional data): requires DOCLIFTS_DEMO=1
-                                  # and a database named doclifts_demo; refuses anything else
 
 # Daily
 pnpm dev                          # Vite dev for local development

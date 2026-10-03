@@ -1,6 +1,10 @@
-# DocLifts MCP — Alpha 0.16.0 specification
+# DocLifts MCP — Alpha 0.16.1 specification
 
-Status: implementation and release checks in progress; not deployed.
+Status: 0.16.1 is live on the unchanged gated app build 1e52b4c; real-agent
+acceptance is pending. Public browser/SDK connect, read, refresh and revoke passed.
+0.16.0 was briefly rolled back because the acceptance harness referenced a retired
+credential file. Corrected checks preflight the current Alpha test account before
+network work. The owner authorized fixing forward with retained recovery images.
 
 ## Outcome and first scope
 
@@ -48,7 +52,7 @@ checks for form-encoded POST/PUT/PATCH/DELETE requests, except an exact POST to
 /api/auth/oauth2/token with form encoding, NO Cookie header and NO Origin header.
 That exception authenticates through PKCE/refresh credentials, never cookies.
 Better Auth's own origin and CSRF checks remain enabled. This is an explicit
-security-boundary change requiring owner diff review; browser/form tests verify
+security-boundary change approved by the owner; browser/form tests verify
 that missing/forged origins, cookies and lookalike paths remain refused.
 
 ## Read semantics and limits
@@ -86,8 +90,9 @@ return 404. Login/consent/OAuth endpoints stay on doclifts.runthe.ai with host-o
 cookies. No cookie sharing or Better Auth trusted-origin expansion. The narrowly scoped
 form-origin boundary change above is part of the review.
 Apply the reviewed DNS/ingress/header/cache changes only after the release gate,
-fresh restored backup and owner review. Keep the previous web image until
-acceptance. On failed production checks roll back and report; no automatic retry.
+fresh restored backup and the current owner-directed development policy. Retain
+at least two previous web images. During this cycle, troubleshoot and fix forward
+without routine reapproval or automatic rollback; report failures and recovery.
 
 Migration 0020 adds OAuth control-plane tables under auth, not workout data. It
 must be applied and constraint/count-verified on a fresh restored production
@@ -112,7 +117,7 @@ remain open; MCP is read-only and does not fix the vision model prompt.
 
 ## Initial client setup
 
-After deployment, use `https://doclifts-mcp.runthe.ai/mcp` as the remote Streamable
+Use `https://doclifts-mcp.runthe.ai/mcp` as the remote Streamable
 HTTP server URL and OAuth as the authentication method. Never supply a DocLifts
 password as a tool argument or copy an app session cookie into an agent.
 

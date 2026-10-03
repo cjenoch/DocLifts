@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.16.0 Alpha — read-only agent access — not deployed
+## 0.16.1 Alpha — MCP live — deployed, acceptance pending
+
+- The production acceptance checks read the current Alpha test-account file and
+  validate credentials before opening a browser or making network requests.
+- 0.16.0 was rolled back when its check referenced a retired scratch password
+  file. Discovery and registration passed; the check stopped before submitting
+  sign-in. The corrected account path passes on the restored app.
+- MCP application code is unchanged. The owner then authorized fixing forward
+  without routine approval holds or automatic rollback, retaining two recovery
+  images. Fresh backups and release gates still apply. Signup stays closed.
+- Deployed 2026-10-03 using the unchanged, gated app build 1e52b4c. Public
+  discovery, consent, native PKCE exchange/refresh, six SDK tools, optional-note
+  exclusion and revocation passed. Saved/reloaded sets and photo upload/read/
+  discard also passed. Real-agent acceptance is pending; the owner can connect.
+
+## 0.16.0 Alpha — read-only agent access — rolled back 2026-10-03
 
 - Six account-scoped MCP tools expose workouts, programs, equipment and a data
   dictionary. Notes require separate permission; photos and pain records are excluded.
@@ -16,6 +31,13 @@
 - Planned endpoint: https://doclifts-mcp.runthe.ai/mcp through the existing tunnel.
   Auth, CSRF and tunnel diffs require owner review before release. Signup stays closed.
 - See [MCP specification](docs/mcp-alpha.md). Client-specific acceptance remains pending.
+- Owner approved PR #12 and tunnel deployment on 2026-10-03. Main 1e52b4c was
+  deployed after a fresh restore/migration rehearsal with unchanged counts.
+  Public discovery and registration passed. The acceptance harness then failed
+  on a missing test-password file before sending a sign-in; no app auth failure
+  was established. Restored runtime 38ff199, original environment/tunnel/edge
+  rules and removed the new MCP DNS record. Public sign-in/history verified.
+  Additive OAuth tables remain; training data was not restored or overwritten.
 
 ## 0.15.2 Alpha — image safety live — accepted 2026-10-03
 

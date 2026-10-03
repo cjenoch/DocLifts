@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.1 — free weights remember their weight format in programs — 2026-10-03
+
+- **Fixed:** a program saved from a quick workout showed no weight for free
+  weights (dumbbells, barbells, bands, bodyweight). The quick workout records
+  them in the format you chose (for example per arm), but a program workout
+  started them with no format, so last time's numbers were not found. A
+  program workout now starts each free weight in the format you last logged
+  it in, and fills in last time's weight from that history.
+
 ## 0.13.0 — faster set entry — 2026-10-03
 
 - **One tap per set.** Each set shows its weight and reps before you type

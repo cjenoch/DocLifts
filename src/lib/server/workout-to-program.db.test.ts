@@ -330,3 +330,83 @@ describe('a finished workout as a program draft', () => {
 		expect(await programsToAddTo(h.db, bob)).toEqual([]);
 	});
 });
+
+describe('free weights keep their format from a quick workout into a program (0.13.1)', () => {
+	it('a program saved from a per-arm quick workout prefills last time’s weight', async () => {
+		const { createGym, addSessionExercise } = await import('./machines');
+		const { startQuickSession } = await import('./quick-workouts');
+		const userId = await createTestUser(h.db, 'format');
+		const [curl] = await h.db
+			.insert(s.exercises)
+			.values({ userId, name: 'DB curl', equipmentType: 'dumbbell' })
+			.returning();
+		const gym = await createGym(h.db, userId, { name: 'Gym' });
+		const quick = await startQuickSession(h.db, userId, gym.id);
+		if (!quick.ok) throw new Error(quick.message);
+		const block = await addSessionExercise(h.db, userId, quick.sessionId, {
+			exerciseId: curl.id,
+			equipmentType: 'dumbbell',
+			loadConvention: 'per_arm',
+			setCount: '2',
+			repsMin: '8',
+			repsMax: '12',
+			rir: '2',
+			tier: 'secondary',
+			progressionPolicy: 'standard'
+		});
+		await h.db
+			.update(s.sets)
+			.set({ executedLoad: 25, executedReps: 9, executedRir: 2 })
+			.where(eq(s.sets.sessionExerciseId, block.id));
+		await endSession(h.db, userId, quick.sessionId);
+
+		const draft = await programDraftFromWorkout(h.db, userId, quick.sessionId);
+		const saved = await saveProgramDraft(h.db, userId, {
+			requestId: randomUUID(),
+			sourceProgramId: null,
+			draft
+		});
+		const [day] = await h.db.select().from(s.days).where(eq(s.days.programId, saved.id));
+		const next = await startSessionForDay(h.db, userId, day.id);
+		if (!next.ok) throw new Error(next.message);
+		const [occurrence] = await h.db
+			.select()
+			.from(s.sessionExercises)
+			.where(eq(s.sessionExercises.sessionId, next.sessionId));
+		expect(occurrence.loadConvention).toBe('per_arm');
+		const rows = await h.db
+			.select()
+			.from(s.sets)
+			.where(eq(s.sets.sessionId, next.sessionId))
+			.orderBy(asc(s.sets.position));
+		// Last time, 25 per arm for 9 and 9; the saved range is 9 to 9, every set
+		// reached its top, so the engine moves up one dumbbell step. Before
+		// 0.13.1 the day started as 'legacy', found no history, and showed none.
+		expect(rows.map((r) => [r.loadConvention, r.prescribedLoad])).toEqual([
+			['per_arm', 30],
+			['per_arm', 30]
+		]);
+		expect(rows[0].suggestionReasoning).toMatch(/^\+5/);
+	});
+
+	it('an exercise only ever logged in programs keeps its format, and a new one stays legacy', async () => {
+		const { userId, sessionId, programId } = await finishedWorkout();
+		const [day] = await h.db.select().from(s.days).where(eq(s.days.programId, programId));
+		const next = await startSessionForDay(h.db, userId, day.id);
+		if (!next.ok) throw new Error(next.message);
+		const blocks = await h.db
+			.select()
+			.from(s.sessionExercises)
+			.where(eq(s.sessionExercises.sessionId, next.sessionId));
+		expect(blocks.every((b) => b.loadConvention === 'legacy')).toBe(true);
+		const press = blocks.find((b) => b.exerciseName === 'DB press')!;
+		const rows = await h.db
+			.select()
+			.from(s.sets)
+			.where(eq(s.sets.sessionExerciseId, press.id))
+			.orderBy(asc(s.sets.position));
+		// Last time: 50 x 10, 9, 8 in legacy; the fourth was never logged.
+		expect(rows.map((r) => r.prescribedLoad)).toEqual([50, 50, 50, null]);
+		expect(sessionId).toBeTruthy();
+	});
+});

@@ -3102,3 +3102,27 @@ tab; RIR stays a plain optional field.
 
 Check (assistant, production, scratch account): one-tap save, the steppers,
 and the timer across a reload, at 390 px.
+
+## 41. 0.13.1 — free weights keep their weight format into a program — NOT deployed
+
+Fix for the gap found in 0.13.0's production check. `startSessionForDay`
+read history with `legacyIdentity` and created every block as `legacy`, while
+the add sheet logs free weights in a remembered format (0.8.0). History
+matches on the format, so a program day never saw a free weight's
+quick-workout sets (and Part M's "last time's numbers" failed for programs
+saved from quick workouts). Now each free-weight block starts in the format
+of the exercise's most recent completed set on no machine
+(`lastFreeWeightFormat`, else `legacy`), and its history, MAIN prefill and
+backwards count use `historyIdentity(null, format, type)`, as every other
+free-weight lookup already did. Machine exercises are unchanged.
+
+Owner's choice (2026-10-03): "use last format", over matching any format
+(which could read a per-arm 25 as a both-hands 25).
+
+Tests: a per-arm quick workout saved as a program prefills from that history
+(watched failing with the fix reverted); a program-only exercise keeps
+`legacy` and its history. Part M's test had used one format on both sides,
+which is why it missed this.
+
+Check (assistant, production, scratch account): "0120 check from workout"
+day 1 shows last time's dumbbell weights.

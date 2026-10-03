@@ -25,6 +25,9 @@ import {
 import {
 	computeConsecutiveBackwards,
 	defaultIncrement,
+	FREE_WEIGHT_TYPES,
+	historyIdentity,
+	type PerformanceIdentity,
 	getLastCompletedSet,
 	HELD_NO_RULE_REASONING,
 	resolveTargets,
@@ -126,9 +129,32 @@ export async function startSessionForDay(
 		.where(eq(dayExercises.dayId, day.id))
 		.orderBy(asc(dayExercises.position), asc(prescribedSets.position));
 
+	// Free weights carry the weight format they were last logged in (0.13.1):
+	// the add sheet records one (e.g. per arm), and history matches on it, so a
+	// program day that started them as 'legacy' never saw sets logged in a
+	// quick workout. Machine exercises are unchanged: no machine is chosen yet.
+	const formatOf = new Map<string, (typeof sets.$inferSelect)['loadConvention']>();
+	for (const p of prescribed)
+		if (FREE_WEIGHT_TYPES.has(p.equipmentType) && !formatOf.has(p.exerciseId))
+			formatOf.set(p.exerciseId, await lastFreeWeightFormat(db, userId, p.exerciseId));
+	const identityOf = (p: (typeof prescribed)[number]): PerformanceIdentity | undefined =>
+		formatOf.has(p.exerciseId)
+			? historyIdentity(null, formatOf.get(p.exerciseId)!, p.equipmentType)
+			: undefined;
+
 	// N+1 by design — single-user localhost Postgres, see handoff notes.
 	const histories = await Promise.all(
-		prescribed.map((p) => getLastCompletedSet(db, userId, p.exerciseId, p.setRole, p.setPosition))
+		prescribed.map((p) =>
+			getLastCompletedSet(
+				db,
+				userId,
+				p.exerciseId,
+				p.setRole,
+				p.setPosition,
+				undefined,
+				identityOf(p)
+			)
+		)
 	);
 
 	type Decision =
@@ -160,7 +186,8 @@ export async function startSessionForDay(
 					history
 				})),
 				first.progressionPolicy,
-				first.isLowerBody
+				first.isLowerBody,
+				identityOf(first)
 			)
 		);
 	}
@@ -204,7 +231,15 @@ export async function startSessionForDay(
 		});
 		const backwardsPerPosition = await Promise.all(
 			sorted.map((row) =>
-				computeConsecutiveBackwards(db, userId, first.p.exerciseId, 'working', row.p.setPosition)
+				computeConsecutiveBackwards(
+					db,
+					userId,
+					first.p.exerciseId,
+					'working',
+					row.p.setPosition,
+					10,
+					identityOf(first.p)
+				)
 			)
 		);
 		// Exercise-level backwards symmetry: just like all-working-set "clear" requires
@@ -329,6 +364,7 @@ export async function startSessionForDay(
 						position: p.exercisePosition,
 						exerciseName: p.exerciseName,
 						equipmentType: p.equipmentType,
+						loadConvention: formatOf.get(p.exerciseId) ?? 'legacy',
 						tier: p.tier,
 						progressionPolicy: p.progressionPolicy
 					})
@@ -342,6 +378,7 @@ export async function startSessionForDay(
 					sessionId: session.id,
 					sessionExerciseId: occurrences.get(p.dayExerciseId),
 					exerciseId: p.exerciseId,
+					loadConvention: formatOf.get(p.exerciseId) ?? 'legacy',
 					prescribedSetId: p.prescribedSetId,
 					position: p.setPosition,
 					setRole: p.setRole,
@@ -369,6 +406,31 @@ export async function startSessionForDay(
 		}
 		throw err;
 	}
+}
+
+/**
+ * The format a free weight was last logged in: its most recent completed set
+ * (the history filters), on no machine. 'legacy' when it was never logged.
+ */
+async function lastFreeWeightFormat(db: Database, userId: string, exerciseId: string) {
+	const [row] = await db
+		.select({ format: sets.loadConvention })
+		.from(sets)
+		.innerJoin(sessions, eq(sets.sessionId, sessions.id))
+		.where(
+			and(
+				eq(sets.userId, userId),
+				eq(sets.exerciseId, exerciseId),
+				isNull(sets.gymEquipmentId),
+				isNotNull(sets.executedLoad),
+				isNotNull(sets.executedReps),
+				isNotNull(sessions.endedAt),
+				isNull(sessions.deletedAt)
+			)
+		)
+		.orderBy(desc(sets.loggedAt))
+		.limit(1);
+	return row?.format ?? 'legacy';
 }
 
 // Exported for the direct cross-tenant test in sessions.test.ts. Callers pass

@@ -33,6 +33,7 @@ import { MCP_SCOPES, mcpResource, tokenHash } from './mcp/config';
  * create an account that the running server cannot authenticate.
  */
 import { betterAuth } from 'better-auth';
+import { createAuthMiddleware } from 'better-auth/api';
 import { clientIpHeader } from './client-ip';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { exercises } from './db/schema';
@@ -127,6 +128,22 @@ function configuredAuth(db: Database, opts: CreateAuthOptions) {
 	return betterAuth({
 		baseURL: opts.baseURL,
 		secret: opts.secret,
+		hooks: {
+			before: createAuthMiddleware(async (ctx) => {
+				// Some OAuth clients omit RFC 8707's resource parameter. This issuer serves
+				// one MCP resource: bind it BEFORE the provider validates and signs the
+				// authorization request, so consent, codes and tokens all keep that audience.
+				// Never replace an explicit target or alter a signed continuation.
+				if (
+					ctx.path === '/oauth2/authorize' &&
+					ctx.query &&
+					!Object.hasOwn(ctx.query, 'resource') &&
+					!Object.hasOwn(ctx.query, 'sig')
+				) {
+					return { context: { query: { ...ctx.query, resource: mcpResource() } } };
+				}
+			})
+		},
 		plugins: [
 			oauthProvider({
 				loginPage: '/account/connections/start',

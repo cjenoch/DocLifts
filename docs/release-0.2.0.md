@@ -2971,3 +2971,29 @@ an existing one), and filtering the swap list by what this gym has.
 
 Check (assistant, production, scratch account): move, remove with Undo,
 swap, skip and finish on a program workout at 390 px.
+
+## 38. 0.11.0 — the program editor for a phone (editor spec, Part N) — NOT deployed
+
+Code only; no server change. `ProgramEditor.svelte` keeps its contract (the
+same `payload` + `requestId` POST, review step, size limits, recovery of a
+failed POST) and replaces the long form with three screens driven by local
+state. `src/lib/program-pattern.ts` holds the pure parts: `patternOf` (equal
+non-MAIN working sets, rest 90–120 or 120–180, no load or notes, else null),
+`setsFromPattern`, `reroleForTier` (MAIN: one top then backoffs, leading
+warm-ups kept), `summaryLine`, and `locate`/`dayCount` (each validation issue
+on its screen, a count on the level above). `ExerciseChooser.svelte` replaces
+the library dropdown; strings are in `src/lib/editor-ui.ts`.
+
+The spec says the draft "already survives a reload". It did not: the old
+editor kept it only in memory. It is now kept in sessionStorage per new
+program or per program being edited (draft, request id, screen), and cleared
+on save or cancel.
+
+Choices: the four pattern fields apply on leaving the field (a phone's Done),
+not per keystroke, so clearing a field does not snap it to 1; "Customize
+sets" stays open while its sets are edited; starting points show only for a
+new program.
+
+Check (assistant, production, scratch account): a three-day program built
+and saved at 390 px with no sideways scroll; an existing program edited and
+saved as a new version.

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.0 — the program editor, rebuilt for a phone — 2026-10-03
+
+- **Three short screens in place of one long form.** Program: name,
+  description and the list of days (add, rename, reorder, remove). Day: its
+  exercises as one line each, like "Leg press · 3 × 8–12 · RIR 2", and which
+  day it alternates with. Exercise: its sets.
+- **Four fields for a normal exercise:** sets, rep range, reps in reserve and
+  rest (short or long). Changing one rewrites all its sets. "Customize sets"
+  edits each set on its own for warm-ups, a top set with backoffs, timed sets
+  or starting loads; an exercise like that opens there directly.
+- **An exercise picker** replaces the long dropdown: search, tap, or create a
+  new exercise (equipment and lower body are asked only then). Tier and
+  progression are under "Advanced".
+- **Your draft is kept** while you move between screens and if the page
+  reloads. A new program starts from "Start blank" or one of the four
+  templates. Review and save work as before.
+
 ## 0.10.0 — change a workout while you do it — 2026-10-03
 
 - **Each exercise in an open workout has a ⋯ menu:** move it up or down,

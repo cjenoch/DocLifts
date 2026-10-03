@@ -2880,7 +2880,21 @@ Part N rebuilds that screen and names this picker; it is built there.
 Check (assistant, production, scratch account): a program workout's planned
 machine exercise binds through the sheet; the button is gone after a set.
 
-## 36. 0.9.0 — four starter templates (editor spec, Part D) — NOT deployed
+## 36. 0.9.0 — four starter templates (editor spec, Part D) — DEPLOYED 2026-10-03, acceptance pending
+
+```
+0.9.0    653b301, tagged 0.9.0; branch CI green; full local gate 818 (+2
+         skipped) / 3 / 31 / 149. No CLAUDE.md, auth or schema change:
+         deployed under development-push mode after the owner's "start Part D"
+image    pre-0.9.0 kept until the owner signs off
+web      healthy; version.json 653b301
+check    scratch account, 390x844: the four template buttons shown; "090 check
+         Barbell Strength" picked, reviewed and saved; day one started with
+         Overhead press, Barbell bench press, Barbell row, Face pull (11
+         sets); set 1 saved 65 x 5 (psql: saved, workout ended); no sideways
+         overflow; finished. No 5xx, 0 page errors.
+owed     the owner starting a program from a template on his phone
+```
 
 Code only. `src/lib/starter-templates.ts` builds Barbell Strength, Machine
 Full Body and Machines and Dumbbells as editor drafts beside

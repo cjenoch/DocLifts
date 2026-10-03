@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.13.0 — faster set entry — 2026-10-03
+
+- **One tap per set.** Each set shows its weight and reps before you type
+  anything (reps start at the bottom of the target range), and a big ✓ saves
+  exactly what is shown. The next set to log scrolls into view; the keyboard
+  stays closed.
+- **− and + beside weight and reps.** Weight moves by the machine's own step
+  when it is known, otherwise 5 lb (2.5 lb for plates per side); reps by 1,
+  timed sets by 5 seconds. RIR stays, smaller and optional.
+- **Rest timer.** Saving a set starts a 90-second rest in the workout bar.
+  Tap it to dismiss, or "+30 s" for more. It keeps the right time if the page
+  reloads. On screen only: no sound or notification yet.
+- Every number above is one line in `src/lib/workout-ui.ts`.
+
 ## 0.12.0 — save a workout as a program — 2026-10-03
 
 - **A finished workout can become a program.** Its page has "Save as

@@ -8,8 +8,7 @@
  * user's quick program is first created; changing them later renames nothing
  * already stored. Everything else is read at render time.
  *
- * Later parts add their defaults here too. `defaultRestSeconds` is Part F's
- * and is not used yet.
+ * Later parts add their defaults here too; Part F's are at the end.
  */
 export const workoutUi = {
 	/** Home's primary button when no quick workout is open. */
@@ -123,6 +122,37 @@ export const workoutUi = {
 		'Its exercises, sets and the reps you did become a draft you review before saving.',
 	newProgramFromWorkout: 'New program',
 	addAsDayTo: (name: string) => `Add as a day to ${name}`,
-	/** Part F: rest timer default. */
-	defaultRestSeconds: 90
+	/**
+	 * Faster set entry (SPEC 0.5.0, Part F). Every number here is a one-line
+	 * change: the rest timer, the stepper sizes, and what a set shows before
+	 * anything is typed.
+	 */
+	/** Rest after a saved set, in seconds (owner decision, 2026-10-02). */
+	defaultRestSeconds: 90,
+	/** Whether a saved set starts the rest timer at all. */
+	restTimerEnabled: true,
+	/** What one tap on "+30 s" adds. */
+	restAddSeconds: 30,
+	/**
+	 * The weight stepper when the machine's own increment is unknown, by how
+	 * the weight is recorded. Plates per side move by the smallest plate.
+	 */
+	weightStep: { plates_per_side: 2.5, default: 5 } as Record<string, number>,
+	repsStep: 1,
+	secondsStep: 5,
+	/**
+	 * Reps shown before anything is typed, so the right numbers save in one
+	 * tap: the bottom of the target range. Never more than the target asks,
+	 * so a one-tap save cannot claim reps that would wrongly advance the load.
+	 */
+	repsPrefill: 'min' as 'min' | 'max' | 'none',
+	saveSet: (n: number) => `Save set ${n}`,
+	lessWeight: 'Less weight',
+	moreWeight: 'More weight',
+	lessReps: (seconds: boolean) => (seconds ? 'Fewer seconds' : 'Fewer reps'),
+	moreReps: (seconds: boolean) => (seconds ? 'More seconds' : 'More reps'),
+	restLabel: 'Rest',
+	restOver: 'Rest over',
+	restAdd: '+30 s',
+	restDismiss: 'Dismiss rest timer'
 } as const;

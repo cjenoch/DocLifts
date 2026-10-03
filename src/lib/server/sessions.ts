@@ -15,6 +15,7 @@ import {
 	dayExercises,
 	days,
 	exercises,
+	gymEquipment,
 	programs,
 	prescribedSets,
 	sessions,
@@ -958,6 +959,8 @@ async function sessionSetsForDay(db: Database, userId: string, sessionId: string
 			/** The block's equipment type, else the exercise's (free weights: 0.8.0). */
 			equipmentType: sql<string>`coalesce(${sessionExercises.equipmentType}, ${exercises.equipmentType})`,
 			machineLabel: sessionExercises.machineLabel,
+			/** The machine's smallest load step (Part F: the weight stepper). */
+			incrementLb: gymEquipment.incrementLb,
 			gymName: sessionExercises.gymName,
 			modelName: sessionExercises.modelName,
 			occurrencePosition: sessionExercises.position,
@@ -981,6 +984,7 @@ async function sessionSetsForDay(db: Database, userId: string, sessionId: string
 		.from(sets)
 		.innerJoin(exercises, eq(sets.exerciseId, exercises.id))
 		.leftJoin(sessionExercises, eq(sessionExercises.id, sets.sessionExerciseId))
+		.leftJoin(gymEquipment, eq(gymEquipment.id, sets.gymEquipmentId))
 		.where(and(eq(sets.sessionId, sessionId), eq(sets.userId, userId)))
 		.orderBy(asc(sets.position));
 	return { rows };

@@ -27,6 +27,45 @@
 		equipmentType: string;
 	} | null>(null);
 	const FREE_WEIGHT_UI = new Set(FREE_TYPES as readonly string[]);
+	// The rest timer (SPEC 0.5.0, Part F): started by a saved set, shown in the
+	// workout bar. Only its start time and length are stored, and the display
+	// is computed from the clock, so a reload does not reset it.
+	type Rest = { startedAt: number; seconds: number };
+	const restKey = $derived(`doclifts:rest:${data.session.id}`);
+	let rest = $state<Rest | null>(null);
+	let now = $state(Date.now());
+	function keepRest(next: Rest | null) {
+		rest = next;
+		now = Date.now();
+		try {
+			if (next) localStorage.setItem(restKey, JSON.stringify(next));
+			else localStorage.removeItem(restKey);
+		} catch {
+			/* The timer still runs for this page. */
+		}
+	}
+	function startRest() {
+		if (!workoutUi.restTimerEnabled || data.session.endedAt) return;
+		keepRest({ startedAt: Date.now(), seconds: workoutUi.defaultRestSeconds });
+	}
+	onMount(() => {
+		try {
+			const saved = JSON.parse(localStorage.getItem(restKey) ?? 'null');
+			if (
+				!data.session.endedAt &&
+				typeof saved?.startedAt === 'number' &&
+				typeof saved?.seconds === 'number'
+			)
+				rest = saved;
+		} catch {
+			/* Optional. */
+		}
+		const tick = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(tick);
+	});
+	const restLeft = $derived(rest ? rest.seconds - Math.floor((now - rest.startedAt) / 1000) : 0);
+	const clock = (total: number) =>
+		`${Math.floor(Math.abs(total) / 60)}:${String(Math.abs(total) % 60).padStart(2, '0')}`;
 	// Editing a live workout (editor spec, Part L).
 	let swapOpen = $state(false);
 	let swapTarget = $state<{
@@ -468,6 +507,7 @@
 						sessionEnded={data.session.endedAt != null}
 						allowEndedSessionEdit={data.allowEndedSessionEdit}
 						{ondirty}
+						onsaved={startRest}
 					/>{/each}
 			</ul>
 			{#if !data.session.endedAt}<form
@@ -605,6 +645,27 @@
 					>
 					{#if photoError}<p role="alert" class="photo-error">{photoError}</p>{/if}
 				</form>{/if}
+			{#if rest}
+				<div class="rest" data-testid="rest-timer">
+					<button
+						type="button"
+						class="rest-time"
+						class:over={restLeft <= 0}
+						aria-label={workoutUi.restDismiss}
+						onclick={() => keepRest(null)}
+						><span>{restLeft > 0 ? workoutUi.restLabel : workoutUi.restOver}</span>
+						<output data-testid="rest-clock"
+							>{restLeft > 0 ? clock(restLeft) : `+${clock(restLeft)}`}</output
+						></button
+					><button
+						type="button"
+						class="rest-add"
+						onclick={() =>
+							rest && keepRest({ ...rest, seconds: rest.seconds + workoutUi.restAddSeconds })}
+						>{workoutUi.restAdd}</button
+					>
+				</div>
+			{/if}
 			<p aria-live="polite">
 				{dirtyIds.length
 					? `${dirtyIds.length} unsaved ${dirtyIds.length === 1 ? 'set' : 'sets'} · drafts kept in this tab`
@@ -639,6 +700,38 @@
 	</footer>{/if}
 
 <style>
+	.rest {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+	.rest-time {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		min-height: 48px;
+		padding: 0 14px;
+		border-radius: 12px;
+		background: #1e1b4b;
+		color: #e0e7ff;
+		font-weight: 600;
+	}
+	.rest-time output {
+		font-size: 22px;
+		font-variant-numeric: tabular-nums;
+	}
+	.rest-time.over {
+		background: #064e3b;
+		color: #d1fae5;
+	}
+	.rest-add {
+		min-height: 48px;
+		padding: 0 14px;
+		border: 1px solid #4b5870;
+		border-radius: 12px;
+		color: #c7d2fe;
+	}
 	.remove-set {
 		min-height: 44px;
 		font-size: 12px;

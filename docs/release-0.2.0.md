@@ -3061,3 +3061,24 @@ same section.
 
 Check (assistant, production, scratch account): a quick workout saved as a
 new program, and a workout added as a day of an existing one, at 390 px.
+
+## 40. 0.13.0 — faster set entry (SPEC 0.5.0, Part F) — NOT deployed
+
+Code only, no migration. `SetRow.svelte`: the Save button is a large ✓
+(`aria-label` "Save set N", as before); reps are prefilled from
+`workoutUi.repsPrefill` ('min': the bottom of the target range, so a
+one-tap save never claims reps that would wrongly advance the load);
+− / + steppers for weight (`gym_equipment.increment_lb`, now on the set
+projection, else `workoutUi.weightStep` by convention) and reps/seconds;
+after a save the next unlogged set scrolls into view without focus. The
+four states, the stale-identity guard and the sessionStorage drafts are
+unchanged. The session page starts the rest timer from SetRow's `onsaved`;
+it stores only `{ startedAt, seconds }` in localStorage per workout and
+computes the display from the clock, so a reload keeps it.
+
+Choices: reps prefill at the bottom of the range (one setting); the timer is
+in localStorage, not sessionStorage, so it survives the phone closing the
+tab; RIR stays a plain optional field.
+
+Check (assistant, production, scratch account): one-tap save, the steppers,
+and the timer across a reload, at 390 px.

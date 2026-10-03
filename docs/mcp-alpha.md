@@ -1,6 +1,8 @@
-# DocLifts MCP — Alpha 0.16.0 specification
+# DocLifts MCP — Alpha 0.16.1 specification
 
-Status: implementation and release checks in progress; not deployed.
+Status: 0.16.0 rolled back after a missing acceptance-test credential file.
+0.16.1 changes the deployment checks only; retry awaits owner approval.
+Production is restored to 0.15.2 Alpha; the MCP hostname is not active.
 
 ## Outcome and first scope
 

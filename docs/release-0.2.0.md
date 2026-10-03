@@ -3322,3 +3322,34 @@ testing uploads and confirming acceptable speed on 2026-10-03 ("approved, tested
 some uploads. Oknspeed"). Release state is ACCEPTED. The temporary pre-0.15.0,
 pre-0.15.1 and pre-0.15.2 image tags are retired after this signoff; verified
 database and configuration backups remain.
+
+## 47. 0.16.0 Alpha — MCP — ROLLED BACK 2026-10-03
+
+Owner approved PR #12 and the tunnel proposal. The full local gate and exact-head
+CI were green at 2bd9252; merged main 1e52b4c. Fresh production dump restored in
+isolation, all migrations applied, seven OAuth tables verified, counts unchanged
+(11 users, 56 workouts, 554 set rows, 18 programs). The production wrapper took
+another verified dump immediately before migration. Previous image retained as
+pre-0.16.0; Compose dry run passed. The new image, restricted MCP ingress, DNS and
+five narrowly extended edge rules were activated.
+
+Public protected-resource/issuer metadata, anonymous refusal, path restriction
+and dynamic client registration passed. The browser reached the new sign-in
+page. The test referenced a retired scratch-password file and failed before
+submitting sign-in. That is a harness defect; no app auth failure was established.
+Per release policy, rolled back the app to38ff199, environment, ingress and five
+edge rules; removed the new MCP DNS record. The additive OAuth tables remain.
+No training data restore was performed. Recovery image kept; failed image retained
+as failed-0.16.0 and default vps tag restored to the old image to avoid accidental
+forward deployment. Restored public sign-in and private history access passed.
+
+## 48. 0.16.1 Alpha — MCP acceptance correction — NOT DEPLOYED
+
+The private production checks now select alpha-test-01 from the current protected
+Alpha test-account file and validate its presence before browser/network work.
+Passwords never appear in arguments, logs or reports. Owner account is never used.
+MCP code is unchanged; the SDK server reports its unchanged0.16.0 protocol build.
+Full app saved-set/photo verification is rerun on the restored release. Retry only
+after Markdown gate and exact-head CI, fresh verified backup, and owner approval
+of this rollback report. Preserve pre-0.16.0 until a later release is accepted.
+On retry, public SDK connect/read/revoke must pass before owner agent testing.

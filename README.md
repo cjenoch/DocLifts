@@ -30,7 +30,7 @@ Identification requests go through one model-call interface with structured-outp
 
 ## Your data beyond the app
 
-The next release, **0.16.0 Alpha, is under review and not deployed**. It adds read-only MCP access to your workouts, programs and equipment, with explicit account consent, optional access to notes and revocation from Account → Connected agents. The [MCP specification](docs/mcp-alpha.md) describes the six tools, permissions, data dictionary and client acceptance work. The proposed endpoint is `https://doclifts-mcp.runthe.ai/mcp`.
+The next release, **0.16.1 Alpha, is under review and not deployed**. It adds read-only MCP access to your workouts, programs and equipment, with explicit account consent, optional access to notes and revocation from Account → Connected agents. The [MCP specification](docs/mcp-alpha.md) describes the six tools, permissions, data dictionary and client acceptance work. The proposed endpoint is `https://doclifts-mcp.runthe.ai/mcp`.
 
 A separate imported-history archive already preserves original notes, recalled estimates and uncertain dates. Those archive records do not feed progression or operational workout totals. Personal import payloads are kept outside this repository.
 

@@ -21,6 +21,7 @@ import {
 } from '$lib/server/test-auth-helpers';
 import * as s from '$lib/server/db/schema';
 import { workoutUi } from '$lib/workout-ui';
+import { conventionLabel, pickerUi } from '$lib/picker-ui';
 
 function chromiumPath(): string | undefined {
 	if (process.env.PW_EXECUTABLE_PATH) return process.env.PW_EXECUTABLE_PATH;
@@ -104,20 +105,33 @@ run('quick workout from Home (production build)', () => {
 	const GYM = 'Corner gym';
 
 	async function addExercise(page: Page, machine: 'new' | 'existing') {
-		// The empty quick workout opens with the picker already open.
-		await expect
-			.poll(() => page.getByRole('heading', { name: 'Add to this workout' }).count())
-			.toBe(1);
-		await page.getByRole('searchbox').fill(EXERCISE);
-		await page.getByRole('button', { name: new RegExp(`^${EXERCISE}`) }).click();
-		// The session's gym is preselected; nothing to choose.
-		expect(await page.locator('select[name="gymId"] option:checked').textContent()).toBe(GYM);
-		if (machine === 'new') await page.getByLabel('Equipment name').fill(MACHINE);
-		else await page.locator('select[name="gymEquipmentId"]').selectOption({ label: MACHINE });
-		await page.getByLabel('How do you record weight?').selectOption('displayed');
-		await page.getByLabel('Sets').fill('1');
-		await page.getByRole('button', { name: 'Add to workout' }).click();
+		// The add sheet (0.8.0) opens on the workout's gym.
+		await page.getByRole('button', { name: `+ ${pickerUi.addExercise}` }).click();
+		const sheet = page.getByRole('dialog', { name: pickerUi.addExercise });
+		await sheet.waitFor();
+		expect(await sheet.getByTestId('sheet-gym').innerText()).toBe(GYM);
+		if (machine === 'new') {
+			// No machines here yet: the sheet opens on Exercises.
+			await sheet.getByRole('searchbox', { name: pickerUi.searchExercises }).fill(EXERCISE);
+			await sheet.getByTestId('exercise-row').filter({ hasText: EXERCISE }).first().click();
+			// A machine exercise: name the machine it is on.
+			await sheet.getByRole('button', { name: pickerUi.addByName }).click();
+			await sheet.getByLabel(pickerUi.machineName).fill(MACHINE);
+			await sheet.getByRole('button', { name: pickerUi.add, exact: true }).click();
+			// First time on this machine: the weight format, preselected.
+			expect(
+				await sheet
+					.getByRole('button', { name: conventionLabel('displayed') })
+					.getAttribute('aria-pressed')
+			).toBe('true');
+			await sheet.getByRole('button', { name: pickerUi.add, exact: true }).click();
+		} else {
+			// Two taps: the machine, then its usual exercise; the format is remembered.
+			await sheet.getByTestId('machine-row').filter({ hasText: MACHINE }).first().click();
+			await sheet.getByRole('button', { name: new RegExp(`^${EXERCISE}`) }).click();
+		}
 		await expect.poll(() => page.getByRole('heading', { name: EXERCISE }).count()).toBe(1);
+		expect(await sheet.count()).toBe(0);
 	}
 
 	it('start, create a gym, add an exercise, save a first set; the next workout prefills it', async () => {
@@ -136,8 +150,8 @@ run('quick workout from Home (production build)', () => {
 		const firstUrl = page.url();
 
 		await addExercise(page, 'new');
-		await page.getByRole('spinbutton', { name: 'Weight', exact: true }).fill('100');
-		await page.getByRole('spinbutton', { name: 'Reps', exact: true }).fill('10');
+		await page.getByRole('spinbutton', { name: 'Weight', exact: true }).first().fill('100');
+		await page.getByRole('spinbutton', { name: 'Reps', exact: true }).first().fill('10');
 		await page.getByRole('button', { name: 'Save set 1' }).click();
 		await expect.poll(() => page.getByText('✓ Saved').count()).toBe(1);
 
@@ -159,6 +173,8 @@ run('quick workout from Home (production build)', () => {
 		await page.goto(origin + '/', { waitUntil: 'networkidle' });
 		await page.getByRole('link', { name: workoutUi.resumeWorkout, exact: true }).click();
 		await page.waitForURL(firstUrl);
+		// Two of the three sets are empty, so Finish asks first.
+		page.once('dialog', (d) => d.accept());
 		await page.getByRole('button', { name: 'Finish workout' }).click();
 		await page.waitForURL(origin + '/');
 
@@ -171,9 +187,9 @@ run('quick workout from Home (production build)', () => {
 		expect(page.url()).not.toBe(firstUrl);
 
 		await addExercise(page, 'existing');
-		expect(await page.getByRole('spinbutton', { name: 'Weight', exact: true }).inputValue()).toBe(
-			'100'
-		);
+		expect(
+			await page.getByRole('spinbutton', { name: 'Weight', exact: true }).first().inputValue()
+		).toBe('100');
 		expect(await page.getByText('Last: 100 × 10').count()).toBe(1);
 
 		// History labels both as quick workouts.

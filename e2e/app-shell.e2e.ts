@@ -192,7 +192,7 @@ run('app shell for a new account (production build)', () => {
 		await page.waitForURL('**/sessions/*');
 		expect(await tabs(page).count(), 'tabs during an open workout').toBe(0);
 		const bar = page.locator('footer');
-		expect(await bar.getByRole('link', { name: 'Add exercise' }).isVisible()).toBe(true);
+		expect(await bar.getByRole('button', { name: 'Add exercise' }).isVisible()).toBe(true);
 		expect(await bar.getByRole('button', { name: 'Finish workout' }).isVisible()).toBe(true);
 		// The account button is still one tap away.
 		expect(await accountButton(page).isVisible()).toBe(true);

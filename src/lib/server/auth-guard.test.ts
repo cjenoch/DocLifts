@@ -158,6 +158,7 @@ describe('route inventory', () => {
 			'/equipment',
 			'/equipment/x',
 			'/equipment/x/edit',
+			'/exercises',
 			'/gyms',
 			'/gyms/x/equipment/photo',
 			'/gyms/x/machines/x/edit',

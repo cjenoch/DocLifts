@@ -91,3 +91,21 @@ The photo flow (`identifySessionExercise`) still merges a placeholder into an
 existing machine and deletes the placeholder directly, as in 0.6.0; it does
 not yet go through `mergeMachines`, which would leave an archived "Photo …"
 row behind each time.
+
+## Free weights (0.8.0)
+
+Machines spec Part J, owner decision 2026-10-02. **The never-fall-back rule
+above covers the four machine types only** (plate-loaded, weight stack, cable,
+Smith). For the five free-weight types (barbell, EZ bar, dumbbell,
+bodyweight, band):
+
+- An exercise is added with no gym and no equipment row; its block stores no
+  machine.
+- History follows the exercise across gyms: `historyIdentity()` sets
+  `anyMachine`, and the lookup keys on exercise, set role, position and load
+  convention, ignoring the machine.
+- Old free-weight sets that point at equipment rows such as "Dumbbells" keep
+  counting, with no data change. Those rows stay in the database and are left
+  out of the add sheet's Machines tab.
+- The weight format is remembered per exercise, as it is per exercise and
+  machine for machines.

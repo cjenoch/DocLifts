@@ -5,7 +5,8 @@
 	import type { ActionData, PageData } from './$types';
 	import SetRow from './SetRow.svelte';
 	import MachinePicker from '$lib/MachinePicker.svelte';
-	import AddWorkoutExercise from '$lib/AddWorkoutExercise.svelte';
+	import AddSheet from '$lib/AddSheet.svelte';
+	import { pickerUi } from '$lib/picker-ui';
 	import TrashAction from '$lib/TrashAction.svelte';
 	import { workoutUi } from '$lib/workout-ui';
 	import { photoClientSettings, resizeForUpload } from '$lib/photo-client';
@@ -14,10 +15,9 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let dirtyIds = $state<string[]>([]);
 	let appending = $state<string | null>(null);
-	// An empty open quick workout has one thing to do next: add an exercise.
-	let pickerOpen = $state(
-		untrack(() => data.quick && !data.session.endedAt && data.groups.length === 0)
-	);
+	// The add sheet opens on a tap (0.8.0). An empty quick workout no longer
+	// opens it by itself: it is full-screen, and would cover "Photo next machine".
+	let pickerOpen = $state(false);
 	const heading = $derived(data.quick ? workoutUi.sessionHeading : data.day.name);
 	const backHref = $derived(data.quick ? '/' : `/programs/${data.session.programId}`);
 	let appendError = $state('');
@@ -377,12 +377,17 @@
 		</section>
 	{/each}
 	{#if appendError}<p role="alert" class="error">{appendError}</p>{/if}
-	{#if !data.session.endedAt}<AddWorkoutExercise
-			choices={data.choices}
-			sessionGymId={data.session.gymId}
-			quick={data.quick}
+	{#if !data.session.endedAt && data.picker}
+		<!-- The add sheet (0.8.0, machines spec Parts I and J). -->
+		<button class="add-trigger" onclick={() => (pickerOpen = true)}>+ {pickerUi.addExercise}</button
+		>
+		<AddSheet
+			picker={data.picker}
+			sessionId={data.session.id}
+			photoGymId={data.photoEnabled ? data.session.gymId : null}
 			bind:open={pickerOpen}
-		/>{/if}
+		/>
+	{/if}
 </main>
 {#if !data.session.endedAt}<footer>
 		<div class="footer-inner">
@@ -400,6 +405,7 @@
 						>{photoStage ?? workoutUi.photoNextMachine}<input
 							type="file"
 							name="photo"
+							id="photo-next-input"
 							accept="image/jpeg,image/png,image/webp"
 							class="sr-only"
 							disabled={photoStage !== null}
@@ -414,10 +420,10 @@
 					: 'Saved sets are stored in your workout'}
 			</p>
 			<div class="footer-actions">
-				<a href={backHref}>Pause</a><a
+				<a href={backHref}>Pause</a><button
+					type="button"
 					class="jump-add"
-					onclick={() => (pickerOpen = true)}
-					href="#add-workout-exercise">Add exercise</a
+					onclick={() => (pickerOpen = true)}>{pickerUi.addExercise}</button
 				>
 				<form
 					method="POST"
@@ -602,6 +608,14 @@
 		align-items: center;
 		justify-content: space-between;
 	}
+	.add-trigger {
+		width: 100%;
+		min-height: 52px;
+		border: 1px dashed #46546b;
+		border-radius: 12px;
+		color: #c7d2fe;
+		font-weight: 600;
+	}
 	.footer-actions a,
 	.footer-actions button {
 		min-height: 46px;
@@ -619,6 +633,10 @@
 	.footer-actions button {
 		background: #c7d2fe;
 		color: #182044;
+	}
+	.footer-actions .jump-add {
+		background: none;
+		color: #c7d2fe;
 	}
 	.history-tools {
 		display: flex;

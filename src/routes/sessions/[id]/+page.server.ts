@@ -9,7 +9,7 @@ import {
 	sessionExercises,
 	sets
 } from '$lib/server/db';
-import { getLastCompletedSet, type HistoryRow } from '$lib/server/progression';
+import { getLastCompletedSet, historyIdentity, type HistoryRow } from '$lib/server/progression';
 import {
 	endSession,
 	loadSession,
@@ -28,6 +28,7 @@ import {
 import type { Actions, PageServerLoad } from './$types';
 import { appendWorkoutSet, removeEmptyLastSet } from '$lib/server/workout-sets';
 import { requireUser } from '$lib/server/request-user';
+import { pickerData } from '$lib/server/picker';
 import {
 	autoIdentifyRepeatVisit,
 	identifySessionExercise,
@@ -95,7 +96,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 				s.setRole,
 				s.position,
 				session.id,
-				s
+				// Free weights: last time on any machine, at any gym (0.8.0).
+				historyIdentity(s.gymEquipmentId, s.loadConvention, s.equipmentType)
 			)
 		)
 	);
@@ -155,6 +157,8 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		groups,
 		allowEndedSessionEdit,
 		choices: await machineChoices(db, requireUser(locals).id),
+		// The add sheet's data (0.8.0); only an open workout adds exercises.
+		picker: session.endedAt ? null : await pickerData(db, requireUser(locals).id, session.gymId),
 		// An open workout shows its own bottom bar (Pause, Add exercise, Finish),
 		// and the layout hides the tabs for it: one bar at a time (0.5.5).
 		workoutBar: session.endedAt == null,

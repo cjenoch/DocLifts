@@ -13,6 +13,11 @@
 	<p class="mb-6 font-medium break-all text-zinc-100" data-testid="account-email">{data.email}</p>
 
 	<a
+		href="/exercises"
+		class="mb-3 flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-4 font-semibold text-zinc-200 active:bg-zinc-800"
+		>Exercises</a
+	>
+	<a
 		href="/account/password"
 		class="mb-3 flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-4 font-semibold text-zinc-200 active:bg-zinc-800"
 		>Change password</a

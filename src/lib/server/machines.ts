@@ -20,7 +20,9 @@ import {
 	round05,
 	suggestNextLoad,
 	type Database,
-	type PerformanceIdentity
+	type PerformanceIdentity,
+	FREE_WEIGHT_TYPES,
+	historyIdentity
 } from './progression';
 import { snapForEquipment } from './plates';
 import { mainPrefills } from './main-prefill';
@@ -50,6 +52,17 @@ const equipmentType = z.enum([
 	'band'
 ]);
 const convention = z.enum(['unknown', 'plates_per_side', 'total_plates', 'per_arm', 'displayed']);
+/** The eight groups an exercise can sit in (0.7.0 migration's CHECK; machines spec Part J). */
+export const EXERCISE_BODY_REGIONS = [
+	'legs',
+	'back',
+	'chest',
+	'arms',
+	'shoulders',
+	'glutes',
+	'core',
+	'full body'
+] as const;
 // Optional whole pounds for this gym's instance (0.3.0): blank is "unknown".
 const optionalLb = z.preprocess(
 	(v) => (v === '' || v == null ? undefined : v),
@@ -79,6 +92,11 @@ const addSchema = z
 		canonicalMovement: optionalText,
 		equipmentType,
 		isLowerBody: z.preprocess((v) => (v == null ? false : v === '1' ? true : v), z.boolean()),
+		/** A new exercise's picker group (0.8.0, Part J); blank = "Other". */
+		bodyRegion: z.preprocess(
+			(v) => (v === '' || v == null ? undefined : v),
+			z.enum(EXERCISE_BODY_REGIONS).optional()
+		),
 		gymId: optionalId,
 		gymEquipmentId: optionalId,
 		newGymName: optionalText,
@@ -261,7 +279,7 @@ export async function machineChoices(db: Database, userId: string) {
 		// join. A drizzle multi-table select returns rows NESTED BY TABLE
 		// ({gym_equipment: {...}, gyms: {...}}), which would silently break the
 		// flat shape callers already use — machines.filter(m => m.gymId === …)
-		// in AddWorkoutExercise.svelte and gyms/+page.svelte. inArray against a
+		// in the add sheet (AddSheet.svelte) and gyms/+page.svelte. inArray against a
 		// subquery keeps this a single-table select, so the rows stay flat.
 		machines: await db
 			.select()
@@ -346,10 +364,12 @@ export async function prefillOccurrence(
 		.from(sets)
 		.where(eq(sets.sessionExerciseId, occurrence.id))
 		.orderBy(asc(sets.position));
-	const identity: PerformanceIdentity = {
-		gymEquipmentId: occurrence.gymEquipmentId,
-		loadConvention: occurrence.loadConvention
-	};
+	// Free weights look up history on any machine (0.8.0, Part J).
+	const identity: PerformanceIdentity = historyIdentity(
+		occurrence.gymEquipmentId,
+		occurrence.loadConvention,
+		occurrence.equipmentType
+	);
 	const histories = await Promise.all(
 		rows.map((r) =>
 			getLastCompletedSet(
@@ -568,11 +588,42 @@ export async function addSessionExercise(
 			});
 			gymEquipmentId = machine.id;
 		}
-		if (!gymId || !gymEquipmentId)
-			throw new MachineInputError('Choose or name your gym and equipment.');
-		const snapshot = await machineSnapshot(tx, userId, { ...value, gymId, gymEquipmentId });
-		if (snapshot.equipmentType !== value.equipmentType)
-			throw new MachineInputError('Machine equipment type must match exercise');
+		// Free weights need no gym and no equipment row (0.8.0, machines spec
+		// Part J, owner decision 2026-10-02): the block stores no machine, and
+		// its history follows the exercise across gyms (historyIdentity).
+		const free = FREE_WEIGHT_TYPES.has(value.equipmentType) && !gymEquipmentId;
+		let snapshot:
+			| Awaited<ReturnType<typeof machineSnapshot>>
+			| {
+					gymEquipmentId: null;
+					loadConvention: z.infer<typeof convention>;
+					machineLabel: null;
+					gymName: string | null;
+					modelName: null;
+					equipmentType: string;
+			  };
+		if (free) {
+			const [gym] = gymId
+				? await tx
+						.select({ name: gyms.name })
+						.from(gyms)
+						.where(and(eq(gyms.id, gymId), eq(gyms.userId, userId), isNull(gyms.archivedAt)))
+				: [];
+			snapshot = {
+				gymEquipmentId: null,
+				loadConvention: value.loadConvention,
+				machineLabel: null,
+				gymName: gym?.name ?? null,
+				modelName: null,
+				equipmentType: value.equipmentType
+			};
+		} else {
+			if (!gymId || !gymEquipmentId)
+				throw new MachineInputError('Choose or name your gym and equipment.');
+			snapshot = await machineSnapshot(tx, userId, { ...value, gymId, gymEquipmentId });
+			if (snapshot.equipmentType !== value.equipmentType)
+				throw new MachineInputError('Machine equipment type must match exercise');
+		}
 		let exercise;
 		if (value.exerciseId) {
 			[exercise] = await tx
@@ -599,6 +650,7 @@ export async function addSessionExercise(
 					equipmentType: value.equipmentType,
 					canonicalMovement: value.canonicalMovement,
 					isLowerBody: value.isLowerBody,
+					bodyRegion: value.bodyRegion,
 					userId
 				})
 				.returning();
@@ -644,11 +696,10 @@ export async function addSessionExercise(
 				prescribedRir: value.rir
 			}))
 		);
-		const [machine] = await tx
-			.select()
-			.from(gymEquipment)
-			.where(eq(gymEquipment.id, snapshot.gymEquipmentId));
-		if (machine.equipmentModelId)
+		const [machine] = snapshot.gymEquipmentId
+			? await tx.select().from(gymEquipment).where(eq(gymEquipment.id, snapshot.gymEquipmentId))
+			: [];
+		if (machine?.equipmentModelId)
 			await tx
 				.insert(exerciseEquipmentMap)
 				.values({ exerciseId: exercise.id, equipmentModelId: machine.equipmentModelId })

@@ -353,6 +353,7 @@ run('production build: CSP and page render', () => {
 		'/equipment',
 		'/equipment/{id}',
 		'/equipment/{id}/edit',
+		'/exercises',
 		'/imported-history',
 		'/programs/new',
 		'/programs/{id}',

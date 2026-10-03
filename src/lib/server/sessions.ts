@@ -955,6 +955,8 @@ async function sessionSetsForDay(db: Database, userId: string, sessionId: string
 			sessionExerciseId: sets.sessionExerciseId,
 			gymEquipmentId: sets.gymEquipmentId,
 			loadConvention: sets.loadConvention,
+			/** The block's equipment type, else the exercise's (free weights: 0.8.0). */
+			equipmentType: sql<string>`coalesce(${sessionExercises.equipmentType}, ${exercises.equipmentType})`,
 			machineLabel: sessionExercises.machineLabel,
 			gymName: sessionExercises.gymName,
 			modelName: sessionExercises.modelName,

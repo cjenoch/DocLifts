@@ -2796,3 +2796,27 @@ Check (assistant, production, scratch account): remove an unused machine
 workout's add form, present on its past workout); restore it; change a
 machine's model in place (same id) and take the stack offer; merge two
 machines and undo.
+
+## 34. 0.8.0 — the add sheet, free weights, the Exercises page (machines spec, second release, first half) — NOT deployed
+
+Code only: no migration (0019 already carries `exercises.body_region` and
+`archived_at`), no env change. Deploy under development-push mode, `pre-0.8.0`
+kept until the owner signs off.
+
+What changes: `AddSheet.svelte` replaces the add form in workouts (Machines
+and Exercises tabs, no dropdowns, remembered tab and weight format, "Photo a
+machine" and "Add by name" rows); free weights are added with no gym or
+equipment and their history ignores the machine (`historyIdentity`,
+CLAUDE.md); `/exercises` renames, sets regions, hides and restores. The empty
+quick workout no longer opens the add form by itself (owner to confirm).
+
+Not in 0.8.0 (0.8.1): the same picker for a program workout's planned
+exercises (replacing the bind form with a confirm step) and in the program
+editor. The program workout's add-exercise control already uses the sheet.
+
+Check (assistant, production, scratch account, Scratch photo check gym):
+open the sheet; the machine row for IL-ROW shows last use; machine, then its
+exercise, adds with last time's numbers and no format question; a dumbbell
+exercise adds at once with no machine (psql); create an exercise from typed
+text; the Exercises page renames and hides one, which leaves the sheet, and
+restores it.

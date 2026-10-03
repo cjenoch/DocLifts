@@ -30,12 +30,47 @@ export type Database = PostgresJsDatabase<typeof schema>;
 export type PerformanceIdentity = {
 	gymEquipmentId: string | null;
 	loadConvention: typeof sets.$inferSelect.loadConvention;
+	/**
+	 * Free weights (0.8.0, machines spec Part J): history follows the exercise
+	 * across gyms and machines, so the lookup ignores `gymEquipmentId` and
+	 * keys on the exercise, slot and load convention only.
+	 */
+	anyMachine?: boolean;
 };
+
+/**
+ * The five types that need no gym and no equipment row (machines spec Part J,
+ * owner decision 2026-10-02). The four machine types still require a machine.
+ */
+export const FREE_WEIGHT_TYPES: ReadonlySet<string> = new Set([
+	'barbell',
+	'barbell-ez',
+	'dumbbell',
+	'bodyweight',
+	'band'
+]);
+
+/**
+ * The identity a history lookup uses for a block or set. Free weights ignore
+ * the machine (a deliberate exception to docs/machine-identity.md, which now
+ * says the never-fall-back rule covers machine types only): their old sets on
+ * equipment rows such as "Dumbbells" keep counting, with no data change.
+ */
+export function historyIdentity(
+	gymEquipmentId: string | null,
+	loadConvention: PerformanceIdentity['loadConvention'],
+	equipmentType: string | null | undefined
+): PerformanceIdentity {
+	return equipmentType && FREE_WEIGHT_TYPES.has(equipmentType)
+		? { gymEquipmentId, loadConvention, anyMachine: true }
+		: { gymEquipmentId, loadConvention };
+}
 export const legacyIdentity: PerformanceIdentity = {
 	gymEquipmentId: null,
 	loadConvention: 'legacy'
 };
 export function identityFilter(identity: PerformanceIdentity = legacyIdentity) {
+	if (identity.anyMachine) return eq(sets.loadConvention, identity.loadConvention);
 	return and(
 		identity.gymEquipmentId
 			? eq(sets.gymEquipmentId, identity.gymEquipmentId)

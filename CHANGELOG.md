@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.0 — the add sheet: machine first, exercise in a tap — not yet released
+
+- **A new way to add to a workout.** "Add exercise" opens a full-screen sheet
+  with two tabs. **Machines** lists this gym's machines, recent first, then by
+  body region, with a photo and what you did on each last time. Tap the
+  machine, then its exercise: two taps for a machine you know. **Exercises**
+  shows your recent exercises and the rest by body region, with last time's
+  top set.
+- **Free weights need no equipment.** Dumbbells, barbells, bodyweight and
+  bands are added in one tap, with no gym or equipment to choose, and last
+  time's numbers follow you to any gym.
+- **Create by typing.** Type a name that doesn't exist yet and tap Create:
+  pick the equipment and body region from chips.
+- **Asked once.** "How do you record weight?" is asked the first time you use
+  an exercise on a machine, then remembered.
+- **Exercises page.** From your account: rename an exercise, set its body
+  region, or hide it from the sheet. Past workouts keep the names they had.
+- An empty workout no longer opens the add form by itself, so "Photo next
+  machine" stays in reach.
+
 ## 0.7.0 — fix your gym list: remove, change model, merge — 2026-10-02
 
 - **Remove a machine or a gym.** On the machine's edit page, and for a gym on

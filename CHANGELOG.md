@@ -1,11 +1,14 @@
 # Changelog
 
-## 0.14.1 — Cloudflare Tunnel deployment — unreleased
+## 0.14.1 — Cloudflare Tunnel deployment — deployed 2026-10-03, acceptance pending
 
 - Optional `public` Compose profile runs a pinned tunnel connector alongside
   the app, with a private read-only config directory and no new public port.
-- Keep the private-network web binding for rollback; the browser origin moves
-  through runtime settings after the edge protections are ready.
+- Live at https://doclifts.runthe.ai with edge security headers, private-page
+  cache bypass, HTTPS redirect and managed firewall protection.
+- Scratch-account sign-in, saved set and photo checks passed through the tunnel.
+  Private-address rollback passed in 8.1 seconds, then public sign-in passed again.
+  Owner cellular/home-screen and full-workout acceptance is pending.
 
 ## 0.14.0 — public-address preparation — deployed 2026-10-03, acceptance pending
 

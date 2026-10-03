@@ -1,7 +1,7 @@
 # Public-address preparation
 
-Production remains on its current address until the owner reviews the auth,
-origin, CSRF and tunnel diffs and the cutover checks pass.
+Production is live at https://doclifts.runthe.ai as of 2026-10-03 (0.14.1).
+Assistant cutover checks passed; owner phone acceptance remains pending.
 
 `PUBLIC_ORIGIN` is the sole browser origin. Compose also passes it as adapter-node's
 `ORIGIN`. Change it and restart to move the same build. Adapter-node 5.5.4 builds
@@ -56,3 +56,27 @@ stop cloudflared with the wrapper, and recreate web. No rebuild or database
 restore is needed for an address rollback. Keep the prior image until acceptance.
 Confirm the private address works again and the public address goes down, then
 repeat the coordinated switch to public after the rehearsal.
+
+## Applied edge policy and operational checks
+
+Security headers, HTTPS redirect, private cache bypass, free managed WAF and
+rewrite/analytics disabling are scoped to doclifts.runthe.ai. Access and bot
+challenges are off. The Free plan supports the configured ten sign-in requests
+per ten seconds with a ten-second block; the app separately counts ten failed
+sign-ins per fifteen minutes. Hostname-specific TLS minimum required a paid
+feature, so TLS 1.2 was set at zone level; existing site records were DNS-only.
+No paid upgrade was made. HSTS stays at one day, without subdomain/preload flags.
+
+Public checks confirmed private routes DYNAMIC (never HIT), immutable CSS HIT,
+HTTP-to-HTTPS preserving path/query, and security/noindex headers on static
+responses and cross-origin 403 rejections. Two forged X-Forwarded-For values
+produced the same real-client hash in failed-login events. Attempts to supply
+CF-Connecting-IP were rejected by Cloudflare before reaching the application.
+Host listeners were unchanged; web remains tailnet-bound and the connector
+publishes no port.
+
+The address rollback restored private sign-in/history and stopped public access
+in 8.1 seconds. Public sign-in/history passed after restoration. Compose's
+`--dry-run up --wait` incorrectly waited on the deliberately stopped connector;
+use `--dry-run up -d` for planning, followed by real `up -d --wait` for health.
+Retain pre-0.14.0 and pre-0.14.1 images until owner acceptance.

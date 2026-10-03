@@ -3168,13 +3168,13 @@ header configuration. All mutated source files were restored.
 
 Production check: f6eb85f, tagged 0.14.0, healthy on the private address.
 The pre-0.14.0 image is retained. The pre-deploy dump restored successfully
-into an isolated database; totals matched (6 accounts, 49 workouts, 536 logged
-sets, 18 programs). Scratch account at 390px: sign-in, a 50 × 8 set surviving
+into an isolated database; totals matched (6 accounts, 49 workouts, 536 rows with
+logged_at, 18 programs). Scratch account at 390px: sign-in, a 50 × 8 set surviving
 reload, finished workout, synthetic photo upload/read and discard all passed.
 Photo response was private/no-store; cookie Secure, HttpOnly, SameSite=Lax,
 host-only. No schema change. Owner phone acceptance is still owed.
 
-## 43. 0.14.1 — Cloudflare Tunnel deployment — NOT DEPLOYED
+## 43. 0.14.1 — Cloudflare Tunnel deployment — DEPLOYED 2026-10-03, acceptance pending
 
 Optional, pinned connector in the `public` profile. Private ingress/credentials
 are supplied through DOCLIFTS_TUNNEL_DIR; no credentials or host path in Git.
@@ -3185,3 +3185,19 @@ LOGIN_MAX_FAILURES=10 when selecting cf-connecting-ip. Sign-up stays closed.
 After cutover: scratch-account phone-width login, saved set, photo upload,
 private cache headers, cookie/origin checks, and timed rollback rehearsal.
 Owner cellular/home-screen use and a full workout remain acceptance checks.
+
+Deployment: 00b4ced, tagged 0.14.1, after the full VPS gate and both jobs
+of branch CI run 37140555259 passed on that exact commit. Owner requested
+production/public rollout; PR #4 and private setup PR #1 were linked before
+cutover. No schema change. The pre-public dump was fully restored in isolation;
+counts matched (6 accounts, 50 workouts, 539 rows with logged_at, 18 programs).
+Previous images pre-0.14.0 and pre-0.14.1 are retained.
+
+Live URL: https://doclifts.runthe.ai. Scratch account, 390px: sign-in, save 50 × 8,
+reload, finish workout, synthetic photo upload/read/discard passed. Session cookie
+is host-only, Secure, HttpOnly, SameSite=Lax. Edge private cache/security, HTTPS
+redirect, immutable asset caching and forwarding-header checks passed. No new
+host listener. Address rollback passed in 8.1 seconds; public sign-in/history
+passed again after restoration. See public-address.md for the dry-run caveat and
+Free-plan rate-limit/TLS settings. Owner cellular, home-screen app, and full
+workout checks remain owed. No owner acceptance is implied by these checks.

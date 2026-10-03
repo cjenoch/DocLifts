@@ -3251,7 +3251,7 @@ Production is pinned with `DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.15.0`;
 the safety service is stopped and signup closed. Scratch test data remains;
 owner data was not changed. This is a rollback, not an accepted release.
 
-## 45. 0.15.1 Alpha — deployment verification — NOT DEPLOYED
+## 45. 0.15.1 Alpha — deployment verification — ROLLED BACK 2026-10-03
 
 Operational correction: the production acceptance script checks the expected
 build through `fetch('/_app/version.json', { cache: 'no-store' })` in its real
@@ -3266,3 +3266,33 @@ currently running image pre-0.15.1, not the newer stopped `vps` image. Explicitl
 unpin DOCLIFTS_WEB_IMAGE to the new `vps` image, select OpenRouter safety, build
 and recreate the services through production wrappers, then run the corrected
 browser and runtime checks. On any failure, roll back and report again.
+
+Owner approved the retry after the first rollback report. PR #9 passed
+Markdown lint and exact-head CI 37150260597 at c88fa02. Merged as a97ff91,
+tagged 0.15.1. Fresh backup restored with matching 11 accounts, 52 workouts,
+545 set rows with logged_at, 18 programs. The build and services were healthy;
+the signed-in browser correctly verified a97ff91.
+
+The smoke then timed out searching for Exercises while the picker was on
+Machines. This triggered the required rollback before the photo test. Restored
+0.14.1 showed the same state: existing machines make Machines the initial tab.
+The failed run left an open scratch workout, which also changes Home from Start
+to Resume. Neither assumption was accounted for in the original smoke script.
+The owner received the second rollback report; no forward retry was made.
+
+## 46. 0.15.2 Alpha — repeatable deployment checks — NOT DEPLOYED
+
+The acceptance script now waits for workout hydration, selects the Exercises
+tab explicitly, and finishes any leftover scratch-only workout through the
+real UI before beginning its next check. It still requires an exact browser
+build id, a saved/reloaded set, workout finish, photo upload/read/discard and
+cookie/cache checks. Two consecutive full runs passed on restored 00b4ced,
+including the dirty-state recovery path. No app code changes.
+
+Before retry: owner sees this second rollback report, release gates pass,
+a fresh backup is restored and compared, and the currently running recovery
+image is tagged pre-0.15.2. Preserve the older recovery tags too. Use the corrected
+private script; never infer the initial picker tab or an empty scratch account.
+Live safety mode should be OpenRouter with the local service ready to switch.
+Signup stays closed. Record deployed/acceptance pending only after all live
+checks pass; on failure roll back and report again.

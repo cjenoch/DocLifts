@@ -2972,7 +2972,9 @@ an existing one), and filtering the swap list by what this gym has.
 Check (assistant, production, scratch account): move, remove with Undo,
 swap, skip and finish on a program workout at 390 px.
 
-## 38. 0.11.0 — the program editor for a phone (editor spec, Part N) — DEPLOYED 2026-10-03, acceptance pending
+## 38. 0.11.0 — the program editor for a phone (editor spec, Part N) — DEPLOYED 2026-10-03, accepted 2026-10-03
+
+**Owner sign-off, 2026-10-03:** "I sign off." `pre-0.11.0` deleted after the sign-off.
 
 ```
 0.11.0   7d78402, tagged 0.11.0; branch CI green; full local gate 844 (+2

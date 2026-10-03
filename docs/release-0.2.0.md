@@ -3015,7 +3015,28 @@ Check (assistant, production, scratch account): a three-day program built
 and saved at 390 px with no sideways scroll; an existing program edited and
 saved as a new version.
 
-## 39. 0.12.0 — save a workout as a program (editor spec, Part M) — NOT deployed
+## 39. 0.12.0 — save a workout as a program (editor spec, Part M) — DEPLOYED 2026-10-03, acceptance pending
+
+```
+0.12.0   670a113, tagged 0.12.0; branch CI green; full local gate 849 (+2
+         skipped) / 3 / 32 / 153. No CLAUDE.md, auth or schema change:
+         deployed under development-push mode after the owner's "start part M"
+image    pre-0.12.0 kept until the owner signs off
+web      healthy; version.json 670a113
+check    scratch account, 390x844: a quick workout started from Home,
+         Dumbbell curl and Goblet squat added from the sheet, 6 sets logged
+         (9 and 10 reps), finished: landed on its own page with "Save as
+         program"; New program opened on the day ("Dumbbell curl · 3 × 9–10 ·
+         RIR 2", "Goblet squat · 3 × 9–10 · RIR 2"), saved. The 0.10.0 check
+         workout added as a day of "0110 check three-day" (only its logged
+         Overhead press), saved as a new version: Push, Pull, Legs, Workout.
+         psql: source workout unchanged (6 of 6 logged, ended). 0 px
+         overflow on 5 screens; no 5xx, 0 page errors.
+owed     the owner saving one of his own workouts as a program
+note     a MAIN block with one logged set reads "1 × 5 · top + backoffs" on
+         the day screen; it should read "top set". Cosmetic, for the next
+         release.
+```
 
 Code only, no migration. `src/lib/server/workout-to-program.ts` builds a
 draft from an ended workout of the owner (`workoutDay`: blocks by position,

@@ -3144,7 +3144,7 @@ which is why it missed this.
 Check (assistant, production, scratch account): "0120 check from workout"
 day 1 shows last time's dumbbell weights.
 
-## 42. 0.14.0 — public-address preparation — NOT DEPLOYED
+## 42. 0.14.0 — public-address preparation — DEPLOYED 2026-10-03, acceptance pending
 
 Parts 1–2 of SPEC-public-address. No schema or training-data change.
 Runtime origin, trusted client address, email delay-only throttle and app
@@ -3165,3 +3165,23 @@ and 160 served-build e2e tests passed. Controlled mutations produced two
 unit-test failures and five served-build failures: trusted header selection,
 email refusal, the old origin allowlist, response policy, and Better Auth's
 header configuration. All mutated source files were restored.
+
+Production check: f6eb85f, tagged 0.14.0, healthy on the private address.
+The pre-0.14.0 image is retained. The pre-deploy dump restored successfully
+into an isolated database; totals matched (6 accounts, 49 workouts, 536 logged
+sets, 18 programs). Scratch account at 390px: sign-in, a 50 × 8 set surviving
+reload, finished workout, synthetic photo upload/read and discard all passed.
+Photo response was private/no-store; cookie Secure, HttpOnly, SameSite=Lax,
+host-only. No schema change. Owner phone acceptance is still owed.
+
+## 43. 0.14.1 — Cloudflare Tunnel deployment — NOT DEPLOYED
+
+Optional, pinned connector in the `public` profile. Private ingress/credentials
+are supplied through DOCLIFTS_TUNNEL_DIR; no credentials or host path in Git.
+Before cutover: owner-reviewed tunnel diff, full local gate and branch CI,
+verified backup, retained image, hostname-scoped edge protections. Restore
+LOGIN_MAX_FAILURES=10 when selecting cf-connecting-ip. Sign-up stays closed.
+
+After cutover: scratch-account phone-width login, saved set, photo upload,
+private cache headers, cookie/origin checks, and timed rollback rehearsal.
+Owner cellular/home-screen use and a full workout remain acceptance checks.

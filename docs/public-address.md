@@ -38,4 +38,21 @@ actual tunnel before public acceptance. HSTS may rise to six months after a
 week of successful use, as a separate configuration change.
 
 The tunnel configuration and credentials remain outside this public repository.
-No connector starts and no DNS route changes as part of this preparation release.
+The connector is opt-in through Compose's `public` profile. Set
+`DOCLIFTS_TUNNEL_DIR` to the private directory containing `config.yml` and
+`credentials.json`, owned/readable by UID 1000. The directory is mounted
+read-only; a missing source fails instead of creating an empty directory.
+The image is pinned by version and digest, runs without added capabilities,
+and publishes no ports. Ingress config remains in the private data repo.
+
+After the reviewed cutover settings and backup are ready:
+
+```sh
+sudo -n scripts/compose-prod.sh --profile public up -d --wait web cloudflared
+```
+
+For rollback: restore the prior PUBLIC_ORIGIN, clear CLIENT_IP_HEADER,
+stop cloudflared with the wrapper, and recreate web. No rebuild or database
+restore is needed for an address rollback. Keep the prior image until acceptance.
+Confirm the private address works again and the public address goes down, then
+repeat the coordinated switch to public after the rehearsal.

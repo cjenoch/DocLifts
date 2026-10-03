@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.14.0 — public-address preparation — unreleased
+## 0.14.1 — Cloudflare Tunnel deployment — unreleased
+
+- Optional `public` Compose profile runs a pinned tunnel connector alongside
+  the app, with a private read-only config directory and no new public port.
+- Keep the private-network web binding for rollback; the browser origin moves
+  through runtime settings after the edge protections are ready.
+
+## 0.14.0 — public-address preparation — deployed 2026-10-03, acceptance pending
 
 - The browser address is controlled by runtime `PUBLIC_ORIGIN`, with no
   cross-origin CSRF exceptions or forwarded host/protocol trust.

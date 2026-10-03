@@ -307,7 +307,7 @@ export async function machineChoices(db: Database, userId: string) {
 // userId is part of the row lock's WHERE, not a filter applied after it.
 // Another user's session is 'not found' here, identically to a nonexistent
 // one — no 403, no different message (D6).
-async function lockActive(db: Database, userId: string, sessionId: string) {
+export async function lockActive(db: Database, userId: string, sessionId: string) {
 	z.string().uuid().parse(sessionId);
 	const [session] = await db
 		.select()

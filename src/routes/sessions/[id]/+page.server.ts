@@ -27,6 +27,14 @@ import {
 } from '$lib/server/machines';
 import type { Actions, PageServerLoad } from './$types';
 import { appendWorkoutSet, removeEmptyLastSet } from '$lib/server/workout-sets';
+import {
+	applyProgramSwaps,
+	moveSessionExercise,
+	removeSessionExercise,
+	skipRestOfExercise,
+	swapSessionExercise,
+	WorkoutEditError
+} from '$lib/server/live-edit';
 import { requireUser } from '$lib/server/request-user';
 import { pickerData } from '$lib/server/picker';
 import {
@@ -150,6 +158,17 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	for (const g of groups) g.sets.sort((a, b) => a.position - b.position);
 
 	const allowEndedSessionEdit = session.endedAt != null && url.searchParams.get('edit') === '1';
+	// After finishing (Part L): whether a "From now on" swap reached the program.
+	const programParam = url.searchParams.get('program');
+	const toParam = url.searchParams.get('to');
+	const programUpdate =
+		session.endedAt == null
+			? null
+			: programParam === 'updated' && toParam && isUuid(toParam)
+				? ({ kind: 'updated', programId: toParam } as const)
+				: programParam === 'open' || programParam === 'changed' || programParam === 'invalid'
+					? ({ kind: 'failed', reason: programParam } as const)
+					: null;
 
 	return {
 		session,
@@ -159,6 +178,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		quick: systemKind === 'quick',
 		groups,
 		allowEndedSessionEdit,
+		programUpdate,
 		// The add sheet's data (0.8.0); only an open workout adds exercises.
 		picker: session.endedAt ? null : await pickerData(db, requireUser(locals).id, session.gymId),
 		// An open workout shows its own bottom bar (Pause, Add exercise, Finish),
@@ -172,6 +192,17 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		photoEnabled: session.endedAt == null && session.gymId != null
 	};
 };
+
+async function liveEdit<T extends Record<string, unknown>>(id: string, run: () => Promise<T>) {
+	if (!uuidParamSchema.safeParse(id).success) return fail(400, { message: 'Invalid session id' });
+	try {
+		return await run();
+	} catch (e) {
+		if (e instanceof WorkoutEditError || e instanceof MachineInputError)
+			return fail(400, { message: e.message });
+		throw e;
+	}
+}
 
 const reopenEndedSessionSchema = z.object({
 	allowEndedSessionEdit: z.literal('1')
@@ -408,13 +439,57 @@ export const actions: Actions = {
 			throw e;
 		}
 	},
+	// Editing a live workout (editor spec, Part L). Each refuses an ended
+	// workout and finds the exercise through the session (live-edit.ts).
+	removeExercise: async ({ request, params, locals }) =>
+		liveEdit(params.id, async () => {
+			const form = await request.formData();
+			const result = await removeSessionExercise(db, requireUser(locals).id, params.id, {
+				occurrenceId: form.get('occurrenceId'),
+				loggedCount: form.get('loggedCount')
+			});
+			return { removedExercise: result.removedSets };
+		}),
+	skipRest: async ({ request, params, locals }) =>
+		liveEdit(params.id, async () => {
+			const form = await request.formData();
+			await skipRestOfExercise(db, requireUser(locals).id, params.id, {
+				occurrenceId: form.get('occurrenceId')
+			});
+			return { skipped: true };
+		}),
+	moveExercise: async ({ request, params, locals }) =>
+		liveEdit(params.id, async () => {
+			const form = await request.formData();
+			await moveSessionExercise(db, requireUser(locals).id, params.id, {
+				occurrenceId: form.get('occurrenceId'),
+				direction: form.get('direction')
+			});
+			return { moved: true };
+		}),
+	swapExercise: async ({ request, params, locals }) =>
+		liveEdit(params.id, async () => {
+			const form = Object.fromEntries(await request.formData());
+			const swapped = await swapSessionExercise(db, requireUser(locals).id, params.id, form);
+			return { swappedExerciseId: swapped.id };
+		}),
 	endSession: async ({ params, locals }) => {
 		const parsedSessionId = uuidParamSchema.safeParse(params.id);
 		if (!parsedSessionId.success) {
 			return fail(400, { message: 'Invalid session id' });
 		}
 		const userId = requireUser(locals).id;
-		await endSession(db, userId, parsedSessionId.data);
+		const ended = await endSession(db, userId, parsedSessionId.data);
+		// A swap chosen "From now on" reaches the program only now that the
+		// workout has ended (editor spec, Part L); the finished workout's page
+		// says whether it did.
+		if (ended.updated) {
+			const swaps = await applyProgramSwaps(db, userId, parsedSessionId.data);
+			if (swaps.kind === 'updated')
+				redirect(303, `/sessions/${parsedSessionId.data}?program=updated&to=${swaps.programId}`);
+			if (swaps.kind === 'failed')
+				redirect(303, `/sessions/${parsedSessionId.data}?program=${swaps.reason}`);
+		}
 		// Finishing with machines still to name is allowed; the finished
 		// workout's page lists them (0.6.0). Otherwise Home, as before.
 		const toName = await photoBlocksForSession(db, userId, parsedSessionId.data);

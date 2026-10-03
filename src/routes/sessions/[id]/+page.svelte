@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { requestId as newRequestId } from '$lib/request-id';
 	import { enhance } from '$app/forms';
+	import { beforeNavigate, invalidateAll } from '$app/navigation';
 	import { onMount, tick, untrack } from 'svelte';
 	import type { ActionData, PageData } from './$types';
 	import SetRow from './SetRow.svelte';
@@ -26,6 +27,82 @@
 		equipmentType: string;
 	} | null>(null);
 	const FREE_WEIGHT_UI = new Set(FREE_TYPES as readonly string[]);
+	// Editing a live workout (editor spec, Part L).
+	let swapOpen = $state(false);
+	let swapTarget = $state<{
+		occurrenceId: string;
+		exerciseId: string;
+		exerciseName: string;
+		planned: boolean;
+	} | null>(null);
+	type SetLike = {
+		executedLoad: number | null;
+		executedReps: number | null;
+		executedRir: number | null;
+		notes: string | null;
+	};
+	const isLogged = (x: SetLike) =>
+		x.executedLoad != null || x.executedReps != null || x.executedRir != null || !!x.notes;
+	// Removing an exercise with nothing logged has a five-second Undo in place
+	// of a confirm step: the exercise is hidden at once and the removal is sent
+	// when the Undo runs out, or at once when the page is left.
+	let pendingRemove = $state<{ occurrenceId: string; name: string } | null>(null);
+	let removeTimer: ReturnType<typeof setTimeout> | undefined;
+	let editError = $state('');
+	async function sendRemove(occurrenceId: string, keepalive = false) {
+		const body = new FormData();
+		body.set('occurrenceId', occurrenceId);
+		const response = await fetch('?/removeExercise', {
+			method: 'POST',
+			body,
+			keepalive,
+			headers: { 'x-sveltekit-action': 'true' }
+		}).catch(() => null);
+		const result = response ? await response.json().catch(() => null) : null;
+		if (!keepalive) {
+			if (result?.type !== 'success') editError = 'Could not remove that exercise. Please reload.';
+			await invalidateAll();
+		}
+	}
+	function flushRemove(keepalive = false) {
+		clearTimeout(removeTimer);
+		const pending = pendingRemove;
+		pendingRemove = null;
+		if (pending) void sendRemove(pending.occurrenceId, keepalive);
+	}
+	function startRemove(occurrenceId: string, name: string) {
+		flushRemove();
+		editError = '';
+		pendingRemove = { occurrenceId, name };
+		removeTimer = setTimeout(() => flushRemove(), workoutUi.undoSeconds * 1000);
+	}
+	function undoRemove() {
+		clearTimeout(removeTimer);
+		pendingRemove = null;
+	}
+	beforeNavigate(() => flushRemove(true));
+	onMount(() => {
+		const leave = () => flushRemove(true);
+		window.addEventListener('pagehide', leave);
+		return () => window.removeEventListener('pagehide', leave);
+	});
+	const editSubmit: SubmitFunction = ({ cancel, formData, formElement }) => {
+		// The menu closes on any choice, as it would on a phone's action sheet.
+		const details = formElement.closest('details');
+		if (details) details.open = false;
+		const count = Number(formData.get('loggedCount') ?? 0);
+		const name = String(formData.get('exerciseName') ?? '');
+		if (count > 0 && !confirm(workoutUi.confirmRemoveLogged(name, count))) {
+			cancel();
+			return;
+		}
+		flushRemove();
+		editError = '';
+		return async ({ result, update }) => {
+			if (result.type === 'failure') editError = String(result.data?.message ?? '');
+			await update({ reset: false });
+		};
+	};
 	const heading = $derived(data.quick ? workoutUi.sessionHeading : data.day.name);
 	const backHref = $derived(data.quick ? '/' : `/programs/${data.session.programId}`);
 	let appendError = $state('');
@@ -167,11 +244,29 @@
 	{#if form && 'message' in form && form.message}<p role="alert" class="error">
 			{form.message}
 		</p>{/if}
-	{#each data.groups as group, index (group.key)}
+	{#if data.programUpdate}
+		<p class="program-update" role="status" data-testid="program-update">
+			{data.programUpdate.kind === 'updated'
+				? workoutUi.programUpdated
+				: workoutUi.programUpdateFailed[data.programUpdate.reason]}
+			{#if data.programUpdate.kind === 'updated'}<a href="/programs/{data.programUpdate.programId}"
+					>{workoutUi.viewProgram}</a
+				>{/if}
+		</p>
+	{/if}
+	{#if pendingRemove}
+		<p class="undo-bar" role="status" data-testid="undo-remove">
+			<span>{workoutUi.removedLine(pendingRemove.name)}</span>
+			<button onclick={undoRemove}>{workoutUi.undo}</button>
+		</p>
+	{/if}
+	{#if editError}<p role="alert" class="error">{editError}</p>{/if}
+	{#each data.groups.filter((g) => g.occurrenceId !== pendingRemove?.occurrenceId) as group, index (group.key)}
+		{@const loggedCount = group.sets.filter(isLogged).length}
 		<section class="exercise" id="exercise-{group.key}" tabindex="-1">
 			<div class="exercise-heading">
 				<span class="number">{String(index + 1).padStart(2, '0')}</span>
-				<div>
+				<div class="heading-text">
 					<h2>{group.exerciseName}</h2>
 					<p class="muted">
 						{group.gymName
@@ -181,6 +276,63 @@
 							: ''}
 					</p>
 				</div>
+				{#if !data.session.endedAt && group.occurrenceId}
+					{@const occurrenceId = group.occurrenceId}
+					{@const visible = data.groups.filter(
+						(g) => g.occurrenceId !== pendingRemove?.occurrenceId
+					)}
+					<details class="exercise-menu" data-testid="exercise-menu">
+						<summary aria-label={workoutUi.exerciseMenu(group.exerciseName)}>⋯</summary>
+						<div class="menu-items">
+							{#each [['up', workoutUi.moveUp, index > 0], ['down', workoutUi.moveDown, index < visible.length - 1]] as const as [direction, label, show] (direction)}
+								{#if show}
+									<form method="POST" action="?/moveExercise" use:enhance={editSubmit}>
+										<input type="hidden" name="occurrenceId" value={occurrenceId} />
+										<input type="hidden" name="direction" value={direction} />
+										<button>{label}</button>
+									</form>
+								{/if}
+							{/each}
+							{#if loggedCount === 0 && !data.photoBlocks[occurrenceId]}
+								<button
+									type="button"
+									onclick={(e) => {
+										(e.currentTarget.closest('details') as HTMLDetailsElement).open = false;
+										swapTarget = {
+											occurrenceId,
+											exerciseId: group.exerciseId,
+											exerciseName: group.exerciseName,
+											planned: !data.quick && group.sets.some((x) => x.prescribedSetId != null)
+										};
+										swapOpen = true;
+									}}>{workoutUi.swap}</button
+								>
+								<button
+									type="button"
+									class="danger"
+									onclick={(e) => {
+										(e.currentTarget.closest('details') as HTMLDetailsElement).open = false;
+										startRemove(occurrenceId, group.exerciseName);
+									}}>{workoutUi.remove}</button
+								>
+							{:else if loggedCount > 0}
+								<p class="menu-note">{workoutUi.swapLocked}</p>
+								{#if loggedCount < group.sets.length}
+									<form method="POST" action="?/skipRest" use:enhance={editSubmit}>
+										<input type="hidden" name="occurrenceId" value={occurrenceId} />
+										<button>{workoutUi.skipRest}</button>
+									</form>
+								{/if}
+								<form method="POST" action="?/removeExercise" use:enhance={editSubmit}>
+									<input type="hidden" name="occurrenceId" value={occurrenceId} />
+									<input type="hidden" name="loggedCount" value={loggedCount} />
+									<input type="hidden" name="exerciseName" value={group.exerciseName} />
+									<button class="danger">{workoutUi.removeWithSets}</button>
+								</form>
+							{/if}
+						</div>
+					</details>
+				{/if}
 			</div>
 			{#if group.occurrenceId && data.photoBlocks[group.occurrenceId]}
 				{@const pb = data.photoBlocks[group.occurrenceId]}
@@ -392,6 +544,16 @@
 			photoGymId={data.photoEnabled ? data.session.gymId : null}
 			bind:open={pickerOpen}
 		/>
+		{#if swapTarget}
+			{#key swapTarget.occurrenceId}
+				<AddSheet
+					picker={data.picker}
+					sessionId={data.session.id}
+					swap={swapTarget}
+					bind:open={swapOpen}
+				/>
+			{/key}
+		{/if}
 		{#if bindTarget}
 			{#key bindTarget.occurrenceId}
 				<AddSheet
@@ -549,6 +711,70 @@
 	}
 	.exercise-heading p {
 		margin-top: 5px;
+	}
+	.heading-text {
+		flex: 1;
+		min-width: 0;
+	}
+	.exercise-menu {
+		position: relative;
+	}
+	.exercise-menu summary {
+		list-style: none;
+		display: grid;
+		place-items: center;
+		min-width: 44px;
+		min-height: 44px;
+		font-size: 22px;
+		color: #c7d2fe;
+		cursor: pointer;
+	}
+	.exercise-menu summary::-webkit-details-marker {
+		display: none;
+	}
+	.menu-items {
+		position: absolute;
+		right: 0;
+		z-index: 20;
+		width: min(16rem, calc(100vw - 48px));
+		padding: 6px;
+		border: 1px solid #3f3f46;
+		border-radius: 12px;
+		background: #18181b;
+	}
+	.menu-items button {
+		display: block;
+		width: 100%;
+		min-height: 44px;
+		padding: 0 12px;
+		text-align: left;
+		color: #e4e4e7;
+	}
+	.menu-items .danger {
+		color: #fca5a5;
+	}
+	.menu-note {
+		padding: 8px 12px;
+		font-size: 13px;
+		color: #a1a1aa;
+	}
+	.undo-bar,
+	.program-update {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 16px;
+		padding: 8px 14px;
+		border-radius: 12px;
+		background: #1e1b4b;
+		color: #e0e7ff;
+	}
+	.undo-bar button,
+	.program-update a {
+		min-height: 44px;
+		font-weight: 600;
+		color: #a5b4fc;
 	}
 	.secondary {
 		min-height: 44px;

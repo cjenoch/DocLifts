@@ -964,6 +964,8 @@ async function sessionSetsForDay(db: Database, userId: string, sessionId: string
 			occurrenceTier: sessionExercises.tier,
 			occurrencePolicy: sessionExercises.progressionPolicy,
 			position: sets.position,
+			/** Set only on a program's planned set (Part L: swap asks "From now on"). */
+			prescribedSetId: sets.prescribedSetId,
 			setRole: sets.setRole,
 			targetMetric: sets.targetMetric,
 			prescribedLoad: sets.prescribedLoad,

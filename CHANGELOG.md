@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.0 — change a workout while you do it — 2026-10-03
+
+- **Each exercise in an open workout has a ⋯ menu:** move it up or down,
+  swap it, or remove it. These change today's workout only.
+- **Remove:** with nothing logged, the exercise goes at once, with five
+  seconds to Undo. With logged sets, choose "Skip the rest" (empty sets go,
+  logged ones stay) or remove it and its sets after a confirm that says how
+  many logged sets will be deleted. Neither counts as a failed workout for
+  your progression.
+- **Swap:** pick another exercise; the sets and targets stay and the weights
+  come from that exercise's own history. In a program workout you choose
+  "Just today" or "From now on". From now on updates the program when you
+  finish, and the finished workout says whether it did. An exercise with a
+  logged set can't be swapped, and the menu says why.
+
 ## 0.9.0 — four starter programs — 2026-10-03
 
 - **Start from a template.** Creating a program now offers four starting

@@ -83,6 +83,40 @@ export const workoutUi = {
 	} as Record<string, 'plates_per_side' | 'total_plates' | 'per_arm' | 'displayed' | 'unknown'>,
 	/** Blocks still on the placeholder, on the session page and Home. */
 	machinesToName: (n: number) => `${n} ${n === 1 ? 'machine' : 'machines'} to name`,
+	/** Editing a live workout (editor spec, Part L): the per-exercise menu. */
+	exerciseMenu: (name: string) => `Options for ${name}`,
+	moveUp: 'Move up',
+	moveDown: 'Move down',
+	swap: 'Swap exercise',
+	remove: 'Remove',
+	skipRest: 'Skip the rest',
+	removeWithSets: 'Remove exercise and its sets',
+	/** The confirm step before logged sets are deleted. */
+	confirmRemoveLogged: (name: string, n: number) =>
+		`Remove ${name} and delete its ${n} logged ${n === 1 ? 'set' : 'sets'}?`,
+	/** In place of a confirm: the exercise is gone, with Undo for this long. */
+	removedLine: (name: string) => `${name} removed`,
+	undo: 'Undo',
+	undoSeconds: 5,
+	swapLocked: 'Logged sets: swap is closed. Skip the rest and add the other exercise.',
+	/** The swap sheet and its confirm step. */
+	swapFor: (name: string) => `Swap ${name} for…`,
+	swapConfirm: (from: string, to: string) => `Swap ${from} for ${to}?`,
+	swapNote: 'Sets and targets stay; weights come from its own history.',
+	swapToday: 'Just today',
+	swapFromNow: 'From now on',
+	swapFromNowNote: 'From now on changes the program when you finish this workout.',
+	swapGo: 'Swap',
+	/** The finished workout's page, after a "From now on" swap. */
+	programUpdated: 'Your program now uses the swapped exercise from the next workout on.',
+	programUpdateFailed: {
+		open: 'The program was not changed: another of its workouts is still open. It is as it was.',
+		changed:
+			'The program was not changed: it was edited since this workout began. It is as it was.',
+		invalid:
+			'The program was not changed: the new version did not pass its checks. It is as it was.'
+	},
+	viewProgram: 'View program',
 	/** Part F: rest timer default. */
 	defaultRestSeconds: 90
 } as const;

@@ -23,6 +23,7 @@
 		pickerUi as ui
 	} from '$lib/picker-ui';
 	import type { PickerData, PickerExercise, PickerMachine } from '$lib/server/picker';
+	import { workoutUi } from '$lib/workout-ui';
 
 	let {
 		picker,
@@ -35,7 +36,14 @@
 		 * program workout. Machines only, of the exercise's type, then a
 		 * confirm step; posts to `?/bindMachine`.
 		 */
-		bind = null
+		bind = null,
+		/**
+		 * Swap mode (editor spec, Part L): replace an untouched exercise of this
+		 * workout. Exercises only, then a confirm step that, for a planned
+		 * exercise of a program, asks "Just today" or "From now on"; posts to
+		 * `?/swapExercise`.
+		 */
+		swap = null
 	}: {
 		picker: PickerData;
 		sessionId: string;
@@ -46,6 +54,12 @@
 			exerciseId: string;
 			exerciseName: string;
 			equipmentType: string;
+		} | null;
+		swap?: {
+			occurrenceId: string;
+			exerciseId: string;
+			exerciseName: string;
+			planned: boolean;
 		} | null;
 	} = $props();
 
@@ -65,7 +79,8 @@
 		| { kind: 'newMachine' }
 		| { kind: 'create' }
 		| { kind: 'format'; exercise: ExerciseChoice; machine: MachineChoice | null }
-		| { kind: 'confirm'; machine: MachineChoice };
+		| { kind: 'confirm'; machine: MachineChoice }
+		| { kind: 'swap'; exercise: PickerExercise };
 
 	const tabKey = $derived(`doclifts:sheet-tab:${sessionId}`);
 	let tab = $state<'machines' | 'exercises'>('machines');
@@ -111,11 +126,13 @@
 		}
 		tab = bind
 			? 'machines'
-			: saved === 'machines' || saved === 'exercises'
-				? saved
-				: gymMachines.length
-					? 'machines'
-					: 'exercises';
+			: swap
+				? 'exercises'
+				: saved === 'machines' || saved === 'exercises'
+					? saved
+					: gymMachines.length
+						? 'machines'
+						: 'exercises';
 	});
 
 	function setTab(next: 'machines' | 'exercises') {
@@ -169,7 +186,8 @@
 	);
 
 	const machineType = $derived(machineContext?.equipmentType ?? null);
-	const exerciseFits = (e: PickerExercise) => !machineType || e.equipmentType === machineType;
+	const exerciseFits = (e: PickerExercise) =>
+		(!machineType || e.equipmentType === machineType) && e.id !== swap?.exerciseId;
 	const query = $derived(exerciseQuery.trim().toLowerCase());
 	const exerciseGroups = $derived.by(() => {
 		const list = picker.exercises.filter(
@@ -194,7 +212,9 @@
 			: []
 	);
 	const canCreate = $derived(
-		exerciseQuery.trim().length > 0 && !picker.exercises.some((e) => e.name.toLowerCase() === query)
+		!swap &&
+			exerciseQuery.trim().length > 0 &&
+			!picker.exercises.some((e) => e.name.toLowerCase() === query)
 	);
 
 	function rememberedFormat(exercise: ExerciseChoice, machine: MachineChoice | null) {
@@ -206,6 +226,10 @@
 	/** An exercise chosen: add it, or ask for what is still missing. */
 	function chooseExercise(exercise: ExerciseChoice) {
 		message = '';
+		if (swap && exercise.id) {
+			view = { kind: 'swap', exercise: exercise as PickerExercise };
+			return;
+		}
 		const machine = machineContext;
 		if (machine) {
 			if (machine.equipmentType !== exercise.equipmentType) {
@@ -249,6 +273,22 @@
 		payload = fields;
 		await tick();
 		bindFormEl?.requestSubmit();
+	}
+	let swapFormEl: HTMLFormElement | undefined = $state();
+	async function submitSwap(exercise: PickerExercise, scope: 'today' | 'program') {
+		if (!swap) return;
+		const fields: Record<string, string> = {
+			occurrenceId: swap.occurrenceId,
+			exerciseId: exercise.id,
+			scope
+		};
+		// A free weight keeps its remembered weight format, so its history is found.
+		if (FREE_TYPES.includes(exercise.equipmentType as never))
+			fields.loadConvention =
+				rememberedFormat(exercise, null) ?? conventionsFor(exercise.equipmentType).preset;
+		payload = fields;
+		await tick();
+		swapFormEl?.requestSubmit();
 	}
 	function chooseMachine(machine: PickerMachine) {
 		message = '';
@@ -353,7 +393,11 @@
 		<header class="sheet-head">
 			<div class="flex items-center justify-between gap-2">
 				<h2 class="text-lg font-semibold">
-					{bind ? ui.chooseMachineFor(bind.exerciseName) : ui.addExercise}
+					{bind
+						? ui.chooseMachineFor(bind.exerciseName)
+						: swap
+							? workoutUi.swapFor(swap.exerciseName)
+							: ui.addExercise}
 				</h2>
 				<button class="min-h-11 px-2 text-indigo-200" onclick={close}>{ui.close}</button>
 			</div>
@@ -381,7 +425,7 @@
 					{/if}
 				</div>
 			{/if}
-			<div class="tabs" role="tablist" hidden={!!bind}>
+			<div class="tabs" role="tablist" hidden={!!bind || !!swap}>
 				<button role="tab" aria-selected={tab === 'machines'} onclick={() => setTab('machines')}
 					>{ui.machinesTab}</button
 				>
@@ -406,7 +450,35 @@
 		{/if}
 
 		<div class="sheet-body">
-			{#if view.kind === 'confirm'}
+			{#if view.kind === 'swap' && swap}
+				<p class="font-semibold" data-testid="swap-confirm">
+					{workoutUi.swapConfirm(swap.exerciseName, view.exercise.name)}
+				</p>
+				<p class="mt-1 text-sm text-zinc-400">{workoutUi.swapNote}</p>
+				{#if swap.planned}
+					<button
+						class="cta mt-4"
+						disabled={busy}
+						onclick={() => view.kind === 'swap' && submitSwap(view.exercise, 'today')}
+						>{workoutUi.swapToday}</button
+					>
+					<button
+						class="cta mt-2"
+						disabled={busy}
+						onclick={() => view.kind === 'swap' && submitSwap(view.exercise, 'program')}
+						>{workoutUi.swapFromNow}</button
+					>
+					<p class="mt-2 text-sm text-zinc-400">{workoutUi.swapFromNowNote}</p>
+				{:else}
+					<button
+						class="cta mt-4"
+						disabled={busy}
+						onclick={() => view.kind === 'swap' && submitSwap(view.exercise, 'today')}
+						>{workoutUi.swapGo}</button
+					>
+				{/if}
+				<button class="row mt-2" onclick={reset}>{ui.back}</button>
+			{:else if view.kind === 'confirm'}
 				<p class="font-semibold" data-testid="bind-confirm">
 					{ui.useMachineFor(view.machine.label)}
 				</p>
@@ -622,6 +694,36 @@
 							close();
 						} else if (result.type === 'failure') {
 							message = String(result.data?.message ?? 'Could not use that machine.');
+						} else if (result.type === 'error') {
+							message = 'That did not get through. Try again.';
+						}
+					} finally {
+						busy = false;
+					}
+				};
+			}}
+		>
+			{#each Object.entries(payload) as [name, value] (name)}<input
+					type="hidden"
+					{name}
+					{value}
+				/>{/each}
+		</form>
+		<form
+			method="POST"
+			action="?/swapExercise"
+			bind:this={swapFormEl}
+			class="hidden"
+			use:enhance={() => {
+				busy = true;
+				message = '';
+				return async ({ result, update }) => {
+					try {
+						if (result.type === 'success') {
+							await update({ reset: false });
+							close();
+						} else if (result.type === 'failure') {
+							message = String(result.data?.message ?? 'Could not swap that exercise.');
 						} else if (result.type === 'error') {
 							message = 'That did not get through. Try again.';
 						}

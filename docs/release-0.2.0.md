@@ -2914,3 +2914,38 @@ collisions remain across the 33 shared names.
 
 Check (assistant, production, scratch account): pick a template, save it,
 start day one, save a set at 390 px.
+
+## 37. 0.10.0 — edit a live workout (editor spec, Part L) — NOT deployed
+
+Code only, no migration: program exercises already get their own
+`session_exercises` row and position at session start. `src/lib/server/live-edit.ts`
+adds `removeSessionExercise`, `skipRestOfExercise`, `moveSessionExercise`,
+`swapSessionExercise` and `applyProgramSwaps`, each in one transaction under
+`lockActive` (owner-scoped, refused on an ended workout), finding the exercise
+through the session so a stale tab gets "Please reload and try again."
+
+- Remove with nothing logged: the page hides the exercise and shows Undo for
+  `workoutUi.undoSeconds` (5); the removal is posted when that runs out, or at
+  once when the page is left. With logged sets the post carries their count,
+  and a count that no longer matches is refused.
+- Move: the two positions are exchanged through a free temporary value, so
+  `session_exercises_position_unique` holds at every statement.
+- Swap: refused once any set has a saved value. Sets keep role, count and
+  rep/RIR targets; the machine is cleared, and `prefillOccurrence` refills
+  the loads from the new exercise's history. "Just today" drops
+  `prescribed_set_id`; "From now on" keeps it, which is how the choice is
+  recorded with no new column. At finish, `applyProgramSwaps` turns linked
+  sets whose exercise differs from the planned one into a new program version
+  through `loadProgramDraft` and `saveProgramDraft` (request id = session id,
+  so finishing twice edits once). It fails safe, leaving the program as it
+  was, if another workout of the program is open, the program changed, or the
+  draft fails validation; the finished workout's page says which.
+- Engine: history reads only saved values in ended workouts, so a removed
+  exercise and a skip's deleted empty sets leave no evidence; tests prove the
+  next prescription and the backwards count.
+
+Not in 0.10.0, on purpose: creating a new exercise from the swap sheet (pick
+an existing one), and filtering the swap list by what this gym has.
+
+Check (assistant, production, scratch account): move, remove with Undo,
+swap, skip and finish on a program workout at 390 px.

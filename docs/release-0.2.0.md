@@ -3280,7 +3280,7 @@ The failed run left an open scratch workout, which also changes Home from Start
 to Resume. Neither assumption was accounted for in the original smoke script.
 The owner received the second rollback report; no forward retry was made.
 
-## 46. 0.15.2 Alpha — repeatable deployment checks — NOT DEPLOYED
+## 46. 0.15.2 Alpha — image safety live — DEPLOYED, ACCEPTANCE PENDING
 
 The acceptance script now waits for workout hydration, selects the Exercises
 tab explicitly, and finishes any leftover scratch-only workout through the
@@ -3296,3 +3296,26 @@ private script; never infer the initial picker tab or an empty scratch account.
 Live safety mode should be OpenRouter with the local service ready to switch.
 Signup stays closed. Record deployed/acceptance pending only after all live
 checks pass; on failure roll back and report again.
+
+Owner approved the third attempt on 2026-10-03 ("I approve") after the second
+rollback report and repeat-test results. PR #10 passed Markdown lint and
+exact-head CI 37151224774 at a14a3f4, both jobs watched to completion. Main
+38ff199 was tagged 0.15.2 and deployed. A fresh dump was restored with matching
+11 accounts, 55 workouts, 551 set rows with logged_at, and 18 programs. The
+currently running recovery image was preserved as pre-0.15.2; older recovery
+tags and the original Compose/env remain retained.
+
+All live checks passed: the signed-in browser verified exact build 38ff199;
+scratch account saved 50 x 8, retained it across reload and finished the workout;
+a harmless generated JPEG passed screening, uploaded, was read privately and
+was discarded. Cookie policy remains Secure/HttpOnly/SameSite=Lax, host-only.
+OpenRouter audit: allowed, 1016 ms, reported cost $0.00016866, policy alpha-v1,
+no retained prompt. The actual local classifier passed harmless inference and
+malformed/MIME/empty/oversized refusals. Web, scanner and tunnel have read-only
+roots, zero kernel swap limits and disabled core dumps; the scanner has an
+internal network and no published port. No production test bypass is set.
+
+Runtime mode is `openrouter`; local/A-B/paused switches are documented in
+photo-safety.md. No harmful corpus was used and detection recall remains
+unestablished. Signup stays closed. Owner data was not changed. This release is
+DEPLOYED, ACCEPTANCE PENDING: retain all recovery images until owner phone signoff.

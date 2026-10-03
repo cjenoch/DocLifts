@@ -30,7 +30,7 @@ Identification requests go through one model-call interface with structured-outp
 
 ## Your data beyond the app
 
-The next release, **0.16.1 Alpha, is under review and not deployed**. It adds read-only MCP access to your workouts, programs and equipment, with explicit account consent, optional access to notes and revocation from Account → Connected agents. The [MCP specification](docs/mcp-alpha.md) describes the six tools, permissions, data dictionary and client acceptance work. The proposed endpoint is `https://doclifts-mcp.runthe.ai/mcp`.
+**0.16.1 Alpha is live; real-agent acceptance is pending.** It adds read-only MCP access to your workouts, programs and equipment, with explicit account consent, optional access to notes and revocation from Account → Connected agents. The [MCP specification](docs/mcp-alpha.md) describes the six tools, permissions, data dictionary and client acceptance work. Connect at `https://doclifts-mcp.runthe.ai/mcp`.
 
 A separate imported-history archive already preserves original notes, recalled estimates and uncertain dates. Those archive records do not feed progression or operational workout totals. Personal import payloads are kept outside this repository.
 
@@ -104,7 +104,7 @@ This repository's Compose configuration targets the existing VPS. It is not a ge
 
 Production secrets live outside the checkout, normally in `/srv/doclifts/.env`, with restrictive permissions. Use `scripts/compose-prod.sh`, `scripts/migrate-prod.sh` and `scripts/user-prod.sh` on the VPS; they pass the production environment explicitly. Never symlink a development `.env` to the production file. Every runtime setting needs its Compose passthrough.
 
-A Git push runs CI; it does not deploy the app. Releases require a green local gate and branch CI, a verified backup/restore rehearsal for migrations, retention of the previous image, and checks against the real public screens using a scratch account. Authentication, CSRF and tunnel changes require owner diff review. Phone acceptance is recorded separately from deployment.
+A Git push runs CI; it does not deploy the app. Releases require a green local gate and branch CI, a verified backup/restore rehearsal for migrations, retention of the previous image, and checks against the real public screens using a scratch account. The current owner-authorized development cycle permits fixing forward without routine approval holds or automatic rollback, while retaining at least two recovery images. Phone and real-agent acceptance are recorded separately from deployment.
 
 Useful references:
 

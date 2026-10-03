@@ -3343,7 +3343,7 @@ No training data restore was performed. Recovery image kept; failed image retain
 as failed-0.16.0 and default vps tag restored to the old image to avoid accidental
 forward deployment. Restored public sign-in and private history access passed.
 
-## 48. 0.16.1 Alpha — MCP acceptance correction — NOT DEPLOYED
+## 48. 0.16.1 Alpha — MCP live — DEPLOYED, ACCEPTANCE PENDING
 
 The private production checks now select alpha-test-01 from the current protected
 Alpha test-account file and validate its presence before browser/network work.
@@ -3358,3 +3358,21 @@ Owner policy update, 2026-10-03: pause automatic rollback and routine push/deplo
 approval holds, retain a couple of images, and troubleshoot live if needed.
 Assume the owner is not at the gym until he says otherwise. CLAUDE.md records
 this override; green gates, backup checks and data protections remain.
+
+The corrected account check passed on restored38ff199: sign-in/history, a saved
+50x8 set surviving reload, workout finish, photo upload/read/discard and private
+cookie/cache policy. A fresh retry backup restored with matching11users,
+57workouts,557setrows,19programs; the increase was the test account's new quick
+workout. The same previously gated application image1e52b4c was redeployed under
+the owner's explicit fix-forward authorization. No new app code was introduced.
+
+Live at https://doclifts-mcp.runthe.ai/mcp. Public checks passed: metadata, forbidden
+hostname paths, anonymous refusal, DCR, phone sign-in/consent, native PKCE exchange,
+refresh, SDK initialization and six read tools, note exclusion and revocation of
+access/refresh tokens, browser-origin refusal. The test account has no regular
+programs, so list_programs correctly returned empty and get_program's not-found
+path was checked; positive owned program reads are covered by integration tests.
+Full workout/photo checks also passed on build1e52b4c. A/B safety remains live and
+signup closed. Previous38ff199 and the1e52b4c image are retained; future builds
+must retain at least two prior recovery images under the new policy. Owner's
+first actual agent connection is pending, not inferred from SDK tests.

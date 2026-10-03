@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.1 Alpha — MCP deployment verification — not deployed
+## 0.16.1 Alpha — MCP live — deployed, acceptance pending
 
 - The production acceptance checks read the current Alpha test-account file and
   validate credentials before opening a browser or making network requests.
@@ -10,6 +10,10 @@
 - MCP application code is unchanged. The owner then authorized fixing forward
   without routine approval holds or automatic rollback, retaining two recovery
   images. Fresh backups and release gates still apply. Signup stays closed.
+- Deployed 2026-10-03 using the unchanged, gated app build 1e52b4c. Public
+  discovery, consent, native PKCE exchange/refresh, six SDK tools, optional-note
+  exclusion and revocation passed. Saved/reloaded sets and photo upload/read/
+  discard also passed. Real-agent acceptance is pending; the owner can connect.
 
 ## 0.16.0 Alpha — read-only agent access — rolled back 2026-10-03
 

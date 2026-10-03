@@ -1,9 +1,10 @@
 # DocLifts MCP — Alpha 0.16.1 specification
 
-Status: 0.16.0 rolled back after a missing acceptance-test credential file.
-0.16.1 changes the deployment checks only; the owner authorized retry and
-fix-forward development with two retained recovery images.
-Production is restored to 0.15.2 Alpha; the MCP hostname is not active.
+Status: 0.16.1 is live on the unchanged gated app build 1e52b4c; real-agent
+acceptance is pending. Public browser/SDK connect, read, refresh and revoke passed.
+0.16.0 was briefly rolled back because the acceptance harness referenced a retired
+credential file. Corrected checks preflight the current Alpha test account before
+network work. The owner authorized fixing forward with retained recovery images.
 
 ## Outcome and first scope
 
@@ -116,7 +117,7 @@ remain open; MCP is read-only and does not fix the vision model prompt.
 
 ## Initial client setup
 
-After deployment, use `https://doclifts-mcp.runthe.ai/mcp` as the remote Streamable
+Use `https://doclifts-mcp.runthe.ai/mcp` as the remote Streamable
 HTTP server URL and OAuth as the authentication method. Never supply a DocLifts
 password as a tool argument or copy an app session cookie into an agent.
 

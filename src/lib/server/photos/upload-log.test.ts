@@ -70,9 +70,10 @@ describe('logUpload', () => {
 			photoId: 'p1',
 			processWaitMs: 0,
 			processMs: 180,
+			safetyMs: 75,
 			storePutMs: 95,
 			modelMs: 2400,
-			totalMs: 2750
+			totalMs: 2825
 		});
 		expect(log).toHaveBeenCalledTimes(1);
 		expect(JSON.parse(log.mock.calls[0][0] as string)).toEqual({
@@ -86,9 +87,10 @@ describe('logUpload', () => {
 			photoId: 'p1',
 			processWaitMs: 0,
 			processMs: 180,
+			safetyMs: 75,
 			storePutMs: 95,
 			modelMs: 2400,
-			totalMs: 2750
+			totalMs: 2825
 		});
 	});
 });

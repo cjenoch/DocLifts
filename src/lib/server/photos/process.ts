@@ -2,7 +2,7 @@
  * Upload processing (0.4.0 §3), with sharp.
  *
  * THE PRIVACY PROPERTY: the stored image — the only one that is ever kept, and
- * the only one ever sent to a model — carries NO metadata. sharp writes none
+ * the cleaned form sent to models — carries NO metadata. sharp writes none
  * unless asked (`withMetadata()` / `keepMetadata()`), and this module never
  * asks. GPS position, device make and model, timestamps and the camera's
  * thumbnail are gone before the image is stored or analyzed. The EXIF
@@ -30,7 +30,7 @@ export const MAX_INPUT_PIXELS = 50_000_000;
 
 /**
  * How many photos are decoded and re-encoded at once in this process. The
- * web container has no memory limit and sharp would otherwise run up to four
+ * web container is capped at 2 GiB; sharp would otherwise run up to four
  * large decodes together on libuv's default pool.
  */
 export const MAX_CONCURRENT_PROCESSING = 2;

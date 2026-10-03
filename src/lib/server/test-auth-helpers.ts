@@ -291,6 +291,7 @@ export async function startTestServer(
 			// no test reaches a network, and CI has no S3 variable.
 			BODY_SIZE_LIMIT: '12M',
 			PHOTO_STORE: 'memory',
+			PHOTO_SAFETY_MODE: 'test-pass',
 			// And no model: a key exported in the invoking shell must not turn an
 			// e2e run into paid provider calls. Empty is "unset" in llm/config.ts,
 			// so analysis is refused as not configured and recorded as such.

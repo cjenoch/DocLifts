@@ -21,6 +21,7 @@
  * and the timeout bounds the whole call. A caller that wants a retry calls
  * again, and that retry is counted and recorded like any other call.
  */
+import { completeSafety, type SafetyRequest } from './safety';
 import {
 	APICallError,
 	generateText,
@@ -60,6 +61,8 @@ export { usageForUser, type LlmUsage } from './usage';
 export type CompleteRequest<T> = {
 	/** What the call is for; recorded in `llm_calls.purpose`. */
 	purpose: string;
+	/** Internal image classifier request; still uses the complete() audit seam. */
+	safety?: SafetyRequest;
 	system: string;
 	messages: LlmMessage[];
 	schema: ZodType<T>;
@@ -94,6 +97,8 @@ function outputSchema<T>(request: CompleteRequest<T>) {
 export type CompleteResult<T> = { output: T; callId: string };
 
 export type LlmClientOptions = {
+	/** Classifier transport injection for failure tests. */
+	transport?: typeof fetch;
 	/** The environment, read once on the first call. Default: process.env. */
 	env?: Env | (() => Env);
 	/** The model for a call. Default: provider.ts `getModel`. Tests pass a mock. */
@@ -217,6 +222,17 @@ export function createLlmClient(options: LlmClientOptions = {}) {
 		userId: string,
 		request: CompleteRequest<T>
 	): Promise<CompleteResult<T>> {
+		if (request.safety) {
+			const env = typeof options.env === 'function' ? options.env() : options.env;
+			const result = await completeSafety(
+				db,
+				userId,
+				request.safety,
+				env ?? process.env,
+				options.transport
+			);
+			return { output: request.schema.parse(result.output), callId: result.callId };
+		}
 		const started = now();
 		const kind = request.kind ?? 'text';
 		const cfg = currentConfig();

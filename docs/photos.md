@@ -14,8 +14,8 @@ added.** The model's output is a suggestion, never a write.
    photo, photo library, or files. With `capture`, Android opens only the
    camera (0.4.0; removed in 0.4.2).
 2. **Upload.** The server checks the size and the daily limit, then
-   processes the photo (below), stores it privately, and records it as
-   `uploaded`.
+   processes the photo (below), requires a safety pass, then stores it
+   privately and records it as `uploaded`. See [image safety](photo-safety.md).
 3. **Analysis**, in the same request: the stored image goes through
    `complete()` with the vision model and a strict schema (below). Since
    0.5.3 the upload hands analysis the processed JPEG it has just stored,
@@ -55,7 +55,8 @@ Photos that were never decided are listed on the gym's photo page under
   re-encoded as JPEG (quality 85) with sharp, which writes no EXIF, XMP or ICC
   unless asked; the code never asks. GPS position, camera make and model,
   timestamps and the camera's own thumbnail are gone. The original upload is
-  never stored. The stored image is the only one ever sent to a model.
+  never stored. Only the cleaned JPEG is sent to models. The safety classifier sees it before
+  storage; identification sees it only after a safety pass.
 - **The bucket is private.** Nothing is served by a public or presigned URL.
 - **Images are served only to their owner**, through
   `GET /photos/<id>/image`, which checks that the photo is the signed-in

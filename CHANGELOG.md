@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0 Alpha — image safety — not deployed
+
+- New photos require a safety pass before storage or identification. Refusals
+  leave no photo or workout block; manual set logging continues.
+- Switch between a private CPU classifier, OpenRouter Llama Guard, or stable
+  per-user A/B. All modes fail closed and record metadata-only decisions.
+- Harmless fixtures test rejection without a harmful-image collection.
+  Real harmful-image detection accuracy is not yet established.
+- Signup remains closed. See [image safety](docs/photo-safety.md).
+
 ## 0.14.1 — Cloudflare Tunnel deployment — accepted 2026-10-03
 
 - Optional `public` Compose profile runs a pinned tunnel connector alongside

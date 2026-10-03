@@ -27,6 +27,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 // applies, which then fails loudly with a Postgres auth error rather than
 // connecting to the wrong database.
 if (process.env.VITEST) {
+	process.env.PHOTO_SAFETY_MODE = 'test-pass';
 	const fromFile = loadEnv(
 		process.env.NODE_ENV === 'production' ? 'production' : 'development',
 		process.cwd(),

@@ -3203,3 +3203,27 @@ passed again after restoration. See public-address.md for the dry-run caveat and
 Free-plan rate-limit/TLS settings. Owner approval was subsequently received for
 both releases on 2026-10-03. The pre-0.14.0 and pre-0.14.1 rollback image tags
 were removed after that approval; verified database backups remain retained.
+
+## 44. 0.15.0 Alpha — image safety — NOT DEPLOYED
+
+New uploads are scanned after JPEG rebuilding and before any object, photo row
+or workout block is created. Local, OpenRouter and stable per-user A/B modes
+fail closed; the default pauses new photos. See [image safety](photo-safety.md).
+Signup stays closed. No schema migration. Existing photos are not rescanned.
+
+Focused checks: 24 integration tests and two phone-width served-build tests pass.
+Removing the scan causes 18 integration failures and both e2e failures; the
+implementation was restored. The actual isolated CPU container passed harmless
+generated-image inference and invalid-input checks. No harmful material used;
+these checks establish enforcement, not harmful-image detection accuracy.
+
+Before deployment: full VPS gate, exact-head CI, verified restored backup,
+retain `doclifts-web:pre-0.15.0`, Compose dry run and expected totals. Container
+resource controls disable swap/core dumps; the tunnel connector's resource
+settings therefore also need the existing owner diff-review step. No tunnel
+ingress, origin, CSRF, sign-in or auth-session settings change.
+
+After deployment: verify public scratch-account sign-in, a saved set surviving
+reload, harmless-photo safety audit/store/read/discard, healthy private scanner
+and runtime no-swap/read-only controls. Record deployed/acceptance pending,
+retain the prior image, then await owner phone acceptance separately.

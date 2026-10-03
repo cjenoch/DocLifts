@@ -1,12 +1,22 @@
 # Changelog
 
-## 0.15.1 Alpha — deployment verification — not deployed
+## 0.15.2 Alpha — repeatable deployment checks — not deployed
+
+- The production test explicitly selects Exercises when the picker opens on
+  Machines, and finishes a leftover scratch workout before starting its check.
+  Two complete runs passed consecutively on the restored release.
+- Application safety code remains unchanged. Signup remains closed.
+
+## 0.15.1 Alpha — deployment verification — rolled back 2026-10-03
 
 - The rollout check reads the exact build id through the real browser session.
   The previous Python probe was refused at the public edge despite successful
   browser checks, triggering a rollback. The corrected probe passes the restored
   build and fails an intentionally incorrect build id.
-- Image-safety application code is unchanged from 0.15.0. Retry awaits owner go-ahead.
+- Image-safety application code is unchanged from 0.15.0.
+- Approved retry verified the deployed build in the browser, then rolled back
+  when the test assumed the picker opened on Exercises. The same assumption
+  failed on restored 0.14.1; this was a test-script defect.
 
 ## 0.15.0 Alpha — image safety — rolled back 2026-10-03
 

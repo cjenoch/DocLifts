@@ -130,6 +130,14 @@ identity filter matches nothing, and the result looks like a cold start — or
 like a scoping bug. It is neither. Pass
 `{ gymEquipmentId, loadConvention }` whenever a machine is bound.
 
+**Free weights are the one exception (0.8.0, owner decision 2026-10-02).** For
+the five types in `FREE_WEIGHT_TYPES` (barbell, EZ bar, dumbbell, bodyweight,
+band) history follows the exercise across gyms: `historyIdentity()` sets
+`anyMachine`, and `identityFilter` then keys on the exercise, slot and load
+convention only. Build an identity with `historyIdentity(machine, convention,
+equipmentType)`, never by hand, wherever a block or set is looked up. The four
+machine types never fall back to another machine.
+
 ### Engine output is suggestion, never auto-applied
 
 - The user override path is one tap. Never bake a load into the prescribed field without giving the user an editable surface.
@@ -701,7 +709,7 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/server/photo-workout.ts` — photos in a workout (0.6.0): `openPhotoBlock` (a stored photo opens a block on a placeholder machine and exercise, no model call), `identifySessionExercise` ("Use this" and the review page: model, exercise, convention; merges into the gym's machine for that model; identity columns only), `photoBlocksForSession`, `machinesToName`, `unidentifiedBlockOfPhoto`. See `docs/photos.md`, "Photos in a workout", and `docs/machine-identity.md`, "Photo blocks".
 - `src/lib/server/sessions.ts` — action helpers (`startSessionForDay`, `endSession`, `updateSetInSession`), and Trash: `listDeletedSessionsForProgram` / `listDeletedSessionsForUser` (History, 0.5.2), `restoreSoftDeletedSession`, `hardDeleteSession`, `purgeDeletedSessionsForProgram`, all owner-scoped and by id. The route `+page.server.ts` files are thin wrappers around these.
 - `src/lib/server/workout-sets.ts` — in-session set mutation (append set, remove-empty-last-set) for the inline logging UX. Locks the session row, validates done/deleted state, uses a client-supplied `requestId` as the set PK for idempotency, tags appended sets as `machine`-sourced copies (provenance: "Copied from the previous set. Adjust to what you lift."). Never renumbers existing `position`s.
-- `src/routes/sessions/[id]/AddWorkoutExercise.svelte` — client-side quick-add a new exercise to a live session (machine picker + machine-type-aware equipment preselect).
+- `src/lib/AddSheet.svelte` — the add sheet (0.8.0, machines spec Parts I and J), replacing the old add form: Machines and Exercises tabs, no dropdowns, free weights added with no gym or equipment, the weight format asked once per exercise and machine. Its data is `pickerData` in `src/lib/server/picker.ts` (owner-scoped; archived rows and the photo placeholder never appear); its strings and defaults are in `src/lib/picker-ui.ts`. The Exercises page (`/exercises`: rename, body region, hide) uses `src/lib/server/exercise-admin.ts`.
 - `src/lib/request-id.ts` — idempotency token helpers (client generates a per-submit UUID; server keys on it so a double-submit can't double-append).
 - `src/lib/server/gym-config.ts` — plate inventory config (single-gym hardcoded; superseded for equipment picking by the shipped `gyms`/`gym_equipment` tables, but still the plate-snap inventory source)
 - `src/lib/server/test-db.ts` — integration-test DB bootstrap. Not imported by production code.

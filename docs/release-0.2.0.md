@@ -2880,7 +2880,9 @@ Part N rebuilds that screen and names this picker; it is built there.
 Check (assistant, production, scratch account): a program workout's planned
 machine exercise binds through the sheet; the button is gone after a set.
 
-## 36. 0.9.0 — four starter templates (editor spec, Part D) — DEPLOYED 2026-10-03, acceptance pending
+## 36. 0.9.0 — four starter templates (editor spec, Part D) — DEPLOYED 2026-10-03, accepted 2026-10-03
+
+**Owner sign-off, 2026-10-03:** "I also signoff on the 0.9.0." `pre-0.9.0` deleted after the sign-off.
 
 ```
 0.9.0    653b301, tagged 0.9.0; branch CI green; full local gate 818 (+2

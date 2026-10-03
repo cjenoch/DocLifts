@@ -3103,7 +3103,20 @@ tab; RIR stays a plain optional field.
 Check (assistant, production, scratch account): one-tap save, the steppers,
 and the timer across a reload, at 390 px.
 
-## 41. 0.13.1 — free weights keep their weight format into a program — NOT deployed
+## 41. 0.13.1 — free weights keep their weight format into a program — DEPLOYED 2026-10-03, acceptance pending
+
+```
+0.13.1   a1abda7, tagged 0.13.1; branch CI green; full local gate 851 (+2
+         skipped) / 3 / 40 / 154. No CLAUDE.md, auth or schema change.
+image    pre-0.13.1 kept (and pre-0.13.0) until the owner signs off
+web      healthy; version.json a1abda7
+check    scratch account, 390x844, "0120 check from workout" day 1 (the
+         check that showed no weight on 0.13.0): Dumbbell curl and Goblet
+         squat now show 25 x 9, per arm, "held: not all working sets
+         cleared top of range"; one tap saved, "✓ Saved", timer 1:30. No
+         5xx, 0 page errors.
+owed     the owner, with 0.13.0's check
+```
 
 Fix for the gap found in 0.13.0's production check. `startSessionForDay`
 read history with `legacyIdentity` and created every block as `legacy`, while

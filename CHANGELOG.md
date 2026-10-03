@@ -7,8 +7,9 @@
 - 0.16.0 was rolled back when its check referenced a retired scratch password
   file. Discovery and registration passed; the check stopped before submitting
   sign-in. The corrected account path passes on the restored app.
-- MCP application code is unchanged. Retry requires owner approval after this
-  rollback report, a fresh backup and the release gates. Signup stays closed.
+- MCP application code is unchanged. The owner then authorized fixing forward
+  without routine approval holds or automatic rollback, retaining two recovery
+  images. Fresh backups and release gates still apply. Signup stays closed.
 
 ## 0.16.0 Alpha — read-only agent access — rolled back 2026-10-03
 

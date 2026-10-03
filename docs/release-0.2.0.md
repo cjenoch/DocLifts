@@ -3349,7 +3349,12 @@ The private production checks now select alpha-test-01 from the current protecte
 Alpha test-account file and validate its presence before browser/network work.
 Passwords never appear in arguments, logs or reports. Owner account is never used.
 MCP code is unchanged; the SDK server reports its unchanged0.16.0 protocol build.
-Full app saved-set/photo verification is rerun on the restored release. Retry only
-after Markdown gate and exact-head CI, fresh verified backup, and owner approval
-of this rollback report. Preserve pre-0.16.0 until a later release is accepted.
+Full app saved-set/photo verification is rerun on the restored release. The owner then authorized push-through development without automatic rollback
+or repeated approval holds. Retry follows the Markdown gate, exact-head CI and
+fresh verified backup. Preserve pre-0.16.0 until a later release is accepted.
 On retry, public SDK connect/read/revoke must pass before owner agent testing.
+
+Owner policy update, 2026-10-03: pause automatic rollback and routine push/deploy
+approval holds, retain a couple of images, and troubleshoot live if needed.
+Assume the owner is not at the gym until he says otherwise. CLAUDE.md records
+this override; green gates, backup checks and data protections remain.

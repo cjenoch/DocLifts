@@ -1,7 +1,8 @@
 # DocLifts MCP — Alpha 0.16.1 specification
 
 Status: 0.16.0 rolled back after a missing acceptance-test credential file.
-0.16.1 changes the deployment checks only; retry awaits owner approval.
+0.16.1 changes the deployment checks only; the owner authorized retry and
+fix-forward development with two retained recovery images.
 Production is restored to 0.15.2 Alpha; the MCP hostname is not active.
 
 ## Outcome and first scope
@@ -50,7 +51,7 @@ checks for form-encoded POST/PUT/PATCH/DELETE requests, except an exact POST to
 /api/auth/oauth2/token with form encoding, NO Cookie header and NO Origin header.
 That exception authenticates through PKCE/refresh credentials, never cookies.
 Better Auth's own origin and CSRF checks remain enabled. This is an explicit
-security-boundary change requiring owner diff review; browser/form tests verify
+security-boundary change approved by the owner; browser/form tests verify
 that missing/forged origins, cookies and lookalike paths remain refused.
 
 ## Read semantics and limits
@@ -88,8 +89,9 @@ return 404. Login/consent/OAuth endpoints stay on doclifts.runthe.ai with host-o
 cookies. No cookie sharing or Better Auth trusted-origin expansion. The narrowly scoped
 form-origin boundary change above is part of the review.
 Apply the reviewed DNS/ingress/header/cache changes only after the release gate,
-fresh restored backup and owner review. Keep the previous web image until
-acceptance. On failed production checks roll back and report; no automatic retry.
+fresh restored backup and the current owner-directed development policy. Retain
+at least two previous web images. During this cycle, troubleshoot and fix forward
+without routine reapproval or automatic rollback; report failures and recovery.
 
 Migration 0020 adds OAuth control-plane tables under auth, not workout data. It
 must be applied and constraint/count-verified on a fresh restored production

@@ -2917,7 +2917,9 @@ collisions remain across the 33 shared names.
 Check (assistant, production, scratch account): pick a template, save it,
 start day one, save a set at 390 px.
 
-## 37. 0.10.0 — edit a live workout (editor spec, Part L) — DEPLOYED 2026-10-03, acceptance pending
+## 37. 0.10.0 — edit a live workout (editor spec, Part L) — DEPLOYED 2026-10-03, accepted 2026-10-03
+
+**Owner sign-off, 2026-10-03:** "I approve the last, looks good!" `pre-0.10.0` deleted after the sign-off. CLAUDE.md's note on the swap (snapshot exception, file map) approved the same day.
 
 ```
 0.10.0   b75ce85, tagged 0.10.0; branch CI green; full local gate 831 (+2

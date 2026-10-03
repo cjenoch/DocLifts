@@ -3062,7 +3062,27 @@ same section.
 Check (assistant, production, scratch account): a quick workout saved as a
 new program, and a workout added as a day of an existing one, at 390 px.
 
-## 40. 0.13.0 — faster set entry (SPEC 0.5.0, Part F) — NOT deployed
+## 40. 0.13.0 — faster set entry (SPEC 0.5.0, Part F) — DEPLOYED 2026-10-03, acceptance pending
+
+```
+0.13.0   6242931, tagged 0.13.0; branch CI green; full local gate 849 (+2
+         skipped) / 3 / 40 / 154. No CLAUDE.md, auth or schema change:
+         deployed under development-push mode after the owner's "start Part F"
+image    pre-0.13.0 kept until the owner signs off
+web      healthy; version.json 6242931
+check    scratch account, 390x844, "090 check Barbell Strength" day 1:
+         69 x 5 shown before typing, saved in one tap; timer 1:30, 1:27 after
+         a reload, 1:57 after +30 s, dismissed; Face pull weight stepped from
+         empty to 5 with focus on the button; no overflow, no 5xx, 0 page
+         errors.
+found    a first attempt on "0120 check from workout" showed no weight: its
+         source quick workout logged the dumbbell sets as per_arm (the
+         sheet's remembered format), while a program day starts free weights
+         as legacy, and history matches on the format. So a program saved
+         from a quick workout does not prefill free-weight loads. Not caused
+         by 0.13.0; reported to the owner with a proposed fix.
+owed     the owner logging a workout with one-tap sets and the timer
+```
 
 Code only, no migration. `SetRow.svelte`: the Save button is a large ✓
 (`aria-label` "Save set N", as before); reps are prefilled from

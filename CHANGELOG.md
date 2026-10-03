@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 — the add sheet: machine first, exercise in a tap — not yet released
+## 0.8.0 — the add sheet: machine first, exercise in a tap — 2026-10-03
 
 - **A new way to add to a workout.** "Add exercise" opens a full-screen sheet
   with two tabs. **Machines** lists this gym's machines, recent first, then by

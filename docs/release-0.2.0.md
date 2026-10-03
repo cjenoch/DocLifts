@@ -2797,7 +2797,30 @@ workout's add form, present on its past workout); restore it; change a
 machine's model in place (same id) and take the stack offer; merge two
 machines and undo.
 
-## 34. 0.8.0 — the add sheet, free weights, the Exercises page (machines spec, second release, first half) — NOT deployed
+## 34. 0.8.0 — the add sheet, free weights, the Exercises page (machines spec, second release, first half) — DEPLOYED 2026-10-03, acceptance pending
+
+```
+0.8.0    be18885, tagged 0.8.0; branch CI green; full local gate 798 (+2
+         skipped) / 3 / 31 / 147; the owner read the CLAUDE.md diff and
+         said go
+image    pre-0.8.0 kept until the owner signs off
+web      healthy; version.json be18885
+check    scratch account, Scratch photo check gym, 390x844: an empty
+         workout keeps the sheet closed with Photo next machine in reach;
+         the sheet opens on Machines; IL-ROW's row shows its last use;
+         machine then exercise added Iso-Lateral Row in two taps with no
+         format question and last time's 60 filled in; Dumbbell curl added
+         at once (psql: no machine, dumbbell, per_arm); the sheet reopened
+         on Exercises; "Check 080 band pull" created from typed text with
+         Band and shoulders chips, added at once (no machine, unknown
+         format); a set saved; finished. Exercises page: renamed to
+         "Check 080 band pull-apart" and hidden (psql: region shoulders,
+         hidden), shown under Hidden after a reload, absent from the list;
+         no sideways scroll; no 5xx, 0 page errors. Two step failures in
+         the first run were the check script reading the page before it
+         refreshed; the database and a reload confirm both.
+owed     the owner adding exercises at his gym with the sheet
+```
 
 Code only: no migration (0019 already carries `exercises.body_region` and
 `archived_at`), no env change. Deploy under development-push mode, `pre-0.8.0`

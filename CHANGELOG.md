@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.15.2 Alpha — image safety live — deployed, acceptance pending
+## 0.15.2 Alpha — image safety live — accepted 2026-10-03
 
 - The production test explicitly selects Exercises when the picker opens on
   Machines, and finishes a leftover scratch workout before starting its check.
@@ -9,7 +9,8 @@
 - Deployed 2026-10-03 at 38ff199 after owner approval. New uploads are screened
   with OpenRouter before storage; local and per-user A/B modes are available.
 - Public browser, saved-set, photo, local scanner and runtime protection checks
-  all passed. Owner phone acceptance is pending; recovery images are retained.
+  all passed. Owner tested uploads, confirmed acceptable speed and accepted
+  the release on 2026-10-03. Temporary recovery image tags are retired.
 
 ## 0.15.1 Alpha — deployment verification — rolled back 2026-10-03
 

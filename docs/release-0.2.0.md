@@ -3280,7 +3280,7 @@ The failed run left an open scratch workout, which also changes Home from Start
 to Resume. Neither assumption was accounted for in the original smoke script.
 The owner received the second rollback report; no forward retry was made.
 
-## 46. 0.15.2 Alpha — image safety live — DEPLOYED, ACCEPTANCE PENDING
+## 46. 0.15.2 Alpha — image safety live — ACCEPTED 2026-10-03
 
 The acceptance script now waits for workout hydration, selects the Exercises
 tab explicitly, and finishes any leftover scratch-only workout through the
@@ -3317,5 +3317,8 @@ internal network and no published port. No production test bypass is set.
 
 Runtime mode is `openrouter`; local/A-B/paused switches are documented in
 photo-safety.md. No harmful corpus was used and detection recall remains
-unestablished. Signup stays closed. Owner data was not changed. This release is
-DEPLOYED, ACCEPTANCE PENDING: retain all recovery images until owner phone signoff.
+unestablished. Signup stays closed. Owner data was not changed. Owner accepted the release after
+testing uploads and confirming acceptable speed on 2026-10-03 ("approved, tested
+some uploads. Oknspeed"). Release state is ACCEPTED. The temporary pre-0.15.0,
+pre-0.15.1 and pre-0.15.2 image tags are retired after this signoff; verified
+database and configuration backups remain.

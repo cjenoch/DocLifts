@@ -362,7 +362,9 @@ run('production build: CSP and page render', () => {
 		'/workout/start',
 		'/account',
 		'/account/password',
-		'/login'
+		'/login',
+		'/signup',
+		'/verify'
 	] as const;
 	type RoutePattern = (typeof ROUTE_PATTERNS)[number];
 	const reached = new Set<string>();
@@ -386,8 +388,13 @@ run('production build: CSP and page render', () => {
 			// /login is the one pattern that must be reached logged out: it is
 			// the redirect target, so reaching it authenticated would only test
 			// the guard's 303, never the page.
-			const { page, status, violations, appStyledElements } =
-				pattern === '/login' ? await visitLoggedOut(path) : await visit(path);
+			const { page, status, violations, appStyledElements } = [
+				'/login',
+				'/signup',
+				'/verify'
+			].includes(pattern)
+				? await visitLoggedOut(path)
+				: await visit(path);
 			// /login is the one pattern reached logged out, where the guard's
 			// redirect is not in play and the page answers 200 directly. Every
 			// other pattern is authenticated and must be a 200, never a 303.
@@ -412,8 +419,9 @@ run('production build: CSP and page render', () => {
 	for (const pattern of ROUTE_PATTERNS) {
 		it(`${pattern} fits a 390 px screen`, async () => {
 			const path = resolvePattern(pattern);
-			const { page } =
-				pattern === '/login' ? await visitLoggedOut(path, 390) : await visit(path, 390);
+			const { page } = ['/login', '/signup', '/verify'].includes(pattern)
+				? await visitLoggedOut(path, 390)
+				: await visit(path, 390);
 			const layout = await page.evaluate(() => {
 				const tabs = [...document.querySelectorAll('nav[aria-label="Main navigation"] a')];
 				return {
@@ -511,7 +519,9 @@ run('production build: CSP and page render', () => {
 			const page = await authenticatedPage(browser, cookie, origin);
 			await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
 			expect(page.url(), 'a signed-in visitor must not be bounced to /login').not.toContain(
-				'/login'
+				'/login',
+				'/signup',
+				'/verify'
 			);
 			await page.close();
 		});

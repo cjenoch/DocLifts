@@ -3,7 +3,8 @@
 	import PasswordInput from '$lib/PasswordInput.svelte';
 	import { appShell } from '$lib/app-shell';
 
-	let { form, data }: { form: ActionData; data: { demoMode?: boolean } } = $props();
+	let { form, data }: { form: ActionData; data: { demoMode?: boolean; signupEnabled?: boolean } } =
+		$props();
 
 	// Demo mode is a fictional, disposable dataset on a throwaway local stack
 	// (compose.demo.yml, localhost only). Surfacing the shared credentials is
@@ -74,6 +75,14 @@
 	<p class="text-3xl font-semibold tracking-tight text-zinc-100">{appShell.appName}</p>
 	<p class="mt-2 mb-8 text-zinc-400" data-testid="tagline">{appShell.tagline}</p>
 	<h1 class="mb-6 text-2xl font-semibold">Sign in</h1>
+	{#if data.signupEnabled}<a class="mb-4 inline-flex min-h-11 items-center underline" href="/signup"
+			>Create an account</a
+		>{/if}
+	{#if form?.error?.startsWith('Verify your email')}
+		<a class="mb-4 inline-flex min-h-11 items-center underline" href="/verify"
+			>Resend verification email</a
+		>
+	{/if}
 
 	{#if form?.error}
 		<p

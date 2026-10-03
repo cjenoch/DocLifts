@@ -10,9 +10,8 @@
  * Every step is load-bearing, and each was found the hard way:
  *
  *  - `createUser` is the operator path (the CLI and any future signup share
- *    it), NOT Better Auth's sign-up endpoint. Sign-up is disabled by
- *    `DOCLIFTS_OPEN_SIGNUP`, and enabling it to make a test pass is not an
- *    option.
+ *    it), NOT Better Auth's sign-up endpoint. Native sign-up is always disabled; tests must not bypass
+ *    the pilot admission gates by opening the native endpoint.
  *  - `origin` header: SvelteKit's CSRF check compares it to the request's own
  *    origin. Without it every form POST is a 403.
  *  - `accept: text/html`: without it SvelteKit answers a form POST with a JSON
@@ -294,6 +293,10 @@ export async function startTestServer(
 			// And no model: a key exported in the invoking shell must not turn an
 			// e2e run into paid provider calls. Empty is "unset" in llm/config.ts,
 			// so analysis is refused as not configured and recorded as such.
+			MAIL_PROVIDER: 'off',
+			MAIL_API_KEY: '',
+			SIGNUP_ENABLED: '0',
+			SIGNUP_INVITE_CODE: '',
 			OPENROUTER_API_KEY: '',
 			LLM_MODEL: '',
 			LLM_VISION_MODEL: '',

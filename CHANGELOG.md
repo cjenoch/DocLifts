@@ -1,5 +1,14 @@
 # Changelog
 
+## Alpha (0.15.0) — gated pilot sign-up — unreleased
+
+- Create an account with an invite code, test-system consent and verified email.
+  Passing these gates activates access automatically; pending users cannot sign in.
+- Database-backed signup, pilot-size and email limits; native ungated signup stays off.
+- Verification mail and resend screen, with a bounded mailer and token-free send records.
+- Closed by default until the owner reviews and enables the pilot.
+- Alpha focuses on infrastructure testing. UI refinement and the new-user walkthrough follow.
+
 ## 0.14.1 — Cloudflare Tunnel deployment — accepted 2026-10-03
 
 - Optional `public` Compose profile runs a pinned tunnel connector alongside

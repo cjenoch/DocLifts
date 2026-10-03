@@ -32,6 +32,7 @@ const ALLOWLIST: readonly string[] = [
 	'/login',
 	'/logout',
 	'/signup',
+	'/verify',
 	'/api/auth',
 	'/_app',
 	'/favicon',

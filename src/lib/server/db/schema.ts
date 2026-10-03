@@ -48,7 +48,7 @@ import type { ImportedLine } from '$lib/imported-workout';
 // drizzle.config.ts points `schema:` at this one file — drizzle-kit does not
 // follow db/index.ts, so without this the generate step would see no auth
 // tables and emit an empty migration.
-import { authUsers } from './auth-schema';
+import { authUsers, authSchema } from './auth-schema';
 
 export {
 	authSchema,
@@ -1112,6 +1112,49 @@ export const equipmentPhotos = pgTable(
 			sql`${t.bytes} > 0 AND ${t.width} > 0 AND ${t.height} > 0`
 		)
 	})
+);
+
+// Public pilot admissions are separate from operator-created accounts.
+export const signupAdmissions = pgTable('signup_admissions', {
+	userId: text('user_id')
+		.primaryKey()
+		.references(() => authUsers.id, { onDelete: 'cascade' }),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const signupAttempts = authSchema.table(
+	'signup_attempts',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		ipHash: text('ip_hash').notNull(),
+		emailHash: text('email_hash').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('signup_attempts_ip_time_idx').on(t.ipHash, t.createdAt),
+		index('signup_attempts_email_time_idx').on(t.emailHash, t.createdAt),
+		index('signup_attempts_time_idx').on(t.createdAt)
+	]
+);
+
+export const mailSends = pgTable(
+	'mail_sends',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		userId: text('user_id')
+			.notNull()
+			.references(() => authUsers.id, { onDelete: 'cascade' }),
+		kind: text('kind').notNull(),
+		status: text('status').notNull(),
+		providerId: text('provider_id'),
+		error: text('error'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('mail_sends_user_time_idx').on(t.userId, t.createdAt),
+		index('mail_sends_time_idx').on(t.createdAt),
+		check('mail_sends_status_check', sql`${t.status} in ('pending', 'sent', 'failed')`)
+	]
 );
 
 // ---------- Type exports for application use ----------

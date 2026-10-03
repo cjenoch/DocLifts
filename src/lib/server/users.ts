@@ -37,7 +37,7 @@
  * adding it for this would be a larger surface than three adapter calls.
  */
 import { z } from 'zod';
-import type { Auth } from './auth-core';
+import type { Auth, AuthDatabase } from './auth-core';
 import type { Database } from './progression';
 import { eq } from 'drizzle-orm';
 
@@ -98,8 +98,9 @@ export type CreatedUser = { id: string; email: string; name: string };
  */
 export async function createUser(
 	auth: Auth,
-	db: Database,
-	input: { email: string; password: string; name: string }
+	db: AuthDatabase,
+	input: { email: string; password: string; name: string },
+	options: { emailVerified?: boolean } = {}
 ): Promise<CreatedUser> {
 	const limits = await passwordLimits(auth);
 	const value = z
@@ -137,7 +138,7 @@ export async function createUser(
 			// sent and no address is confirmed by anyone. Marking them
 			// unverified bought nothing and would lock every one of them out
 			// the moment `requireEmailVerification` is ever switched on.
-			emailVerified: true
+			emailVerified: options.emailVerified ?? true
 		},
 		{ method: 'email-password' }
 	);

@@ -41,6 +41,8 @@ import { authTables } from './db/auth-schema';
 import { STARTER_EXERCISES } from './starter-exercises';
 import type { Database } from './progression';
 
+export type AuthDatabase = Database | Parameters<Parameters<Database['transaction']>[0]>[0];
+
 export type CreateAuthOptions = {
 	/** Better Auth's signing secret. Never the build-time placeholder here. */
 	secret: string;
@@ -58,6 +60,11 @@ export type CreateAuthOptions = {
 	 * deployments — the default in-memory limiter keeps state per-process.
 	 */
 	rateLimitStorage: 'memory' | 'database';
+	requireEmailVerification?: boolean;
+	sendVerificationEmail?: (data: {
+		user: { id: string; email: string };
+		url: string;
+	}) => Promise<void>;
 };
 
 /**
@@ -124,7 +131,7 @@ export function passwordMinLength(env: Record<string, string | undefined> = proc
 	return parsed;
 }
 
-export function createAuth(db: Database, opts: CreateAuthOptions) {
+export function createAuth(db: AuthDatabase, opts: CreateAuthOptions) {
 	return betterAuth({
 		baseURL: opts.baseURL,
 		secret: opts.secret,
@@ -198,6 +205,7 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 
 		emailAndPassword: {
 			enabled: true,
+			requireEmailVerification: opts.requireEmailVerification ?? false,
 			/**
 			 * D2: sign-up is closed by default. Accounts are created by
 			 * `pnpm user:bootstrap` / `pnpm user:create`, or by /signup when
@@ -207,6 +215,12 @@ export function createAuth(db: Database, opts: CreateAuthOptions) {
 			disableSignUp: !opts.openSignup,
 			// Length only. See passwordMinLength.
 			minPasswordLength: passwordMinLength()
+		},
+		emailVerification: {
+			expiresIn: 30 * 60,
+			sendOnSignIn: false,
+			autoSignInAfterVerification: false,
+			sendVerificationEmail: opts.sendVerificationEmail
 		},
 
 		/**

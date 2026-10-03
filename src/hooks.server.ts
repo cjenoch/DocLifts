@@ -42,6 +42,8 @@ import { db } from '$lib/server/db';
 import { isAssetPath, isPublicPath, resolveAuthRedirect } from '$lib/server/request-user';
 import { redirectWithNoStore } from '$lib/server/redirect-no-store';
 import { warnIfNoLoginCapableAccount } from '$lib/server/startup-account-check';
+import { signupConfig } from '$lib/server/signup-config';
+import { mailConfig } from '$lib/server/mail';
 
 /**
  * The no-login-capable-account warning, fired once.
@@ -191,7 +193,12 @@ const responsePolicy: Handle = async ({ event, resolve }) => {
 	const response = await resolve(event);
 	const headers = new Headers(response.headers);
 	headers.set('x-content-type-options', 'nosniff');
-	headers.set('referrer-policy', 'strict-origin-when-cross-origin');
+	headers.set(
+		'referrer-policy',
+		event.url.pathname === '/api/auth/verify-email'
+			? 'no-referrer'
+			: 'strict-origin-when-cross-origin'
+	);
 	if (event.url.protocol === 'https:') {
 		headers.set('strict-transport-security', 'max-age=86400');
 	}
@@ -223,5 +230,7 @@ export const handle: Handle = sequence(responsePolicy, betterAuth, guard);
  */
 export const init: ServerInit = () => {
 	if (building) return;
+	signupConfig();
+	mailConfig();
 	console.log(throttleConfigLogLine(loginThrottle.config));
 };

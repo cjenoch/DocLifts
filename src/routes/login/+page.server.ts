@@ -12,6 +12,7 @@ import {
 } from '$lib/server/login-throttle';
 import { isSafeNext } from '$lib/server/request-user';
 import { errorCodeFrom, logLoginAttempt } from '$lib/server/login-attempt-log';
+import { signupConfig } from '$lib/server/signup-config';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -34,7 +35,7 @@ export const load: PageServerLoad = async ({ request }) => {
 	// to bounce is the entire purpose of the page.
 	const session = await auth.api.getSession({ headers: request.headers, returnHeaders: false });
 	if (session?.user) redirect(303, '/');
-	return {};
+	return { signupEnabled: signupConfig().enabled };
 };
 
 export const actions: Actions = {
@@ -166,6 +167,15 @@ export const actions: Actions = {
 		// unreachable from any browser holding a cookie for this origin. See
 		// `signInViaHandler` for the mechanism and the measurement.
 		if (!result.ok && result.status === 403) {
+			if ((await errorCodeFrom(result.clone())) === 'EMAIL_NOT_VERIFIED') {
+				return fail(403, {
+					email,
+					error:
+						'Verify your email before signing in. Use the link in your inbox, or request another verification email.',
+					retryAfter: null,
+					...NO_WAIT
+				});
+			}
 			logLoginAttempt(request, {
 				ok: false,
 				status: result.status,

@@ -141,6 +141,13 @@
       "when": 1790968400971,
       "tag": "0019_machines_archive_merge",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791051502188,
+      "tag": "0020_gated_signup",
+      "breakpoints": true
     }
   ]
 }

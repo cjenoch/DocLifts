@@ -21,6 +21,7 @@
 import { building } from '$app/environment';
 import { createAuth, type Auth } from './auth-core';
 import { db } from './db';
+import { sendVerificationMail } from './mail';
 
 /**
  * The secret, with a placeholder during `vite build`.
@@ -122,7 +123,15 @@ function resolveBaseURL(value: string | undefined): string {
 export const auth: Auth = createAuth(db, {
 	secret: building ? 'build-time-placeholder-never-used-at-runtime' : requireSecret(),
 	baseURL: resolveBaseURL(serverEnv('PUBLIC_ORIGIN')),
-	openSignup: serverEnv('DOCLIFTS_OPEN_SIGNUP') === '1',
+	// Native signup stays closed: all browser creation passes the admission service.
+	openSignup: false,
+	requireEmailVerification: true,
+	sendVerificationEmail: async ({ user, url }) => {
+		// Do not make response timing depend on whether this email exists or sends.
+		void sendVerificationMail(db, { userId: user.id, to: user.email, url }).catch(() =>
+			console.error('[mail] delivery bookkeeping failed')
+		);
+	},
 	rateLimitStorage: serverEnv('DOCLIFTS_RATE_LIMIT_STORAGE') === 'database' ? 'database' : 'memory'
 });
 

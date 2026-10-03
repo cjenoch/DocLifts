@@ -96,6 +96,14 @@ services:
       LOGIN_DELAY_MAX_MS: ${LOGIN_DELAY_MAX_MS:-30000}
       SESSION_EXPIRES_DAYS: ${SESSION_EXPIRES_DAYS:-30}
       PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
+      SIGNUP_ENABLED: ${SIGNUP_ENABLED:-0}
+      SIGNUP_INVITE_CODE: ${SIGNUP_INVITE_CODE:-}
+      SIGNUP_MAX_ACCOUNTS: ${SIGNUP_MAX_ACCOUNTS:-25}
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-off}
+      MAIL_API_KEY: ${MAIL_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-DocLifts <no-reply@mail.runthe.ai>}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-support@runthe.ai}
+      MAIL_DAILY_LIMIT: ${MAIL_DAILY_LIMIT:-100}
       # LLM adapter (0.3.1). All optional: the app boots and serves with none
       # set, and complete() throws LlmNotConfigured until OPENROUTER_API_KEY and
       # LLM_MODEL are present. They still need lines here, for the same reason

@@ -3203,3 +3203,13 @@ passed again after restoration. See public-address.md for the dry-run caveat and
 Free-plan rate-limit/TLS settings. Owner approval was subsequently received for
 both releases on 2026-10-03. The pre-0.14.0 and pre-0.14.1 rollback image tags
 were removed after that approval; verified database backups remain retained.
+
+## 44. Alpha (0.15.0) — gated pilot sign-up — NOT DEPLOYED
+
+Invite-code admission, required email verification, pilot-account cap and durable
+request/mail budgets. Existing operator accounts keep signing in. Migration 0020
+adds user-owned admission/mail records and anonymous counters in the auth schema.
+See docs/signup.md for policies, verification-token semantics, edge changes and
+activation steps. No OpenRouter funding or key-budget changes performed.
+
+Await owner review of the auth diff and pilot policy before main or deployment.

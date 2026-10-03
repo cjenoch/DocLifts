@@ -187,6 +187,9 @@ export async function resetTestDbWithUsers(
 export async function resetTestDb(client: postgres.Sql): Promise<void> {
 	await client`
 		TRUNCATE
+			"auth"."signup_attempts",
+			mail_sends,
+			signup_admissions,
 			pain_events,
 			session_exercises,
 			exercise_equipment_map,

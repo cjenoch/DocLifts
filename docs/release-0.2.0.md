@@ -3204,7 +3204,7 @@ Free-plan rate-limit/TLS settings. Owner approval was subsequently received for
 both releases on 2026-10-03. The pre-0.14.0 and pre-0.14.1 rollback image tags
 were removed after that approval; verified database backups remain retained.
 
-## 44. 0.15.0 Alpha — image safety — NOT DEPLOYED
+## 44. 0.15.0 Alpha — image safety — ROLLED BACK 2026-10-03
 
 New uploads are scanned after JPEG rebuilding and before any object, photo row
 or workout block is created. Local, OpenRouter and stable per-user A/B modes
@@ -3227,3 +3227,42 @@ After deployment: verify public scratch-account sign-in, a saved set surviving
 reload, harmless-photo safety audit/store/read/discard, healthy private scanner
 and runtime no-swap/read-only controls. Record deployed/acceptance pending,
 retain the prior image, then await owner phone acceptance separately.
+
+Owner approved PR #8 on 2026-10-03 ("I approve"). The full VPS gate passed:
+lint, check, Drizzle, 887 server (+2 existing skips), 3 demo, 40 component,
+build and 162 e2e tests. Exact-head CI 37149012398 passed both jobs at 4ce5284.
+Merged without squash, deployed merge e7ed9a4, tagged 0.15.0. A fresh dump fully
+restored with matching counts: 11 accounts, 51 workouts, 542 logged sets,
+18 programs. Previous image and Compose/env configuration retained.
+
+Production checks at 390px passed: scratch sign-in, 50 x 8 saved across reload,
+workout finish, harmless photo safety/upload/read/discard and secure cookies.
+OpenRouter audit: allowed, 473 ms, reported cost $0.00016866, no retained prompt.
+The actual local service passed its generated-image and invalid-input checks.
+Read-only roots, no-swap memory limits, zero core limits and internal scanner
+network all passed before the version probe.
+
+The final Python urllib request to `/_app/version.json` returned 403 at the
+public edge. This triggered the required rollback, including prior Compose
+resource settings and env. There was no unattended forward retry. Browser
+sign-in/history and version `00b4ced` then passed, while Python still received
+403 at that same public endpoint. No application defect was established.
+Production is pinned with `DOCLIFTS_WEB_IMAGE=doclifts-web:pre-0.15.0`;
+the safety service is stopped and signup closed. Scratch test data remains;
+owner data was not changed. This is a rollback, not an accepted release.
+
+## 45. 0.15.1 Alpha — deployment verification — NOT DEPLOYED
+
+Operational correction: the production acceptance script checks the expected
+build through `fetch('/_app/version.json', { cache: 'no-store' })` in its real
+signed-in browser. It passed against restored `00b4ced` and failed against an
+intentionally wrong expected build. No image-safety application code change.
+The script and evidence are kept in the private evaluation repository.
+
+Before a retry: owner sees the rollback report and gives a new go-ahead, this
+Markdown-only release record passes lint and exact-head CI, and a fresh verified
+backup is taken. Keep the original pre-0.15.0 recovery image; also tag that
+currently running image pre-0.15.1, not the newer stopped `vps` image. Explicitly
+unpin DOCLIFTS_WEB_IMAGE to the new `vps` image, select OpenRouter safety, build
+and recreate the services through production wrappers, then run the corrected
+browser and runtime checks. On any failure, roll back and report again.

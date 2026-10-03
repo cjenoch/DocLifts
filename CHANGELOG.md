@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.15.0 Alpha — image safety — not deployed
+## 0.15.1 Alpha — deployment verification — not deployed
+
+- The rollout check reads the exact build id through the real browser session.
+  The previous Python probe was refused at the public edge despite successful
+  browser checks, triggering a rollback. The corrected probe passes the restored
+  build and fails an intentionally incorrect build id.
+- Image-safety application code is unchanged from 0.15.0. Retry awaits owner go-ahead.
+
+## 0.15.0 Alpha — image safety — rolled back 2026-10-03
 
 - New photos require a safety pass before storage or identification. Refusals
   leave no photo or workout block; manual set logging continues.
@@ -9,6 +17,10 @@
 - Harmless fixtures test rejection without a harmful-image collection.
   Real harmful-image detection accuracy is not yet established.
 - Signup remains closed. See [image safety](docs/photo-safety.md).
+- Briefly deployed after owner approval. Public scratch sign-in, saved set,
+  photo screening/upload/read/discard and local scanner checks passed. The final
+  Python version probe received 403, so the release was rolled back as required.
+  Production is pinned to 0.14.1; a browser verified the restored build.
 
 ## 0.14.1 — Cloudflare Tunnel deployment — accepted 2026-10-03
 

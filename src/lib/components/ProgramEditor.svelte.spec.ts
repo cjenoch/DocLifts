@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import ProgramEditor from './ProgramEditor.svelte';
 import { programDraftSchema, type ProgramDraft } from '$lib/program-draft';
+import { STARTER_TEMPLATES } from '$lib/starter-templates';
 
 const library = [
 	{
@@ -237,7 +238,7 @@ it.each([null, library[0].id])(
 
 it('loads Traveling PPL as an editable unsaved draft', async () => {
 	const screen = render(ProgramEditor, { data: data() });
-	await screen.getByRole('button', { name: 'Use Traveling PPL preset', exact: true }).click();
+	await screen.getByRole('button', { name: 'Use Traveling PPL', exact: true }).click();
 	await expect
 		.element(screen.getByLabelText('Program name', { exact: true }))
 		.toHaveValue('Traveling PPL');
@@ -246,6 +247,20 @@ it('loads Traveling PPL as an editable unsaved draft', async () => {
 		.element(screen.getByRole('button', { name: 'Save program', exact: true }))
 		.not.toBeInTheDocument();
 	await expect.element(screen.getByText(/SECONDARY.*engine semantics/)).toBeVisible();
+});
+
+it('offers every starter template as an unsaved draft', async () => {
+	const screen = render(ProgramEditor, { data: data() });
+	for (const template of STARTER_TEMPLATES) {
+		await screen.getByRole('button', { name: `Use ${template.label}`, exact: true }).click();
+		await expect
+			.element(screen.getByLabelText('Program name', { exact: true }))
+			.toHaveValue(template.label);
+		expect(payload().days).toHaveLength(template.build([]).days.length);
+	}
+	await expect
+		.element(screen.getByRole('button', { name: 'Save program', exact: true }))
+		.not.toBeInTheDocument();
 });
 
 it('preserves submitted values and labels duplicate-on-edit explicitly', async () => {

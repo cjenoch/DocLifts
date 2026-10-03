@@ -10,7 +10,7 @@
 		programDraftSchema,
 		type ProgramDraft
 	} from '$lib/program-draft';
-	import { travelingPplDraft } from '$lib/traveling-ppl';
+	import { STARTER_TEMPLATES } from '$lib/starter-templates';
 
 	type LibraryExercise = { id: string; name: string; equipmentType: string; isLowerBody: boolean };
 	type ExerciseDraft = ProgramDraft['days'][number]['exercises'][number];
@@ -193,7 +193,7 @@
 	<p class="mt-2 text-sm text-zinc-400">
 		{#if data.sourceProgramId}Saving creates a new version and archives this source program. Past
 			workouts stay unchanged.
-		{:else}Build a draft, review it, then save. Nothing is saved when choosing a preset or editing
+		{:else}Build a draft, review it, then save. Nothing is saved when choosing a template or editing
 			fields.{/if}
 	</p>
 	<p class="mt-2 text-sm text-zinc-400">
@@ -293,16 +293,18 @@
 						edited();
 					}}>Start blank draft</button
 				>
-				<button
-					type="button"
-					onclick={() => {
-						draft = travelingPplDraft(data.library);
-						edited();
-					}}>Use Traveling PPL preset</button
-				>
+				{#each STARTER_TEMPLATES as template (template.key)}
+					<button
+						type="button"
+						onclick={() => {
+							draft = template.build(data.library);
+							edited();
+						}}>Use {template.label}</button
+					>
+				{/each}
 			</div>
 			<p class="mb-4 text-xs text-zinc-400">
-				Starting blank or choosing the preset replaces only the current unsaved draft. Remove
+				Starting blank or choosing a template replaces only the current unsaved draft. Remove
 				controls below remove draft rows only.
 			</p>
 			<label

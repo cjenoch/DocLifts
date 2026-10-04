@@ -3547,3 +3547,15 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   Deployed 2026-10-04 as build fab556b after the full local gate and branch CI.
   A fresh encrypted backup was restored and verified before deployment; prior
   recovery images are retained. Owner validated and accepted 0.18.2 on 2026-10-04.
+
+## 0.18.3 Alpha — dependency security updates — not deployed
+
+- Updates Vitest/provider, Vite and tsx within the existing major versions,
+  refreshes affected transitive dependencies, and scopes a patched cookie parser
+  to Kit 2.70.3. Node stays on 24.21.0 and Playwright stays matched to CI.
+- Full and production-filtered dependency audits: 16 findings -> 1 moderate,
+  with no critical/high/low findings and no ignored advisories. The remaining
+  Drizzle loader/esbuild advisory and complete direct inventory are documented
+  in [dependency notes](dependencies.md).
+- No schema, application-feature, provider, OAuth-scope or tunnel changes.
+  Full local/CI gates and production verification are pending. Not deployed.

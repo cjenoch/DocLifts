@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.18.3 Alpha — dependency security updates — not deployed
+
+- Updates Vitest/provider, Vite and tsx within the existing major versions,
+  refreshes affected transitive dependencies, and scopes a patched cookie parser
+  to Kit 2.70.3. Node stays on 24.21.0 and Playwright stays matched to CI.
+- Full and production-filtered dependency audits: 16 findings -> 1 moderate,
+  with no critical/high/low findings and no ignored advisories. The remaining
+  Drizzle loader/esbuild advisory and complete direct inventory are documented
+  in [dependency notes](docs/dependencies.md).
+- No schema, application-feature, provider, OAuth-scope or tunnel changes.
+  Full local/CI gates and production verification are pending. Not deployed.
+
 ## 0.18.2 Alpha — workout page refactor — accepted
 
 - Separates photo upload, identification/review and exercise menus from the

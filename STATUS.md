@@ -1,6 +1,7 @@
 # DocLifts — current status
 
-Updated October 4, 2026. Current application: **0.18.1 Alpha**, runtime `3107bf8`.
+Updated October 4, 2026. Current application: **0.18.2 Alpha**, runtime `fab556b` (owner accepted).
+Dependency update 0.18.3 is prepared but not deployed.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -23,7 +24,7 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-Deployed October 4, 2026 on `3107bf8` (tag `0.18.1`) after PR25 and exact-head
+Previous 0.18.1 deployment: October 4, 2026 on `3107bf8` (tag `0.18.1`) after PR25 and exact-head
 CI37222559072. Full local lint/types/Drizzle/build, 902 server tests (+2 expected
 private-data skips), 42 component tests and 177 browser tests passed. The new
 build-label regression failed against the old build before passing the fix.
@@ -55,7 +56,8 @@ advisories. Signup stays closed.
 - Complete replacement-VPS recovery rehearsal and external host-down monitoring.
   Encrypted off-host backup automation and an isolated data/app restore drill are
   complete; production still runs on one VPS.
-- JavaScript dependency advisory remediation, deeper independent OAuth review, measured capacity tests and existing security
+- Dependency update 0.18.3 is in validation; see [inventory and remaining advisory](docs/dependencies.md).
+  Deeper independent OAuth review, measured capacity tests and existing security
   follow-up before widening Alpha access. Screening does not solve prompt injection.
 - Account export/deletion, saved-photo deletion, privacy/upload notices and
   retention rules covering logs, backups and provider processing before public signup.

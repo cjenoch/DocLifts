@@ -18,6 +18,13 @@
 		>
 	{:else}
 		<h1 class="text-2xl font-semibold break-words">Connect {data.client.name || 'this agent'}?</h1>
+		<section class="space-y-2 rounded border border-amber-700 p-3" aria-label="App identity">
+			<p class="font-semibold text-amber-300">Unverified app</p>
+			<p>The app supplied its name. DocLifts has not verified its identity.</p>
+			<p>Connection returns to:</p>
+			<p class="font-mono text-sm break-all"><bdi dir="ltr">{data.destination}</bdi></p>
+			<p class="text-sm">Check this destination matches the app you intended to connect.</p>
+		</section>
 		<p>Signed in as <strong>{data.email}</strong>.</p>
 		<p class="text-sm break-all text-zinc-400">Client: {data.client.id}</p>
 		<p>This client asks to:</p>

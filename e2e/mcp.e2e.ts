@@ -156,6 +156,8 @@ describe('real MCP connection controls', () => {
 			await page.locator('form:has(#password) button[type=submit]').click();
 			await page.waitForURL('**/account/connections/consent?**');
 			await page.getByRole('heading', { name: 'Connect Test agent?' }).waitFor();
+			expect(await page.getByText('Unverified app', { exact: true }).count()).toBe(1);
+			expect(await page.getByText('https://client.invalid', { exact: true }).count()).toBe(1);
 			expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
 				390
 			);
@@ -276,6 +278,45 @@ describe('real MCP connection controls', () => {
 			expect(callback.origin).toBe('https://client.invalid');
 			expect(callback.searchParams.get('error')).toBe('invalid_target');
 			expect(callback.searchParams.has('code')).toBe(false);
+		}
+	});
+	it('shows the signed destination and unverified identity for a misleading app name', async () => {
+		const callback = 'https://agent.meta.ai.attacker.invalid:8443/callback?label=agent.meta.ai';
+		const flow = await oauthFixture(origin, undefined, undefined, true, {
+			name: 'Muse',
+			redirects: ['https://agent.meta.ai/api/hatch/oauth/callback', callback],
+			callback
+		});
+		const page = await browser.newPage({ viewport: { width: 320, height: 844 } });
+		try {
+			await page.goto(flow.authorize);
+			await page.getByRole('button', { name: 'Show password', exact: true }).waitFor();
+			await page.waitForLoadState('networkidle');
+			await page.locator('input[name=email]').fill(email);
+			await page.locator('#password').fill(TEST_PASSWORD);
+			await page.locator('form:has(#password) button[type=submit]').click();
+			await page.waitForURL('**/account/connections/consent?**');
+			await page.getByRole('heading', { name: 'Connect Muse?' }).waitFor();
+			expect(await page.getByText('Unverified app', { exact: true }).count()).toBe(1);
+			expect(
+				await page.getByText('https://agent.meta.ai.attacker.invalid:8443', { exact: true }).count()
+			).toBe(1);
+			expect(await page.locator('main').innerText()).not.toContain('?label=');
+			expect(await page.locator('main a').count()).toBe(0);
+			expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+				320
+			);
+			const tampered = new URL(page.url());
+			tampered.searchParams.set('redirect_uri', 'https://agent.meta.ai/api/hatch/oauth/callback');
+			expect((await page.request.get(tampered.href)).status()).toBe(400);
+			const response = await page.request.post(tampered.href, {
+				headers: { origin },
+				form: { decision: 'allow' }
+			});
+			expect(await response.text()).toContain('Connection request expired');
+			expect(response.headers().location).toBeUndefined();
+		} finally {
+			await page.close();
 		}
 	});
 	it('denies consent without issuing a code and rejects tampering', async () => {

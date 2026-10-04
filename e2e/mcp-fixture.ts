@@ -5,14 +5,19 @@ export async function oauthFixture(
 	origin: string,
 	cookie?: string,
 	scopes = 'workouts:read programs:read equipment:read offline_access',
-	includeResource = true
+	includeResource = true,
+	identity = {
+		name: 'Test agent',
+		redirects: ['https://client.invalid/callback'],
+		callback: 'https://client.invalid/callback'
+	}
 ) {
 	const registration = await fetch(origin + '/api/auth/oauth2/register', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({
-			client_name: 'Test agent',
-			redirect_uris: ['https://client.invalid/callback'],
+			client_name: identity.name,
+			redirect_uris: identity.redirects,
 			token_endpoint_auth_method: 'none',
 			scope: scopes
 		})
@@ -22,7 +27,7 @@ export async function oauthFixture(
 	const verifier = randomBytes(32).toString('base64url');
 	const query = new URLSearchParams({
 		client_id: client.client_id,
-		redirect_uri: 'https://client.invalid/callback',
+		redirect_uri: identity.callback,
 		response_type: 'code',
 		scope: scopes,
 		resource: RESOURCE,

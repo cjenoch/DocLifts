@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.16.4 Alpha — consent app identity — not deployed
+
+- The consent page labels apps as unverified and explains that their names are
+  self-supplied. A familiar name is not proof of identity.
+- Shows the actual callback destination from the signed authorization request,
+  including scheme and port, as plain text. Callback query values are not displayed.
+- Browser regression covers an app named Muse selecting a misleading destination
+  from multiple registered callbacks, and refuses a tampered signed destination.
+- Existing consent, PKCE, scopes, CSRF, refresh and revocation controls remain.
+  No schema or tunnel changes. Backups precede additional client acceptance work.
+
 ## 0.16.3 Alpha — bulk and imported history for agents — deployed, acceptance pending
 
 - Adds `list_workout_sets` for bulk app history with workout and historical

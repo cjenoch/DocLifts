@@ -30,7 +30,7 @@ Identification requests go through one model-call interface with structured-outp
 
 ## Your data beyond the app
 
-**MCP is live in 0.16.3 Alpha.** Connect an agent at `https://doclifts-mcp.runthe.ai/mcp`, sign in to DocLifts, and approve account-scoped read access. Notes are optional; revoke access from Account → Connected agents. The Muse chat app has successfully read both app workouts and imported history, with notes access authorized. Other clients still need individual verification.
+**MCP is live in 0.16.4 Alpha.** Connect an agent at `https://doclifts-mcp.runthe.ai/mcp`, sign in to DocLifts, and approve account-scoped read access. Notes are optional; revoke access from Account → Connected agents. The Muse chat app has successfully read both app workouts and imported history, with notes access authorized. Other clients still need individual verification.
 
 Eight read-only tools cover workouts, bulk set history, imported notebooks, programs, equipment and a data dictionary. Bulk reads avoid opening every workout separately. Original notebook text, explicit-versus-estimated evidence, uncertain dates, weight conventions and historical machine context remain available for interpretation. Read [the MCP guide](docs/mcp-alpha.md) for setup, scopes, tool names and pagination.
 

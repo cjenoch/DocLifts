@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.4 Alpha — consent app identity — not deployed
+## 0.16.4 Alpha — consent app identity — deployed, acceptance pending
 
 - The consent page labels apps as unverified and explains that their names are
   self-supplied. A familiar name is not proof of identity.
@@ -10,6 +10,13 @@
   from multiple registered callbacks, and refuses a tampered signed destination.
 - Existing consent, PKCE, scopes, CSRF, refresh and revocation controls remain.
   No schema or tunnel changes. Backups precede additional client acceptance work.
+
+- Deployed October 3, 2026 on `12e1caf` after full local checks (901 server,
+  40 component, 172 browser tests), exact-head CI37168910677 and CodeQL. Fresh
+  backup restored with matching counts. Public scratch checks passed the identity
+  display at three viewport widths, signed-destination tampering, deny/allow,
+  PKCE exchange, refresh, eight-tool discovery and revocation. Recovery images
+  retained; owner screen review remains pending.
 
 ## 0.16.3 Alpha — bulk and imported history for agents — deployed, acceptance pending
 

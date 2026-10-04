@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 3, 2026. Current application: **0.16.3 Alpha**, runtime `d56be47`.
+Updated October 3, 2026. Current application: **0.16.4 Alpha**, runtime `12e1caf`.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -23,10 +23,10 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-0.16.3 passed local lint, types, Drizzle checks, build, 901 server tests
-(+2 expected skips), 40 component tests and 171 browser tests, then
-[exact-head CI](https://github.com/cjenoch/DocLifts/actions/runs/37165497476).
-Public test-account checks covered both new readers, pagination, note consent,
+0.16.4 passed local lint, types, Drizzle checks, build, 901 server tests
+(+2 expected skips), 40 component tests and 172 browser tests, then
+[exact-head CI](https://github.com/cjenoch/DocLifts/actions/runs/37168910677).
+Public test-account checks covered consent identity, signed-request tampering,
 refresh/revocation and normal login/history. A backup was restored and checked;
 at least two prior images are retained. Private evidence stays in the private
 operations repository. See [release records](docs/release-0.2.0.md).
@@ -37,10 +37,12 @@ separate acceptance work.
 
 ## Next work, not shipped
 
-- Off-host encrypted backup automation and a timed restore drill. Current local
-  dumps and rehearsals do not provide redundancy or off-host recovery.
-- Measured capacity tests and follow-up on the existing security findings before
-  widening Alpha access. Screening does not solve prompt injection.
+- Off-host encrypted backup automation and a timed restore drill, before more
+  client tests. Current local dumps do not provide off-host recovery.
+- Deeper independent OAuth review, measured capacity tests and existing security
+  follow-up before widening Alpha access. Screening does not solve prompt injection.
+- Account export/deletion, saved-photo deletion, privacy/upload notices and
+  retention rules covering logs, backups and provider processing before public signup.
 - Signup/approval gates, beginner onboarding, and simple/advanced UI choices.
 - Explicit test/training labels; richer import/export and reviewed notebook
   ingestion. Existing imported history is readable, not a self-service importer.

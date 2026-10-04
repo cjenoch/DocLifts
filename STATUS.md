@@ -1,7 +1,7 @@
 # DocLifts — current status
 
-Updated October 4, 2026. Current application: **0.18.2 Alpha**, runtime `fab556b` (owner accepted).
-Dependency update 0.18.3 is prepared but not deployed.
+Updated October 4, 2026. Current application: **0.18.3 Alpha**, runtime `d76b226`.
+Deployed and automatically verified; owner phone/agent acceptance pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -24,23 +24,27 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-Previous 0.18.1 deployment: October 4, 2026 on `3107bf8` (tag `0.18.1`) after PR25 and exact-head
-CI37222559072. Full local lint/types/Drizzle/build, 902 server tests (+2 expected
-private-data skips), 42 component tests and 177 browser tests passed. The new
-build-label regression failed against the old build before passing the fix.
-Fresh encrypted snapshot eb12bb9f restored with matching totals, 24 photo hashes,
-seven SQLite checks and scratch login/history. Recovery images remain retained.
-Public scratch checks verified the release/build on sign-in and signed-in pages,
-the absent global switch, newer-build prompt/manual refresh, all four workout
-layouts, saving, hidden values, set controls and 320/390px fit. Owner phone
-verification remains pending. No schema, auth, MCP or tunnel changes.
+Deployed October 4, 2026 on d76b226 (tag 0.18.3) after PR35 and exact-head
+CI37237380524. Full local lint/types/Drizzle/build, 904 server tests (+2 expected
+private-data skips), 42 component tests and 156 browser tests passed.
 
-Private evidence: `ops/build-visibility-2026-10-04` in the VPS-only operations
-repository. See [release records](docs/release-0.2.0.md).
+The dependency batch updates compatible Vitest, Vite and tsx releases and affected
+transitive packages, with a scoped cookie-parser fix. Both full and production
+pnpm audits fell from 16 findings to one moderate Drizzle-loader/esbuild advisory.
+See the [complete inventory and triage](docs/dependencies.md). No advisory is hidden.
 
-Actual client read success is not a guarantee of complete pagination or correct
-training analysis. Other agent clients and owner interpretation review remain
-separate acceptance work.
+A fresh encrypted backup restored with matching aggregate database counts,
+25 photo hashes, seven SQLite integrity checks and isolated scratch login/history.
+Public automation-account checks verified build identity, four layouts and saving,
+hidden fields, set editing, rejected uploads, history, update detection, MCP's
+unauthenticated challenge and logout invalidation of a saved session cookie.
+The running container contains the patched versions; Node remains 24.21.0.
+Previous recovery images are retained. No schema change or host reboot.
+
+Private evidence: ops/dependencies-2026-10-04 in the VPS-only operations repository.
+See [release records](docs/release-0.2.0.md). Owner phone/agent acceptance remains
+separate; automated checks do not establish every client's compatibility or the
+correctness of training interpretation.
 
 ## Host maintenance
 
@@ -56,7 +60,8 @@ advisories. Signup stays closed.
 - Complete replacement-VPS recovery rehearsal and external host-down monitoring.
   Encrypted off-host backup automation and an isolated data/app restore drill are
   complete; production still runs on one VPS.
-- Dependency update 0.18.3 is in validation; see [inventory and remaining advisory](docs/dependencies.md).
+- Follow up the remaining moderate advisory when Drizzle replaces its loader, or
+  before changing how database tooling is run; see [dependency triage](docs/dependencies.md).
   Deeper independent OAuth review, measured capacity tests and existing security
   follow-up before widening Alpha access. Screening does not solve prompt injection.
 - Account export/deletion, saved-photo deletion, privacy/upload notices and

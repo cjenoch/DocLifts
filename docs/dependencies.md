@@ -77,6 +77,9 @@ can appear in the production graph too; do not classify solely by package name.
 
 ## Validation
 
-A frozen installation, full local gate, exact-head CI and the Docker native-image
-check are required before merge. Deployment checks use only the automation account.
-Release and actual deployment status are recorded in docs/release-0.2.0.md.
+Frozen installation, the full local gate (1,102 passing tests and two expected
+private-data skips), exact-head CI and Docker/native-image checks passed. The
+live d76b226 container was inspected for the patched versions. Public automation
+checks passed, including login, saved workout data, MCP's authentication challenge
+and rejection of a session cookie after logout. Owner phone/agent acceptance is
+separate; see docs/release-0.2.0.md.

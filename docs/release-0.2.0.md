@@ -3548,7 +3548,7 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   A fresh encrypted backup was restored and verified before deployment; prior
   recovery images are retained. Owner validated and accepted 0.18.2 on 2026-10-04.
 
-## 0.18.3 Alpha — dependency security updates — not deployed
+## 0.18.3 Alpha — dependency security updates — deployed; acceptance pending
 
 - Updates Vitest/provider, Vite and tsx within the existing major versions,
   refreshes affected transitive dependencies, and scopes a patched cookie parser
@@ -3558,4 +3558,12 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   Drizzle loader/esbuild advisory and complete direct inventory are documented
   in [dependency notes](dependencies.md).
 - No schema, application-feature, provider, OAuth-scope or tunnel changes.
-  Full local/CI gates and production verification are pending. Not deployed.
+  Full local gates passed: 904 server tests (+2 expected private-data skips),
+  42 component tests and 156 browser tests. Exact-head CI37237380524 passed.
+- Deployed October 4, 2026 as build d76b226 after PR35, with a verified encrypted
+  backup and isolated restore. Retained pre-0.18.3 and all older recovery images.
+  The public automation-account check passed workout saving, four layouts,
+  hidden RIR/notes, set editing, upload rejection, history, update detection,
+  MCP authentication challenge and logout-session revocation. Actual container
+  package versions and Node 24.21.0 were verified. No VPS reboot.
+- Owner phone/agent acceptance remains pending; automated verification is complete.

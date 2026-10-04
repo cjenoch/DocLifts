@@ -58,7 +58,7 @@ Application source and fictional test fixtures live here. Credentials, personal 
 
 ## Local development
 
-Use Node 24 and the pnpm version pinned in `package.json`. Start an isolated PostgreSQL instance for development; never point test tooling at production:
+Use the pnpm version pinned in `package.json`. `pnpm install --frozen-lockfile` installs the project's pinned Node 24.21.0 runtime as well as dependencies; all `pnpm run` and `pnpm exec` commands then use it. A different Node on your shell PATH does not need to be replaced. For standalone Node scripts, use `pnpm exec node` instead of bare `node`. CI reads the matching `.node-version` pin, and both Docker stages use the same patch version. Start an isolated PostgreSQL instance for development; never point test tooling at production:
 
 ```sh
 docker run -d --name doclifts-dev-db \
@@ -80,6 +80,7 @@ Once PostgreSQL is ready:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm exec node --version # v24.21.0
 pnpm db:migrate
 pnpm user:bootstrap --email lifter@example.invalid --password-stdin
 pnpm exec playwright install chromium
@@ -93,7 +94,7 @@ The full development gate is:
 ```sh
 pnpm lint
 pnpm check
-node --env-file=.env node_modules/drizzle-kit/bin.cjs check
+pnpm exec node --env-file=.env node_modules/drizzle-kit/bin.cjs check
 pnpm run test:unit --project server
 pnpm run test:unit --project client
 pnpm build

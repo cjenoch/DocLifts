@@ -1,6 +1,6 @@
 # DocLifts — multi-stage build (SvelteKit adapter-node)
 # Builder: resolve deps + `vite build` -> emits ./build (immutable node artifact)
-FROM node:24-alpine AS builder
+FROM node:24.21.0-alpine AS builder
 WORKDIR /app
 
 # pnpm corepack (project pins pnpm@11.3.0 via package.json packageManager)
@@ -43,7 +43,7 @@ RUN pnpm build
 # The adapter-node build does NOT vendor third-party imports (drizzle-orm,
 # postgres) — the server resolves them from node_modules at runtime, so the
 # runtime image must carry the production dependency graph, not just ./build.
-FROM node:24-alpine AS runtime
+FROM node:24.21.0-alpine AS runtime
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000

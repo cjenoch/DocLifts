@@ -5,7 +5,7 @@ This file is read by Claude, Cursor, and other AI coding tools when working in t
 ## Stack
 
 - **Framework:** SvelteKit (Svelte 5)
-- **Runtime:** Node 24 LTS
+- **Runtime:** Node 24.21.0 LTS (project-managed by pnpm; see CONTRIBUTING.md)
 - **Database:** PostgreSQL 16, self-hosted in Docker for dev
 - **ORM:** Drizzle (TypeScript-native, SQL-shaped)
 - **Forms:** plain HTML POSTs to SvelteKit server actions, Zod-validated server-side.
@@ -15,6 +15,10 @@ This file is read by Claude, Cursor, and other AI coding tools when working in t
 - **Package manager:** pnpm
 
 TypeScript strict mode is non-negotiable.
+
+Run `pnpm install --frozen-lockfile` first. Use `pnpm exec node` for standalone
+Node scripts so they use the pinned project runtime, not a shared host's global Node.
+Do not change another application's Node runtime to run DocLifts.
 
 ## Svelte conventions
 

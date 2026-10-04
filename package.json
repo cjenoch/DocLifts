@@ -63,5 +63,12 @@
 		"postgres": "^3.4.9",
 		"sharp": "0.35.5",
 		"zod": "^4.6.5"
+	},
+	"devEngines": {
+		"runtime": {
+			"name": "node",
+			"version": "24.21.0",
+			"onFail": "download"
+		}
 	}
 }

@@ -3442,10 +3442,14 @@ Subsequent consent metadata includes notes:read following owner reauthorization.
 No assistant changed consent or tokens. This verifies real-client access; log
 counts alone do not establish complete pagination or sound training conclusions.
 
-## 0.16.4 Alpha — consent app identity — not deployed
+## 0.16.4 Alpha — consent app identity — deployed, acceptance pending
 
 Following external review, the consent screen identifies self-supplied app names
 as unverified and displays the callback destination from the signed request.
 The regression uses a familiar app name with a misleading callback host and tests
-signed-request tampering. No schema or tunnel changes. Full gates and public
-scratch-account verification are required before recording deployment.
+signed-request tampering. No schema or tunnel changes. Full local gates (901 server, 40 component, 172 browser tests), exact-head
+CI37168910677 and CodeQL passed. Deployed October 3, 2026 on `12e1caf`.
+The fresh pre-0.16.4 backup restored with matching counts; prior images retained.
+Public scratch checks passed the identity display at 320/390/1280px, signed-query
+tampering, deny/allow, exchange, refresh, tool discovery, revocation and app history.
+No owner data or consent was changed. Owner screen review remains pending.

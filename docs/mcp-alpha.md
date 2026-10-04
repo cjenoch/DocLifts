@@ -1,6 +1,6 @@
-# DocLifts MCP — Alpha 0.16.3 specification
+# DocLifts MCP — Alpha 0.16.4 specification
 
-Status: **0.16.3 Alpha is live**, runtime `d56be47`. Public SDK checks passed for
+Status: **0.16.4 Alpha is live**, runtime `12e1caf`. Public SDK checks passed for
 bulk/imported reads, pagination, notes excluded/included by consent, refresh and
 revocation. The **Muse chat app** has successfully called the imported-history and
 bulk-set tools, and its user-approved grant includes notes:read. This confirms

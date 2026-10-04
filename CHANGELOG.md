@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.17.0 Alpha — Simple and Advanced views — not deployed
+## 0.17.0 Alpha — Simple and Advanced views — deployed, acceptance pending
 
 - Adds a Simple / Advanced switch on signed-in screens, remembered separately
   for each account in the current browser. Simple is the default.
@@ -12,6 +12,15 @@
   how to get to a first recorded set.
 - Advanced exposes effort and program controls. No database, auth, API or
   progression changes. View choices do not yet sync across devices.
+
+Deployed October 4, 2026 on `0633b6a` after full local checks: 901 server tests
+(2 expected private-data skips), 40 component tests, 174 browser tests,
+lint/types/Drizzle/build; exact-head CI37192805430 and CodeQL passed. The fresh
+pre-0.17.0 dump restored with matching counts and an encrypted off-host snapshot
+completed. Previous images remain retained. Public Alpha scratch checks passed
+view switching, distinct set values/zero RIR/notes, saving while collapsed,
+reload persistence, first-workout guidance, finish/history and 320/390px layout.
+Owner phone acceptance remains pending. No schema, auth or tunnel changes.
 
 ## 0.16.4 Alpha — consent app identity — deployed, acceptance pending
 

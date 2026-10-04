@@ -3454,7 +3454,7 @@ Public scratch checks passed the identity display at 320/390/1280px, signed-quer
 tampering, deny/allow, exchange, refresh, tool discovery, revocation and app history.
 No owner data or consent was changed. Owner screen review remains pending.
 
-## 0.17.0 Alpha — Simple and Advanced views — not deployed
+## 0.17.0 Alpha — Simple and Advanced views — deployed, acceptance pending
 
 Adds a browser-local, account-specific view switch. Simple keeps weight, reps
 and Save set visible, with notes and effort expandable. Advanced exposes effort
@@ -3464,6 +3464,14 @@ Starter programs and first-workout guidance remain accessible.
 The regression failed against the old build because the switch was absent.
 New production-build browser checks preserve distinct weight, reps, zero RIR and
 notes across switching and saving, verify reload persistence, account separation,
-storage refusal and 390px layout/CSP. Full release gates and a public scratch
-check remain required before deployment is recorded. No schema, auth or tunnel
+storage refusal and 390px layout/CSP. The release gate and public scratch checks passed. No schema, auth or tunnel
 changes. See [scope and behavior](plans/simple-advanced-view.md).
+
+Deployed October 4, 2026 on `0633b6a` after full local checks: 901 server tests
+(2 expected private-data skips), 40 component tests, 174 browser tests,
+lint/types/Drizzle/build; exact-head CI37192805430 and CodeQL passed. The fresh
+pre-0.17.0 dump restored with matching counts and an encrypted off-host snapshot
+completed. Previous images remain retained. Public Alpha scratch checks passed
+view switching, distinct set values/zero RIR/notes, saving while collapsed,
+reload persistence, first-workout guidance, finish/history and 320/390px layout.
+Owner phone acceptance remains pending. No schema, auth or tunnel changes.

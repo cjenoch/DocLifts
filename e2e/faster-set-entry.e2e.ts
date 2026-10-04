@@ -240,4 +240,60 @@ run('faster set entry (production build)', () => {
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
+	it('switches views without losing drafts, saved RIR or notes, and remembers the choice after reload', async () => {
+		const page = await signedInPage();
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		const first = page.locator('li[id^="set-"]').first();
+		const rowId = (await first.getAttribute('id'))!.slice(4);
+		expect(
+			await page
+				.getByRole('button', { name: 'Simple view', exact: true })
+				.getAttribute('aria-pressed')
+		).toBe('true');
+		expect(await first.locator('input[name="executedRir"]').isVisible()).toBe(false);
+		await page.getByRole('button', { name: 'Advanced view', exact: true }).click();
+		await first.getByRole('spinbutton', { name: 'Weight', exact: true }).fill('67.5');
+		await first.getByRole('spinbutton', { name: 'Reps', exact: true }).fill('11');
+		await first.locator('input[name="executedRir"]').fill('0');
+		await first.getByRole('button', { name: '+ Note', exact: true }).click();
+		await first
+			.getByRole('textbox', { name: 'Set note', exact: true })
+			.fill('A draft across both views');
+		await page.getByRole('button', { name: 'Simple view', exact: true }).click();
+		expect(await first.getByRole('spinbutton', { name: 'Weight', exact: true }).inputValue()).toBe(
+			'67.5'
+		);
+		expect(await first.locator('input[name="executedRir"]').isVisible()).toBe(false);
+		await first.getByRole('button', { name: ui.saveSet(1), exact: true }).click();
+		await expect
+			.poll(async () => {
+				const [row] = await harness.db.select().from(s.sets).where(eq(s.sets.id, rowId));
+				return [row.executedLoad, row.executedReps, row.executedRir, row.notes];
+			})
+			.toEqual([67.5, 11, 0, 'A draft across both views']);
+		await first.getByRole('button', { name: 'Notes & effort · entered', exact: true }).click();
+		expect(await first.locator('input[name="executedRir"]').inputValue()).toBe('0');
+		expect(await first.getByRole('textbox', { name: 'Set note', exact: true }).inputValue()).toBe(
+			'A draft across both views'
+		);
+		await page.getByRole('button', { name: 'Advanced view', exact: true }).click();
+		await page.reload({ waitUntil: 'networkidle' });
+		expect(
+			await page
+				.getByRole('button', { name: 'Advanced view', exact: true })
+				.getAttribute('aria-pressed')
+		).toBe('true');
+		expect(await first.locator('input[name="executedRir"]').isVisible()).toBe(true);
+		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+			390
+		);
+		expect(await violations(page)).toEqual([]);
+		if (process.env.DOCLIFTS_UI_SCREENSHOTS) {
+			await page.evaluate(() => window.scrollTo(0, 0));
+			await page.screenshot({ path: '/tmp/doclifts-view-advanced.png' });
+			await page.getByRole('button', { name: 'Simple view', exact: true }).click();
+			await page.screenshot({ path: '/tmp/doclifts-view-simple.png' });
+		}
+		await page.close();
+	});
 });

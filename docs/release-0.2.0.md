@@ -3453,3 +3453,17 @@ The fresh pre-0.16.4 backup restored with matching counts; prior images retained
 Public scratch checks passed the identity display at 320/390/1280px, signed-query
 tampering, deny/allow, exchange, refresh, tool discovery, revocation and app history.
 No owner data or consent was changed. Owner screen review remains pending.
+
+## 0.17.0 Alpha — Simple and Advanced views — not deployed
+
+Adds a browser-local, account-specific view switch. Simple keeps weight, reps
+and Save set visible, with notes and effort expandable. Advanced exposes effort
+and program tools. Switching never transforms saved data or prescriptions.
+Starter programs and first-workout guidance remain accessible.
+
+The regression failed against the old build because the switch was absent.
+New production-build browser checks preserve distinct weight, reps, zero RIR and
+notes across switching and saving, verify reload persistence, account separation,
+storage refusal and 390px layout/CSP. Full release gates and a public scratch
+check remain required before deployment is recorded. No schema, auth or tunnel
+changes. See [scope and behavior](plans/simple-advanced-view.md).

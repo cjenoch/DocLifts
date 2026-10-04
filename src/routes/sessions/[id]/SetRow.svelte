@@ -3,6 +3,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
 	import type { PageData } from './$types';
+	import type { WorkoutViewMode } from '$lib/workout-view.svelte';
 	import { workoutUi as ui } from '$lib/workout-ui';
 	type Set = PageData['groups'][number]['sets'][number];
 	let {
@@ -10,7 +11,8 @@
 		sessionEnded,
 		allowEndedSessionEdit,
 		ondirty,
-		onsaved = () => {}
+		onsaved = () => {},
+		viewMode = 'advanced'
 	}: {
 		set: Set;
 		sessionEnded: boolean;
@@ -18,6 +20,7 @@
 		ondirty: (id: string, dirty: boolean) => void;
 		/** A set was saved (Part F: starts the rest timer). */
 		onsaved?: (id: string) => void;
+		viewMode?: WorkoutViewMode;
 	} = $props();
 	const identity = untrack(() => `${set.gymEquipmentId ?? 'legacy'}:${set.loadConvention}`);
 	const key = untrack(() => `doclifts:set-draft:${set.id}`);
@@ -53,6 +56,9 @@
 	let saving = $state(false);
 	let message = $state('');
 	let notesOpen = $state(untrack(() => Boolean(set.notes)));
+	let detailsOpen = $state(false);
+	const simple = $derived(viewMode === 'simple');
+	const showDetails = $derived(!simple || detailsOpen);
 	const dirty = $derived(values() !== baseline);
 	const completed = $derived(set.executedLoad != null && set.executedReps != null);
 	const editable = $derived(!sessionEnded || allowEndedSessionEdit);
@@ -144,14 +150,14 @@
 		Target: {set.prescribedLoad ?? '—'} × {set.prescribedRepsMin ?? '—'}{set.prescribedRepsMax !==
 		set.prescribedRepsMin
 			? `–${set.prescribedRepsMax ?? '—'}`
-			: ''}{set.targetMetric === 'seconds' ? ' sec' : ''}{set.prescribedRir != null
+			: ''}{set.targetMetric === 'seconds' ? ' sec' : ''}{!simple && set.prescribedRir != null
 			? ` · ${set.prescribedRir} RIR`
 			: ''}
 	</div>
 	{#if set.history?.executedLoad != null && set.history?.executedReps != null}<div class="history">
 			Last: {set.history.executedLoad} × {set.history.executedReps}{set.targetMetric === 'seconds'
 				? ' sec'
-				: ''}{set.history.executedRir != null ? ` · ${set.history.executedRir} RIR` : ''}
+				: ''}{!simple && set.history.executedRir != null ? ` · ${set.history.executedRir} RIR` : ''}
 		</div>{/if}
 	{#if set.suggestionReasoning}<p class="suggestion">{set.suggestionReasoning}</p>{/if}
 	{#if editable}
@@ -230,8 +236,8 @@
 						</div>
 					</div>
 				</div>
-				<div class="commit">
-					<label class="rir"
+				<div class="commit" class:compact={!showDetails}>
+					<label class="rir" class:hidden={!showDetails}
 						><abbr title="Reps in reserve">RIR</abbr><input
 							type="number"
 							name="executedRir"
@@ -240,23 +246,36 @@
 							step="1"
 							inputmode="numeric"
 							placeholder="—"
+							oninvalid={() => (detailsOpen = true)}
 							bind:value={rir}
 						/></label
 					><button
 						class="save"
 						type="submit"
 						aria-label={ui.saveSet(set.position)}
-						disabled={saving}>{saving ? '…' : '✓'}</button
+						disabled={saving}>{saving ? 'Saving…' : simple ? 'Save set' : '✓'}</button
 					>
 				</div>
+				{#if simple}<button
+						type="button"
+						class="note-toggle"
+						aria-expanded={detailsOpen}
+						onclick={() => (detailsOpen = !detailsOpen)}
+						>{detailsOpen
+							? 'Hide set details'
+							: notes || rir != null
+								? 'Notes & effort · entered'
+								: '+ Notes & effort'}</button
+					>{/if}
 				<button
 					class="note-toggle"
+					class:hidden={simple}
 					type="button"
 					onclick={() => (notesOpen = !notesOpen)}
 					aria-expanded={notesOpen}
 					>{notesOpen ? 'Hide note' : notes ? 'Edit note' : '+ Note'}</button
 				>
-				<label class:hidden={!notesOpen}
+				<label class:hidden={simple ? !showDetails : !notesOpen}
 					>Set note<input
 						name="notes"
 						type="text"
@@ -354,6 +373,9 @@
 		align-items: end;
 		margin-top: 10px;
 	}
+	.commit.compact {
+		grid-template-columns: 1fr;
+	}
 	.rir input {
 		height: 44px;
 		font-size: 16px;
@@ -393,7 +415,7 @@
 		color: #8af0c5;
 	}
 	.note-toggle {
-		min-height: 36px;
+		min-height: 44px;
 		font-size: 12px;
 		color: #aebcce;
 		cursor: pointer;

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { getContext } from 'svelte';
+	import { WORKOUT_VIEW, type WorkoutView } from '$lib/workout-view.svelte';
+	const view = getContext<WorkoutView>(WORKOUT_VIEW);
 	import type { PageData } from './$types';
 	import { pageTitle } from '$lib/app-shell';
 
@@ -12,6 +15,24 @@
 	<p class="text-sm text-zinc-400">Signed in as</p>
 	<p class="mb-6 font-medium break-all text-zinc-100" data-testid="account-email">{data.email}</p>
 
+	<section
+		class="mb-6 rounded-xl border border-zinc-700 bg-zinc-900 p-4"
+		aria-labelledby="view-heading"
+	>
+		<h2 id="view-heading" class="font-semibold">Your workout view</h2>
+		<p class="mt-2 text-sm text-zinc-300">
+			Use the Simple / Advanced switch at the top of any screen.
+		</p>
+		<p class="mt-2 text-sm text-zinc-400">
+			Simple keeps weight, reps and Save up front. Advanced shows effort and program controls. Both
+			views keep the same workouts and progression.
+		</p>
+		<p class="mt-2 text-sm text-zinc-400">
+			{view.storageAvailable
+				? 'Remembered for your account in this browser. Choose separately on each device.'
+				: 'Browser storage is unavailable. Your choice lasts for this visit.'}
+		</p>
+	</section>
 	<a
 		href="/exercises"
 		class="mb-3 flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-4 font-semibold text-zinc-200 active:bg-zinc-800"

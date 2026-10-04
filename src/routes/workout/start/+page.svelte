@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { getContext } from 'svelte';
+	import { WORKOUT_VIEW, type WorkoutView } from '$lib/workout-view.svelte';
+	const view = getContext<WorkoutView>(WORKOUT_VIEW);
 	import type { ActionData, PageData } from './$types';
 	import { workoutUi } from '$lib/workout-ui';
 
@@ -11,6 +14,9 @@
 <div class="mx-auto max-w-md px-4 py-6">
 	<a href="/" class="text-sm text-indigo-400 active:underline">← Workout</a>
 	<h1 class="mt-2 text-2xl font-semibold tracking-tight">{workoutUi.gymStepHeading}</h1>
+	{#if view.mode === 'simple'}<p class="mt-3 text-sm text-zinc-400">
+			Choose where you are training. Next, photograph a machine or add an exercise by name.
+		</p>{/if}
 
 	<form method="POST" class="mt-5 space-y-4" onsubmit={() => (busy = true)}>
 		{#if data.gyms.length}

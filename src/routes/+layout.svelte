@@ -1,5 +1,8 @@
 <script lang="ts">
 	import './layout.css';
+	import { setContext } from 'svelte';
+	import ViewSwitcher from '$lib/ViewSwitcher.svelte';
+	import { WORKOUT_VIEW, WorkoutView } from '$lib/workout-view.svelte';
 	import { page } from '$app/state';
 	import { accountInitial, activeTab, appShell } from '$lib/app-shell';
 	// Icons and the manifest are served from static/, not imported: Vite
@@ -7,6 +10,8 @@
 	// 'self' blocks (e2e finding, 2026-09-29).
 
 	let { children, data } = $props();
+	const view = setContext(WORKOUT_VIEW, new WorkoutView());
+	$effect(() => view.restore(data.user?.id ?? null));
 
 	// One bar at the bottom at a time (Part E): an open workout's own bar
 	// (Pause, Add exercise, Finish) replaces the tabs. The session page says
@@ -30,6 +35,7 @@
 	-->
 	<header class="shell-header mx-auto flex max-w-lg items-center justify-between px-4">
 		<a href="/" class="text-sm font-semibold tracking-wide text-zinc-300">{appShell.appName}</a>
+		<ViewSwitcher />
 		<a
 			href="/account"
 			aria-label={appShell.accountLabel}

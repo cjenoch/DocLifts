@@ -579,8 +579,10 @@ findings to the job summary with a "would fail at high" line; neither ever
 fails (owner decision, 2026-10-02). GitHub disables a scheduled workflow after
 60 days without repository activity, as happened to the old Browser CI
 workflow: if the weekly report stops appearing, re-enable it in the Actions
-tab. Many findings arrive through `better-auth`'s optional peers (vitest,
-vite) and never reach the production image; read the path before acting.
+tab. Optional peers of `better-auth` can bring tooling (Vitest, Vite and Drizzle
+Kit) into the production dependency graph. Check both the installed image and
+the reachable code path; a dev-tool name does not prove absence from production.
+Current remediation and the remaining advisory are in docs/dependencies.md.
 
 **No force-push to `main`, and no squash.** History on `main` is a record. A
 wrong commit gets a fix-forward commit that says what it fixes.

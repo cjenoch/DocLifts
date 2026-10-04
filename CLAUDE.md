@@ -547,6 +547,15 @@ and `client` projects (the demo was retired by owner request on 2026-10-03), `pn
 missing prerequisite fails instead of skipping — **and** CI is green on the
 branch. Watch it with `gh run watch`; do not infer it.
 
+**GitHub-enforced main gate (owner-authorized, 2026-10-04).** Main requires
+a pull request, an up-to-date branch and a successful final test check from
+GitHub Actions. Force pushes and deletion are blocked; merge commits only.
+There are no standing bypass actors and no second-human approval requirement.
+Do not weaken or bypass these rules merely to get a change merged. The owner
+retains an explicit emergency settings-change path; record the reason and
+restore the original rules immediately. See docs/branch-protection.md. Local
+gates, backups and production verification remain required as described here.
+
 **Owner-approved exception (2026-10-01): Markdown-only changes.** When every
 changed file is Markdown (`*.md`), the local gate is `pnpm lint` only, plus CI
 green on the branch. Any other file in the diff, even one, means the full

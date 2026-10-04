@@ -58,6 +58,8 @@ blank pre-created rows; the rules are specified in [CLAUDE.md](CLAUDE.md).
 
 ## Photos and AI
 
+The [public privacy notice](https://doclifts.runthe.ai/privacy) is available from sign-in and Account. Before a new upload, the user acknowledges the current photo-processing notice once per account/version. This is enforced before image processing, screening or storage and carries between devices. Manual logging remains available without it. See [privacy controls and remaining work](docs/privacy.md).
+
 Uploads are rebuilt into cleaned images in memory, screened, and only then stored
 or sent for identification. A rejection or scanner failure refuses the upload;
 manual set logging remains available. Local and OpenRouter screeners support

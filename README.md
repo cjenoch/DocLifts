@@ -40,6 +40,10 @@ Imported records remain separate from app sessions and do not feed automatic pro
 
 Self-service notebook ingestion, portable full-data import/export, custom fields, and beginner machine guidance/videos are planned work, not current features. The intended direction is straightforward: document your training in a form you can understand, keep and use elsewhere.
 
+## Privacy during the Alpha
+
+Read the [privacy notice](https://doclifts.runthe.ai/privacy) before uploading photos or connecting an agent. Photos require an account-level acknowledgment before processing; manual logging stays available. The notice explains operator/provider access and the current limits around retention, export and deletion. Those controls are still being completed before public signup; see [privacy implementation and remaining work](docs/privacy.md).
+
 ## How it runs
 
 | Layer          | Implementation                                                                                                                         |

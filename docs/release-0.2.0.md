@@ -3568,7 +3568,7 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   package versions and Node 24.21.0 were verified. No VPS reboot.
 - Owner phone/agent acceptance remains pending; automated verification is complete.
 
-## 0.18.4 Alpha — privacy notice and photo acknowledgment — not deployed
+## 0.18.4 Alpha — privacy notice and photo acknowledgment — deployed; acceptance pending
 
 - Adds a public privacy page linked from sign-in and Account. It describes
   photos and AI providers, operator access, sensitive notes and agent sharing,
@@ -3577,7 +3577,20 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
 - Requires an explicit current-version photo acknowledgment before uploads are
   processed, screened or stored. It is account-scoped and survives device changes;
   existing accounts acknowledge before their next new photo. Manual logging and
-  existing photos remain available. Both upload screens work without JavaScript.
+  existing photos remain available. Both acknowledgment forms work without JavaScript.
 - Adds migration 0021: a per-account notice version and acknowledgment timestamp,
   with account-deletion cascade. No existing account is marked accepted.
-- Validation and deployment evidence will be recorded after the release gate.
+- Deployed October 4, 2026 as build 5b9203d (tag 0.18.4), after PR37 and
+  exact-head CI37241672588. Full local gate: 905 server tests (+2 expected skips),
+  42 component tests, 159 browser tests; final assertion cleanup also passed
+  lint/types/build and 35 targeted CSP/privacy scenarios. The bypass canary failed
+  when enforcement was removed. Phone-width screenshots were reviewed.
+- Fresh encrypted snapshot 28253d38 restored with matching data, 25 photo hashes
+  and seven SQLite checks. Migration 0021 passed on the restored production dump,
+  preserved existing counts and created no acknowledgment rows. Production's
+  wrapper initially refused a root-owned backup directory before any migration;
+  rerunning it with sudo created/verified the protected dump and completed.
+- Public automation-account checks passed notice access, direct-upload refusal,
+  acknowledgment with unsaved-set preservation, normal saving, invalid-image
+  recovery, layouts, history, MCP challenge and session revocation. Prior recovery
+  images remain retained. Signup is closed; owner phone acceptance remains pending.

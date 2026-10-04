@@ -12,6 +12,7 @@ The hosted app is live on Android, iPhone and desktop browsers. Alpha access is 
 
 ## Built for the workout
 
+- **Simple when you want it.** Switch between Simple and Advanced without leaving the workout. Simple keeps weight, reps and Save set up front; notes and effort are one tap away. Your choice is remembered per account in this browser.
 - **Photo first, keep lifting.** A photo opens a workout block so you can log before identification completes. Review uncertain matches; a failed identification does not prevent manual logging. Previously used machines can be recognized from an agreeing placard code and name, with an undo option.
 - **History belongs to the right equipment.** Machines keep their own performance history. Free-weight exercise history follows you between gyms. Weight conventions distinguish total weight, per-hand and per-side loads.
 - **Programs you can change.** Start with Traveling PPL, Barbell Strength, Machine Full Body, or Machines and Dumbbells, then edit days, exercises and sets. Phone-oriented Program → Day → Exercise screens retain drafts through reloads.
@@ -30,7 +31,7 @@ Identification requests go through one model-call interface with structured-outp
 
 ## Your data beyond the app
 
-**MCP is live in 0.16.4 Alpha.** Connect an agent at `https://doclifts-mcp.runthe.ai/mcp`, sign in to DocLifts, and approve account-scoped read access. Notes are optional; revoke access from Account → Connected agents. The Muse chat app has successfully read both app workouts and imported history, with notes access authorized. Other clients still need individual verification.
+**MCP is live in 0.17.0 Alpha.** Connect an agent at `https://doclifts-mcp.runthe.ai/mcp`, sign in to DocLifts, and approve account-scoped read access. Notes are optional; revoke access from Account → Connected agents. The Muse chat app has successfully read both app workouts and imported history, with notes access authorized. Other clients still need individual verification.
 
 Eight read-only tools cover workouts, bulk set history, imported notebooks, programs, equipment and a data dictionary. Bulk reads avoid opening every workout separately. Original notebook text, explicit-versus-estimated evidence, uncertain dates, weight conventions and historical machine context remain available for interpretation. Read [the MCP guide](docs/mcp-alpha.md) for setup, scopes, tool names and pagination.
 
@@ -50,7 +51,7 @@ Self-service notebook ingestion, portable full-data import/export, custom fields
 | Public access  | Cloudflare Tunnel to the VPS; the database has no public port                                                                          |
 | Quality checks | Formatting, type checks, migration checks, PostgreSQL integration tests, browser component tests and production-build end-to-end tests |
 
-Production runs on an Akamai Cloud (Linode) VPS. The tunnel provides public access; it does not provide a second application server or database. Off-host backup automation and measured launch-capacity targets are separate operations work, not availability guarantees.
+Production runs on an Akamai Cloud (Linode) VPS. The tunnel provides public access; it does not provide a second application server or database. Encrypted off-host backups are scheduled, with an isolated restore drill completed. A complete replacement-VPS recovery and measured launch-capacity targets remain unverified; backups are not redundancy.
 
 Application source and fictional test fixtures live here. Credentials, personal workout data, production dumps and private host configuration do not. See [private-data policy](docs/private-data.md).
 

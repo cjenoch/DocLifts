@@ -25,6 +25,26 @@ Read `CLAUDE.md` for architectural rules. Run `pnpm check`, `pnpm lint` and `pnp
 
 `pnpm test:e2e` runs a browser end-to-end pass against a production build served locally (Content-Security-Policy violations, page rendering). It needs `pnpm build` first, a Chromium that Playwright can find, and the same test database as the server tests. Locally it skips itself when either the build or the browser is missing, printing one `[e2e] skipped` line, and the run still reports green. A green local run therefore does not prove CSP coverage unless the e2e tests actually ran; set `CI=1` to turn a missing prerequisite into a failure. In CI it is always required.
 
+## Focused checks while developing
+
+Use a narrow loop while editing, then the full release gate once the change is ready:
+
+| Change                                    | Command                                                     |
+| ----------------------------------------- | ----------------------------------------------------------- |
+| Server function or route                  | `pnpm test:server quick-workouts` (replace the file filter) |
+| Svelte component                          | `pnpm test:client SetRow`                                   |
+| Git changes and their detected dependants | `pnpm test:changed`                                         |
+| Workout browser flows                     | `pnpm build && pnpm test:e2e:workout`                       |
+| One served page suite                     | `pnpm build && pnpm test:e2e e2e/csp.e2e.ts`                |
+
+The changed-file command uses Vitest's dependency analysis. It is a development convenience, not evidence that unrelated integration paths still work. None of these filters replaces the full gate in `CLAUDE.md`: lint, check, Drizzle snapshot check with the test DB URL, all server tests, all component tests, build, and all e2e tests with `CI=1`, followed by branch CI. `pnpm test` retains its existing all-project behavior.
+
+Browser suites share prerequisite checks, authenticated page creation and CSP auditing in `e2e/browser.ts`. Each page has a fresh browser context; each suite still owns its server, database setup and teardown. The route crawl checks the initial phone render and the resized desktop view in one visit per route. Keep all route patterns, ownership checks, real-browser auth regressions, and the CSP canary when consolidating tests.
+
+Tests must justify their maintenance cost with a distinct failure they detect. Prefer extending an existing scenario when it already crosses the relevant boundary. Do not add another test just to assert a label or mirror implementation details. Consolidation should remove setup and repeated navigation, not hide lost coverage behind a smaller count.
+
+Production smoke checks must use an automation-only account. Human Alpha testers' accounts and the owner's account are not fixtures; never seed, clear, or run destructive controls against them. Check first-use behavior before creating fixtures in an explicitly fresh automation account.
+
 The hosted Alpha is at [doclifts.runthe.ai](https://doclifts.runthe.ai); access is currently operator-managed. For development, use the isolated local database setup in [README.md](README.md).
 
 If the default browser-test port is reserved on Windows, set `PW_TEST_PORT` to an available port, for example `4193`.

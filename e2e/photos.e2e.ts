@@ -1,3 +1,4 @@
+import { browserSuite, authenticatedPage, violations } from './browser';
 /**
  * 0.4.0 equipment from a photo, against the PRODUCTION build (CLAUDE.md:
  * "every action has an e2e that reaches it from a page"; "assert the state
@@ -13,13 +14,11 @@
  *
  * Prerequisites and skip rules are the same as csp.e2e.ts.
  */
-import { existsSync } from 'node:fs';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { and, eq } from 'drizzle-orm';
 import { setupTestDb } from '$lib/server/test-db';
 import {
-	BUILD_ENTRY,
 	freshTestDb,
 	seedTestUser,
 	signInAs,
@@ -31,30 +30,10 @@ import { photoClientSettings } from '$lib/photo-client';
 import { FIXTURE_CANDIDATE, phonePhoto, smallPng } from '$lib/server/photos/test-fixtures';
 import { postPhoto, reviewedPhotoId } from './photo-upload';
 
-function chromiumPath(): string | undefined {
-	if (process.env.PW_EXECUTABLE_PATH) return process.env.PW_EXECUTABLE_PATH;
-	try {
-		const p = chromium.executablePath();
-		return existsSync(p) ? p : undefined;
-	} catch {
-		return undefined;
-	}
-}
-const haveBuild = existsSync(BUILD_ENTRY);
-const executablePath = chromiumPath();
-const missing = [
-	...(haveBuild ? [] : [`${BUILD_ENTRY} (run pnpm build)`]),
-	...(executablePath ? [] : ['a Chromium for Playwright'])
-];
-if (missing.length && process.env.CI) {
-	throw new Error(`e2e prerequisites missing in CI: ${missing.join('; ')}`);
-}
-const run = missing.length ? describe.skip : describe;
-if (missing.length) console.warn(`[e2e] skipped — missing ${missing.join('; ')}`);
+const { run, executablePath } = browserSuite();
 
 declare global {
 	interface Window {
-		__cspViolations: string[];
 		__buttonLabels: string[];
 	}
 }
@@ -115,29 +94,8 @@ run('equipment from a photo (production build)', () => {
 		await harness?.end();
 	});
 
-	async function signedInPage(cookie = cookieA, { javaScriptEnabled = true } = {}): Promise<Page> {
-		const page = await (await browser.newContext({ javaScriptEnabled })).newPage();
-		const at = cookie.indexOf('=');
-		await page.context().addCookies([
-			{
-				name: cookie.slice(0, at),
-				value: decodeURIComponent(cookie.slice(at + 1)),
-				domain: '127.0.0.1',
-				path: '/'
-			}
-		]);
-		await page.addInitScript(() => {
-			window.__cspViolations = [];
-			document.addEventListener('securitypolicyviolation', (e) => {
-				window.__cspViolations.push(`${e.violatedDirective} ${e.blockedURI || 'inline'}`);
-			});
-		});
-		return page;
-	}
-	const violations = async (page: Page) =>
-		(await page.evaluate(() => window.__cspViolations)).filter(
-			(v) => !v.startsWith('style-src-attr ')
-		);
+	const signedInPage = (cookie = cookieA, { javaScriptEnabled = true } = {}) =>
+		authenticatedPage(browser, cookie, { javaScriptEnabled });
 	/** The image really loaded through the proxy: decoded, with the stored size. */
 	const imageSize = (page: Page, selector: string) =>
 		page

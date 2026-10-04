@@ -1,3 +1,4 @@
+import { browserSuite, authenticatedPage, violations } from './browser';
 /**
  * The 0.3.0 equipment pages, driven from the rendered page in a real browser
  * against the PRODUCTION build (CLAUDE.md: "every action has an e2e that
@@ -6,13 +7,12 @@
  *
  * Prerequisites and skip rules are the same as csp.e2e.ts.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { and, eq } from 'drizzle-orm';
 import { setupTestDb } from '$lib/server/test-db';
 import {
-	BUILD_ENTRY,
 	freshTestDb,
 	seedTestUser,
 	signInAs,
@@ -21,32 +21,7 @@ import {
 import { importCatalog } from '$lib/server/catalog-import';
 import * as s from '$lib/server/db/schema';
 
-function chromiumPath(): string | undefined {
-	if (process.env.PW_EXECUTABLE_PATH) return process.env.PW_EXECUTABLE_PATH;
-	try {
-		const p = chromium.executablePath();
-		return existsSync(p) ? p : undefined;
-	} catch {
-		return undefined;
-	}
-}
-const haveBuild = existsSync(BUILD_ENTRY);
-const executablePath = chromiumPath();
-const missing = [
-	...(haveBuild ? [] : [`${BUILD_ENTRY} (run pnpm build)`]),
-	...(executablePath ? [] : ['a Chromium for Playwright'])
-];
-if (missing.length && process.env.CI) {
-	throw new Error(`e2e prerequisites missing in CI: ${missing.join('; ')}`);
-}
-const run = missing.length ? describe.skip : describe;
-if (missing.length) console.warn(`[e2e] skipped — missing ${missing.join('; ')}`);
-
-declare global {
-	interface Window {
-		__cspViolations: string[];
-	}
-}
+const { run, executablePath } = browserSuite();
 
 run('equipment pages (production build)', () => {
 	let harness: Awaited<ReturnType<typeof setupTestDb>>;
@@ -81,31 +56,7 @@ run('equipment pages (production build)', () => {
 		await harness?.end();
 	});
 
-	async function signedInPage(): Promise<Page> {
-		const page = await browser.newPage();
-		const eqAt = cookie.indexOf('=');
-		await page.context().addCookies([
-			{
-				name: cookie.slice(0, eqAt),
-				value: decodeURIComponent(cookie.slice(eqAt + 1)),
-				domain: '127.0.0.1',
-				path: '/'
-			}
-		]);
-		await page.addInitScript(() => {
-			window.__cspViolations = [];
-			document.addEventListener('securitypolicyviolation', (e) => {
-				window.__cspViolations.push(`${e.violatedDirective} ${e.blockedURI || 'inline'}`);
-			});
-		});
-		return page;
-	}
-	// The #svelte-announcer style-src-attr violation is the one tolerated
-	// framework artifact (see csp.e2e.ts); everything else fails.
-	const violations = async (page: Page) =>
-		(await page.evaluate(() => window.__cspViolations)).filter(
-			(v) => !v.startsWith('style-src-attr ')
-		);
+	const signedInPage = () => authenticatedPage(browser, cookie);
 
 	it('search by code, open the model, and add it to a gym from the page', async () => {
 		const page = await signedInPage();

@@ -1,3 +1,4 @@
+import { browserSuite, authenticatedPage, watchCsp, auditCsp as audit } from './browser';
 import { oauthFixture } from './mcp-fixture';
 /**
  * End-to-end pass against a PRODUCTION build served by adapter-node.
@@ -15,12 +16,10 @@ import { oauthFixture } from './mcp-fixture';
  * when the build or the browser is missing. In CI (`CI` env var set) both
  * are required and a missing prerequisite fails the run.
  */
-import { existsSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import { setupTestDb, resetTestDb } from '$lib/server/test-db';
 import {
-	BUILD_ENTRY,
 	freshTestDb,
 	seedTestUser,
 	signInAs,
@@ -30,57 +29,7 @@ import * as s from '$lib/server/db/schema';
 import { smallPng } from '$lib/server/photos/test-fixtures';
 import { postPhoto, reviewedPhotoId } from './photo-upload';
 
-function chromiumPath(): string | undefined {
-	if (process.env.PW_EXECUTABLE_PATH) return process.env.PW_EXECUTABLE_PATH;
-	try {
-		const p = chromium.executablePath();
-		return existsSync(p) ? p : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-const haveBuild = existsSync(BUILD_ENTRY);
-const executablePath = chromiumPath();
-const missing = [
-	...(haveBuild ? [] : [`${BUILD_ENTRY} (run pnpm build)`]),
-	...(executablePath ? [] : ['a Chromium for Playwright (pnpm exec playwright install chromium)'])
-];
-if (missing.length && process.env.CI) {
-	throw new Error(`e2e prerequisites missing in CI: ${missing.join('; ')}`);
-}
-const run = missing.length ? describe.skip : describe;
-if (missing.length) {
-	console.warn(`[e2e] skipped — missing ${missing.join('; ')}`);
-}
-
-declare global {
-	interface Window {
-		__cspViolations: string[];
-	}
-}
-
-/**
- * A page carrying the session cookie from the shared sign-in helper.
- *
- * The cookie is split on the FIRST '=' only: a Better Auth session token is
- * `name.signature` percent-encoded, so the value itself contains '%3D' and a
- * naive `split('=')` truncates it into an invalid token that authenticates
- * nobody.
- */
-async function authenticatedPage(browser: Browser, cookie: string, _origin: string) {
-	const page = await browser.newPage();
-	const eq = cookie.indexOf('=');
-	await page.context().addCookies([
-		{
-			name: cookie.slice(0, eq),
-			value: decodeURIComponent(cookie.slice(eq + 1)),
-			domain: '127.0.0.1',
-			path: '/'
-		}
-	]);
-	return page;
-}
+const { run, executablePath } = browserSuite();
 
 run('production build: CSP and page render', () => {
 	let harness: Awaited<ReturnType<typeof setupTestDb>>;
@@ -262,72 +211,17 @@ run('production build: CSP and page render', () => {
 		await harness?.end();
 	});
 
-	async function visit(path: string, width?: number) {
-		// The crawl is AUTHENTICATED. Since T2 every page except /login is
-		// guarded, so an unauthenticated crawl would 303 to the login screen
-		// and pass while measuring nothing at all.
-		const page = await authenticatedPage(browser, cookie, origin);
-		if (width) await page.setViewportSize({ width, height: 844 });
-		const consoleErrors: string[] = [];
-		page.on('console', (msg) => {
-			if (msg.type() === 'error') consoleErrors.push(msg.text());
-		});
-		// Registered before any document script runs, so violations raised
-		// while parsing the HTML (inline style attributes, inline scripts)
-		// are captured too.
-		await page.addInitScript(() => {
-			window.__cspViolations = [];
-			document.addEventListener('securitypolicyviolation', (e) => {
-				window.__cspViolations.push(
-					`${e.violatedDirective} blocked ${e.blockedURI || 'inline'}: ${e.sample || ''}`.trim()
-				);
-			});
-		});
+	async function visit(path: string, width?: number, loggedOut = false) {
+		const options = width ? { viewport: { width, height: 844 } } : {};
+		const page = loggedOut
+			? await browser.newPage(options)
+			: await authenticatedPage(browser, cookie, options);
+		if (loggedOut) await watchCsp(page);
 		const response = await page.goto(origin + path, { waitUntil: 'networkidle' });
-		return { page, status: response?.status(), ...(await audit(page)), consoleErrors };
+		return { page, status: response?.status(), ...(await audit(page)) };
 	}
 
-	// Same crawl, no session. Only /login is reachable this way; the guard
-	// answers 303 for everything else, which is asserted in the e2e guard
-	// tests rather than here.
-	async function visitLoggedOut(path: string, width?: number) {
-		const page = await browser.newPage(width ? { viewport: { width, height: 844 } } : {});
-		const consoleErrors: string[] = [];
-		page.on('console', (msg) => {
-			if (msg.type() === 'error') consoleErrors.push(msg.text());
-		});
-		await page.addInitScript(() => {
-			window.__cspViolations = [];
-			document.addEventListener('securitypolicyviolation', (e) => {
-				window.__cspViolations.push(
-					`${e.violatedDirective} blocked ${e.blockedURI || 'inline'}: ${e.sample || ''}`.trim()
-				);
-			});
-		});
-		const response = await page.goto(origin + path, { waitUntil: 'networkidle' });
-		return { page, status: response?.status(), ...(await audit(page)), consoleErrors };
-	}
-
-	/**
-	 * Collects CSP violations and the elements carrying a `style` attribute.
-	 *
-	 * Known framework artifact, tolerated on purpose: SvelteKit's own
-	 * `#svelte-announcer` live region is created client-side with an inline
-	 * style, which raises one `style-src-attr` violation per page. The
-	 * element still ends up visually hidden (kit applies the hiding through
-	 * the CSS object model, which CSP does not govern), so it has no visible
-	 * effect. Everything else — any other directive, or any APP element with
-	 * a style attribute — is a failure.
-	 */
-	async function audit(page: Awaited<ReturnType<Browser['newPage']>>) {
-		const raw = await page.evaluate(() => window.__cspViolations);
-		const styledElements = await page.evaluate(() =>
-			[...document.querySelectorAll('[style]')].map((e) => e.id || e.tagName.toLowerCase())
-		);
-		const appStyledElements = styledElements.filter((id) => id !== 'svelte-announcer');
-		const violations = raw.filter((v) => !v.startsWith('style-src-attr '));
-		return { violations, appStyledElements };
-	}
+	const visitLoggedOut = (path: string, width?: number) => visit(path, width, true);
 
 	async function expectAnnouncerHidden(page: Awaited<ReturnType<Browser['newPage']>>) {
 		const box = await page.evaluate(() => {
@@ -389,58 +283,81 @@ run('production build: CSP and page render', () => {
 	}
 
 	for (const pattern of ROUTE_PATTERNS) {
-		it(`${pattern} renders with no CSP violation`, async () => {
+		it(pattern + ' renders cleanly on phone and desktop', async () => {
 			const path = resolvePattern(pattern);
-			// /login is the one pattern that must be reached logged out: it is
-			// the redirect target, so reaching it authenticated would only test
-			// the guard's 303, never the page.
-			const { page, status, violations, appStyledElements } =
-				pattern === '/login' ? await visitLoggedOut(path) : await visit(path);
-			// /login is the one pattern reached logged out, where the guard's
-			// redirect is not in play and the page answers 200 directly. Every
-			// other pattern is authenticated and must be a 200, never a 303.
-			expect(status, `${path} -> ${serverLog}`).toBe(200);
-			expect(violations, path).toEqual([]);
-			expect(appStyledElements, path).toEqual([]);
-			reached.add(pattern);
-			await page.close();
+			const { page, status } =
+				pattern === '/login' ? await visitLoggedOut(path, 390) : await visit(path, 390);
+			try {
+				expect(status, path + ' -> ' + serverLog).toBe(200);
+				// A redirect to a different 200 page must not count as route coverage.
+				expect(new URL(page.url()).pathname).toBe(new URL(path, origin).pathname);
+				const layout = await page.evaluate(() => {
+					const tabs = [...document.querySelectorAll('nav[aria-label="Main navigation"] a')];
+					return {
+						scrollWidth: document.documentElement.scrollWidth,
+						tabs: tabs.map((a) => {
+							const r = a.getBoundingClientRect();
+							return { top: Math.round(r.top), left: r.left, right: r.right };
+						})
+					};
+				});
+				expect(layout.scrollWidth, path + ' scrolls sideways').toBeLessThanOrEqual(390);
+				for (const tab of layout.tabs) {
+					expect(tab.top, path + ': tabs on one row').toBe(layout.tabs[0].top);
+					expect(tab.left, path).toBeGreaterThanOrEqual(0);
+					expect(tab.right, path).toBeLessThanOrEqual(390);
+				}
+				expect(await audit(page), path + ' phone CSP').toEqual({
+					violations: [],
+					appStyledElements: []
+				});
+				await page.setViewportSize({ width: 1280, height: 720 });
+				await page.evaluate(
+					() =>
+						new Promise<void>((resolve) =>
+							requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+						)
+				);
+				expect(await audit(page), path + ' desktop CSP').toEqual({
+					violations: [],
+					appStyledElements: []
+				});
+				reached.add(pattern);
+			} finally {
+				await page.close();
+			}
 		});
 	}
 
-	// A pattern that is listed but never visited would otherwise disappear
-	// silently from the floor the moment someone adds it. Fail by name.
 	it('every route pattern was actually reached', () => {
-		const missing = ROUTE_PATTERNS.filter((p) => !reached.has(p));
-		expect(missing, `never reached: ${missing.join(', ')}`).toEqual([]);
+		const missing = ROUTE_PATTERNS.filter((pattern) => !reached.has(pattern));
+		expect(missing, 'never reached: ' + missing.join(', ')).toEqual([]);
 	});
 
-	// The phone crawl (0.5.5, feedback item 1.2): every route at 390 px, an
-	// iPhone 12-15 viewport. No page scrolls sideways, and where the tab bar
-	// is shown it is one row, fully on screen.
-	for (const pattern of ROUTE_PATTERNS) {
-		it(`${pattern} fits a 390 px screen`, async () => {
-			const path = resolvePattern(pattern);
-			const { page } =
-				pattern === '/login' ? await visitLoggedOut(path, 390) : await visit(path, 390);
-			const layout = await page.evaluate(() => {
-				const tabs = [...document.querySelectorAll('nav[aria-label="Main navigation"] a')];
-				return {
-					scrollWidth: document.documentElement.scrollWidth,
-					tabs: tabs.map((a) => {
-						const r = a.getBoundingClientRect();
-						return { top: Math.round(r.top), left: r.left, right: r.right };
-					})
-				};
+	it('the shared audit detects blocked script and app style attributes', async () => {
+		const { page } = await visit('/');
+		try {
+			expect(await audit(page)).toEqual({ violations: [], appStyledElements: [] });
+			await page.evaluate(() => {
+				const app = document.createElement('div');
+				app.id = 'csp-audit-canary';
+				app.setAttribute('style', 'width: 777px');
+				document.body.append(app);
+				const script = document.createElement('script');
+				script.textContent = 'document.documentElement.dataset.cspCanary = "ran"';
+				document.body.append(script);
 			});
-			expect(layout.scrollWidth, `${path} scrolls sideways`).toBeLessThanOrEqual(390);
-			for (const t of layout.tabs) {
-				expect(t.top, `${path}: tabs on one row`).toBe(layout.tabs[0].top);
-				expect(t.left, path).toBeGreaterThanOrEqual(0);
-				expect(t.right, path).toBeLessThanOrEqual(390);
-			}
+			await expect
+				.poll(async () =>
+					(await audit(page)).violations.some((value) => value.startsWith('script-src'))
+				)
+				.toBe(true);
+			expect((await audit(page)).appStyledElements).toContain('csp-audit-canary');
+			expect(await page.locator('html').getAttribute('data-csp-canary')).toBeNull();
+		} finally {
 			await page.close();
-		});
-	}
+		}
+	});
 
 	it('client-side navigation stays clean and the route announcer stays hidden', async () => {
 		const { page } = await visit('/');
@@ -516,7 +433,7 @@ run('production build: CSP and page render', () => {
 		});
 
 		it('serves a protected page to a signed-in visitor', async () => {
-			const page = await authenticatedPage(browser, cookie, origin);
+			const page = await authenticatedPage(browser, cookie);
 			await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
 			expect(page.url(), 'a signed-in visitor must not be bounced to /login').not.toContain(
 				'/login'
@@ -525,7 +442,7 @@ run('production build: CSP and page render', () => {
 		});
 
 		it('POST /logout ends the session, so the next request 303s again', async () => {
-			const page = await authenticatedPage(browser, cookie, origin);
+			const page = await authenticatedPage(browser, cookie);
 			await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
 			expect(page.url()).not.toContain('/login');
 
@@ -563,7 +480,7 @@ run('production build: CSP and page render', () => {
 			// reusing that cookie would bounce to /login for the wrong reason
 			// and this test would pass without testing anything.
 			const fresh = await signInAs(origin);
-			const page = await authenticatedPage(browser, fresh, origin);
+			const page = await authenticatedPage(browser, fresh);
 			await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
 			expect(page.url()).not.toContain('/login');
 

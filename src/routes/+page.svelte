@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { getContext } from 'svelte';
+	import { WORKOUT_VIEW, type WorkoutView } from '$lib/workout-view.svelte';
+	const view = getContext<WorkoutView>(WORKOUT_VIEW);
 	import type { PageData } from './$types';
 	import { workoutUi } from '$lib/workout-ui';
 	import { appShell, pageTitle } from '$lib/app-shell';
@@ -9,7 +12,12 @@
 <svelte:head><title>{pageTitle('Workout')}</title></svelte:head>
 
 <div class="mx-auto max-w-md px-4 py-6">
-	<h1 class="mb-5 text-2xl font-semibold tracking-tight">Workout</h1>
+	<h1 class="mb-2 text-2xl font-semibold tracking-tight">Workout</h1>
+	<p class="mb-5 text-sm text-zinc-400">
+		{view.mode === 'simple'
+			? 'Document your lifts, one set at a time.'
+			: 'Your workouts, programs and training history.'}
+	</p>
 
 	{#if data.firstRun}
 		<!-- A fresh account (0.5.5): what to do, and one button to do it. -->
@@ -20,6 +28,11 @@
 			href="/workout/start"
 			class="block rounded-lg bg-emerald-600 px-4 py-4 text-center text-lg font-semibold text-white"
 			>{workoutUi.startWorkout}</a
+		>
+		<a
+			href="/programs/new"
+			class="mt-3 flex min-h-11 items-center justify-center text-sm text-indigo-300"
+			>Explore starter programs</a
 		>
 	{:else}
 		{#if data.toName.count && data.toName.latestSessionId}<a
@@ -42,11 +55,23 @@
 			>
 		{/if}
 
-		<a
-			href="/programs/new"
-			class="mb-5 block rounded-lg border border-indigo-500 px-4 py-3 text-center font-semibold text-indigo-200"
-			>Create program</a
+		<details
+			open={view.mode === 'advanced'}
+			class="mb-5 rounded-xl border border-zinc-800 px-4"
+			data-testid="program-tools"
 		>
+			<summary class="min-h-12 cursor-pointer py-3 text-sm font-semibold text-zinc-300"
+				>Program tools</summary
+			>
+			<p class="mb-3 text-sm text-zinc-400">
+				Start with a routine, or build one around the way you train.
+			</p>
+			<a
+				href="/programs/new"
+				class="mb-4 flex min-h-11 items-center justify-center rounded-lg border border-indigo-500 px-4 font-semibold text-indigo-200"
+				>Create program</a
+			>
+		</details>
 
 		{#if data.hasImported}
 			<a

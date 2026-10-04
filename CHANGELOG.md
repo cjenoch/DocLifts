@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.0 Alpha — Simple and Advanced views — not deployed
+
+- Adds a Simple / Advanced switch on signed-in screens, remembered separately
+  for each account in the current browser. Simple is the default.
+- Simple emphasizes weight, reps/seconds and Save set; notes and RIR stay one tap
+  away. Switching views and saving collapsed controls preserve existing values
+  and unsaved entries. Load-suggestion explanations stay visible.
+- Program tools fold away in Simple while programs remain accessible. Fresh
+  accounts can explore starter programs; the gym and empty-workout steps explain
+  how to get to a first recorded set.
+- Advanced exposes effort and program controls. No database, auth, API or
+  progression changes. View choices do not yet sync across devices.
+
 ## 0.16.4 Alpha — consent app identity — deployed, acceptance pending
 
 - The consent page labels apps as unverified and explains that their names are

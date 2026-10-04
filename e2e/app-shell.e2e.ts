@@ -120,6 +120,8 @@ run('app shell for a new account (production build)', () => {
 		expect(text).not.toContain('Create program');
 		expect(text).not.toContain('Programs');
 		expect(text).not.toContain('Imported workout history');
+		if (process.env.DOCLIFTS_UI_SCREENSHOTS)
+			await page.screenshot({ path: '/tmp/doclifts-view-home.png' });
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
@@ -251,6 +253,76 @@ run('app shell for a new account (production build)', () => {
 		await page.close();
 	});
 
+	it('keeps view preferences with the account in a shared browser, with storage failure fallback', async () => {
+		const page = await signedInPage();
+		await page.goto(origin + '/', { waitUntil: 'networkidle' });
+		await page.getByRole('button', { name: 'Advanced view', exact: true }).click();
+		await page.goto(origin + '/account', { waitUntil: 'networkidle' });
+		expect(
+			await page
+				.getByRole('button', { name: 'Advanced view', exact: true })
+				.getAttribute('aria-pressed')
+		).toBe('true');
+		const secondEmail = 'view-second@test.local';
+		await seedTestUser(harness.db, secondEmail);
+		const secondCookie = await signInAs(origin, { email: secondEmail });
+		const eqAt = secondCookie.indexOf('=');
+		await page.context().clearCookies();
+		await page.context().addCookies([
+			{
+				name: secondCookie.slice(0, eqAt),
+				value: decodeURIComponent(secondCookie.slice(eqAt + 1)),
+				domain: '127.0.0.1',
+				path: '/'
+			}
+		]);
+		await page.goto(origin + '/', { waitUntil: 'networkidle' });
+		expect(
+			await page
+				.getByRole('button', { name: 'Simple view', exact: true })
+				.getAttribute('aria-pressed')
+		).toBe('true');
+		await page.context().clearCookies();
+		const firstEq = cookie.indexOf('=');
+		await page.context().addCookies([
+			{
+				name: cookie.slice(0, firstEq),
+				value: decodeURIComponent(cookie.slice(firstEq + 1)),
+				domain: '127.0.0.1',
+				path: '/'
+			}
+		]);
+		await page.goto(origin + '/', { waitUntil: 'networkidle' });
+		expect(
+			await page
+				.getByRole('button', { name: 'Advanced view', exact: true })
+				.getAttribute('aria-pressed')
+		).toBe('true');
+		await page.close();
+		const blocked = await signedInPage();
+		await blocked.addInitScript(() => {
+			Object.defineProperty(window, 'localStorage', {
+				get() {
+					throw new DOMException('Blocked', 'SecurityError');
+				}
+			});
+		});
+		await blocked.goto(origin + '/account', { waitUntil: 'networkidle' });
+		await blocked.getByRole('button', { name: 'Advanced view', exact: true }).click();
+		expect(
+			await blocked
+				.getByRole('button', { name: 'Advanced view', exact: true })
+				.getAttribute('aria-pressed')
+		).toBe('true');
+		expect(
+			await blocked
+				.getByText('Browser storage is unavailable. Your choice lasts for this visit.', {
+					exact: true
+				})
+				.isVisible()
+		).toBe(true);
+		await blocked.close();
+	});
 	// Last: it ends the session the other tests use.
 	it('Sign out on the account page ends the session', async () => {
 		const sessions = () =>

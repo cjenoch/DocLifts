@@ -2,7 +2,9 @@
 	import { requestId as newRequestId } from '$lib/request-id';
 	import { enhance } from '$app/forms';
 	import { beforeNavigate, invalidateAll } from '$app/navigation';
-	import { onMount, tick, untrack } from 'svelte';
+	import { getContext, onMount, tick, untrack } from 'svelte';
+	import { WORKOUT_VIEW, type WorkoutView } from '$lib/workout-view.svelte';
+	const view = getContext<WorkoutView>(WORKOUT_VIEW);
 	import type { ActionData, PageData } from './$types';
 	import SetRow from './SetRow.svelte';
 	import AddSheet from '$lib/AddSheet.svelte';
@@ -261,6 +263,29 @@
 		<progress value={completed} max={Math.max(allSets.length, 1)} aria-label="Workout completion"
 		></progress>
 	</header>
+	{#if view.mode === 'simple' && !data.session.endedAt && data.groups.length === 0}
+		<section
+			class="mb-5 rounded-xl border border-indigo-800 bg-indigo-950/40 p-5"
+			data-testid="first-machine-guide"
+		>
+			<h2 class="text-lg font-semibold">
+				{data.photoEnabled ? 'Start with your first machine' : 'Add your first exercise'}
+			</h2>
+			<p class="mt-2 text-sm text-zinc-300">
+				{data.photoEnabled
+					? 'Tap Photo next machine below. Keep people out of the frame and include the machine or its label.'
+					: 'Tap Add exercise below and choose what you want to log.'}
+			</p>
+			<p class="mt-2 text-sm text-zinc-400">
+				{data.photoEnabled
+					? 'Once the photo is accepted, enter your weight and reps while identification runs. Tap Save set after each set.'
+					: 'Enter your weight and reps, then tap Save set after each set.'}
+			</p>
+			{#if data.photoEnabled}<p class="mt-2 text-sm text-zinc-400">
+					Using free weights? Add an exercise by name instead.
+				</p>{/if}
+		</section>
+	{/if}
 	{#if toName}<p class="to-name" data-testid="machines-to-name">
 			{workoutUi.machinesToName(toName)}
 		</p>{/if}
@@ -504,6 +529,7 @@
 				-->
 				{#each group.sets as set (`${set.id}:${set.gymEquipmentId}:${set.loadConvention}`)}<SetRow
 						{set}
+						viewMode={view.mode}
 						sessionEnded={data.session.endedAt != null}
 						allowEndedSessionEdit={data.allowEndedSessionEdit}
 						{ondirty}

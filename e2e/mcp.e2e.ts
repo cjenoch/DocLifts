@@ -40,22 +40,20 @@ beforeAll(async () => {
 		.insert(s.exercises)
 		.values({ userId: owner.id, name: 'Bulk fixture press', equipmentType: 'dumbbell' })
 		.returning();
-	await h.db
-		.insert(s.sets)
-		.values({
-			userId: owner.id,
-			sessionId: session.id,
-			exerciseId: exercise.id,
-			position: 1,
-			setRole: 'top',
-			targetMetric: 'reps',
-			prescribedRepsMin: 5,
-			prescribedRepsMax: 5,
-			prescribedLoad: 10,
-			executedLoad: 25,
-			executedReps: 5,
-			notes: 'PRIVATE_SET_NOTE'
-		});
+	await h.db.insert(s.sets).values({
+		userId: owner.id,
+		sessionId: session.id,
+		exerciseId: exercise.id,
+		position: 1,
+		setRole: 'top',
+		targetMetric: 'reps',
+		prescribedRepsMin: 5,
+		prescribedRepsMax: 5,
+		prescribedLoad: 10,
+		executedLoad: 25,
+		executedReps: 5,
+		notes: 'PRIVATE_SET_NOTE'
+	});
 	const importId = randomUUID();
 	await h.db.insert(s.workoutLogImports).values({
 		id: importId,

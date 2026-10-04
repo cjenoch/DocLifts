@@ -12,7 +12,7 @@ The hosted app is live on Android, iPhone and desktop browsers. Alpha access is 
 
 ## Built for the workout
 
-- **Workout layouts (0.18.0, not yet deployed).** Guided, Set table, Notebook and Tap sets share the same workout. Customize effort, notes and previous performance per account/program in your browser. Edit workout exposes session controls; the clock opens optional timer alerts.
+- **Choose your workout view.** Guided, Set table, Notebook and Tap sets share the same workout. Customize effort, notes and previous performance per account/program in your browser. Edit workout exposes session controls; the clock opens optional timer alerts.
 - **Photo first, keep lifting.** A photo opens a workout block so you can log before identification completes. Review uncertain matches; a failed identification does not prevent manual logging. Previously used machines can be recognized from an agreeing placard code and name, with an undo option.
 - **History belongs to the right equipment.** Machines keep their own performance history. Free-weight exercise history follows you between gyms. Weight conventions distinguish total weight, per-hand and per-side loads.
 - **Programs you can change.** Start with Traveling PPL, Barbell Strength, Machine Full Body, or Machines and Dumbbells, then edit days, exercises and sets. Phone-oriented Program → Day → Exercise screens retain drafts through reloads.

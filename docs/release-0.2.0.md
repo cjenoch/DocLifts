@@ -3476,7 +3476,7 @@ view switching, distinct set values/zero RIR/notes, saving while collapsed,
 reload persistence, first-workout guidance, finish/history and 320/390px layout.
 Owner phone acceptance remains pending. No schema, auth or tunnel changes.
 
-## 0.18.0 Alpha — workout layouts — not deployed
+## 0.18.0 Alpha — workout layouts — deployed, acceptance pending
 
 - Four workout views: Guided with an available private machine photo, compact
   Set table, dense Notebook and Tap sets. Quick workouts start Guided; planned
@@ -3494,5 +3494,15 @@ Owner phone acceptance remains pending. No schema, auth or tunnel changes.
   superseded set-entry markup is removed. No database migration, auth, MCP,
   progression or tunnel change. Owner gym acceptance is pending after deployment.
 
-See [workout layout scope](plans/workout-layouts.md). Full release gates,
-verified backup and public scratch checks are required before deployment.
+See [workout layout scope](plans/workout-layouts.md).
+
+Deployed October 4, 2026 on `f1eff6f` (tag `0.18.0`) after PR23, full local
+lint/types/Drizzle/build, 902 server tests (+2 expected private-data skips),
+42 component tests and 176 browser tests. Exact-head CI37212527852 passed.
+The fresh encrypted snapshot ca7887f8 restored with matching database totals,
+24 photo hashes, seven SQLite integrity checks and scratch login/history.
+Recovery images including pre-0.18.0 and earlier releases are retained.
+Public Alpha scratch checks passed all four layouts, distinct drafts, hidden
+zero RIR/notes, saving/reload, append/remove empty set, timer settings, 320/390px
+fit and finish/history. No schema, auth or tunnel changes. Owner gym/phone
+acceptance is pending; automated checks do not confirm actual phone audio.

@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 4, 2026. Current application: **0.17.0 Alpha**, runtime `0633b6a`.
+Updated October 4, 2026. Current application: **0.18.0 Alpha**, runtime `f1eff6f`.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -23,13 +23,18 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-0.17.0 passed local lint, types, Drizzle checks, build, 901 server tests
-(+2 expected skips), 40 component tests and 174 browser tests, then
-[exact-head CI](https://github.com/cjenoch/DocLifts/actions/runs/37192805430).
-Public test-account checks covered both views, draft/save preservation, zero RIR,
-notes, reload persistence, first-set guidance, 320/390px layout and login/history.
-Post-reboot MCP checks covered consent, refresh, eight tools, four reads and revocation. A backup was restored and checked;
-at least two prior images are retained. Private evidence stays in the private
+Deployed October 4, 2026 on `f1eff6f` (tag `0.18.0`) after PR23, full local
+lint/types/Drizzle/build, 902 server tests (+2 expected private-data skips),
+42 component tests and 176 browser tests. Exact-head CI37212527852 passed.
+The fresh encrypted snapshot ca7887f8 restored with matching database totals,
+24 photo hashes, seven SQLite integrity checks and scratch login/history.
+Recovery images including pre-0.18.0 and earlier releases are retained.
+Public Alpha scratch checks passed all four layouts, distinct drafts, hidden
+zero RIR/notes, saving/reload, append/remove empty set, timer settings, 320/390px
+fit and finish/history. No schema, auth or tunnel changes. Owner gym/phone
+acceptance is pending; automated checks do not confirm actual phone audio.
+
+Private evidence is in `ops/workout-layouts-2026-10-04` in the VPS-only
 operations repository. See [release records](docs/release-0.2.0.md).
 
 Actual client read success is not a guarantee of complete pagination or correct
@@ -45,12 +50,6 @@ checks, and no failed system or user units remained. Ubuntu deferred one phased
 audio configuration update. Host updates do not resolve JavaScript dependency
 advisories. Signup stays closed.
 
-## Release in progress
-
-0.18.0 Alpha workout layouts are implemented, not deployed. Four views,
-per-program display choices and optional timer alerts replace the workout
-Simple/Advanced switch. See [scope](docs/plans/workout-layouts.md).
-
 ## Next work, not shipped
 
 - Complete replacement-VPS recovery rehearsal and external host-down monitoring.
@@ -60,11 +59,13 @@ Simple/Advanced switch. See [scope](docs/plans/workout-layouts.md).
   follow-up before widening Alpha access. Screening does not solve prompt injection.
 - Account export/deletion, saved-photo deletion, privacy/upload notices and
   retention rules covering logs, backups and provider processing before public signup.
-- Signup/approval gates and fuller beginner onboarding. Simple/Advanced and the
-  first-set guide are live; owner phone acceptance remains pending.
+- Signup/approval gates and fuller beginner onboarding. Four workout layouts and the
+  first-set guide are live; owner gym acceptance remains pending.
 - Explicit test/training labels; richer import/export and reviewed notebook
   ingestion. Existing imported history is readable, not a self-service importer.
 - Beginner machine guidance and further client compatibility checks.
+- After gym feedback, refactor remaining workout orchestration and audit slow or
+  redundant tests while preserving security and data-integrity regressions.
 
 See [application overview](APP_DOCS.md), [MCP guide](docs/mcp-alpha.md),
 [README](README.md) and [changelog](CHANGELOG.md). Historical status and design

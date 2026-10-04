@@ -1,13 +1,13 @@
 # DocLifts — application overview
 
-Current through **0.17.0 Alpha**, October 4, 2026. DocLifts is a live multi-user
+Current through **0.18.0 Alpha**, October 4, 2026. DocLifts is a live multi-user
 workout log at [doclifts.runthe.ai](https://doclifts.runthe.ai). Accounts own their
 workouts, programs, gyms and machines. Alpha access is operator-managed; signup
 remains closed. The sign-in leads with **Document your Lifts**.
 
 ## During a workout
 
-The next release, 0.18.0 Alpha (not yet deployed), offers Guided, Set table,
+The workout offers Guided, Set table,
 Notebook and Tap sets during workouts. Customize chooses RIR from the program or
 shows/hides it, notes, previous performance and optional +/- buttons. Switching
 preserves saved values and drafts. Preferences are per account and program in

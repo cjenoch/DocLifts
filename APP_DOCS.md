@@ -1,6 +1,6 @@
 # DocLifts — application overview
 
-Current through **0.18.0 Alpha**, October 4, 2026. DocLifts is a live multi-user
+Current through **0.18.1 Alpha**, October 4, 2026. DocLifts is a live multi-user
 workout log at [doclifts.runthe.ai](https://doclifts.runthe.ai). Accounts own their
 workouts, programs, gyms and machines. Alpha access is operator-managed; signup
 remains closed. The sign-in leads with **Document your Lifts**.
@@ -14,9 +14,10 @@ preserves saved values and drafts. Preferences are per account and program in
 this browser, with a storage fallback; devices do not synchronize them. Edit
 workout reveals session controls. The clock opens duration and optional alerts;
 sound starts off, and background/locked-phone alerts are not guaranteed.
-The obsolete Simple/Advanced switch is removed in the pending 0.18.1 release.
-That release also shows the loaded build and an explicit refresh prompt when an
-update is detected; it never automatically reloads an active workout.
+There is no global Simple/Advanced switch. The sign-in page and signed-in header
+show the release and loaded build. A newer build produces an explicit refresh
+prompt; Account also offers Check for updates. Nothing automatically reloads an
+active workout. An older tab needs one refresh to load this update UI.
 Fresh accounts can explore starter programs, and the gym/empty-workout screens
 provide a first-set guide. This is the first beginner UI pass, not full onboarding.
 

@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 4, 2026. Current application: **0.18.0 Alpha**, runtime `f1eff6f`.
+Updated October 4, 2026. Current application: **0.18.1 Alpha**, runtime `3107bf8`.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -23,19 +23,19 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-Deployed October 4, 2026 on `f1eff6f` (tag `0.18.0`) after PR23, full local
-lint/types/Drizzle/build, 902 server tests (+2 expected private-data skips),
-42 component tests and 176 browser tests. Exact-head CI37212527852 passed.
-The fresh encrypted snapshot ca7887f8 restored with matching database totals,
-24 photo hashes, seven SQLite integrity checks and scratch login/history.
-Recovery images including pre-0.18.0 and earlier releases are retained.
-Public Alpha scratch checks passed all four layouts, distinct drafts, hidden
-zero RIR/notes, saving/reload, append/remove empty set, timer settings, 320/390px
-fit and finish/history. No schema, auth or tunnel changes. Owner gym/phone
-acceptance is pending; automated checks do not confirm actual phone audio.
+Deployed October 4, 2026 on `3107bf8` (tag `0.18.1`) after PR25 and exact-head
+CI37222559072. Full local lint/types/Drizzle/build, 902 server tests (+2 expected
+private-data skips), 42 component tests and 177 browser tests passed. The new
+build-label regression failed against the old build before passing the fix.
+Fresh encrypted snapshot eb12bb9f restored with matching totals, 24 photo hashes,
+seven SQLite checks and scratch login/history. Recovery images remain retained.
+Public scratch checks verified the release/build on sign-in and signed-in pages,
+the absent global switch, newer-build prompt/manual refresh, all four workout
+layouts, saving, hidden values, set controls and 320/390px fit. Owner phone
+verification remains pending. No schema, auth, MCP or tunnel changes.
 
-Private evidence is in `ops/workout-layouts-2026-10-04` in the VPS-only
-operations repository. See [release records](docs/release-0.2.0.md).
+Private evidence: `ops/build-visibility-2026-10-04` in the VPS-only operations
+repository. See [release records](docs/release-0.2.0.md).
 
 Actual client read success is not a guarantee of complete pagination or correct
 training analysis. Other agent clients and owner interpretation review remain
@@ -49,11 +49,6 @@ backup timers recovered, the classifier passed generated-image/invalid-input
 checks, and no failed system or user units remained. Ubuntu deferred one phased
 audio configuration update. Host updates do not resolve JavaScript dependency
 advisories. Signup stays closed.
-
-## Release in progress
-
-0.18.1 removes the global mode switch and adds visible release/build identity
-and an explicit refresh prompt. Implemented; deployment checks pending.
 
 ## Next work, not shipped
 

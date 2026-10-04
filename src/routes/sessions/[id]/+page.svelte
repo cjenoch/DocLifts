@@ -1,20 +1,21 @@
 <script lang="ts">
 	import { requestId as newRequestId } from '$lib/request-id';
 	import { enhance } from '$app/forms';
-	import { beforeNavigate, invalidateAll } from '$app/navigation';
 	import { onMount, tick, untrack } from 'svelte';
 	import { WorkoutLayoutPreferences } from '$lib/workout-layout.svelte';
 	import WorkoutControls from '$lib/WorkoutControls.svelte';
 	import RestTimer from '$lib/RestTimer.svelte';
 	import type { ActionData, PageData } from './$types';
 	import SetRow from './SetRow.svelte';
+	import ExerciseMenu from './ExerciseMenu.svelte';
+	import WorkoutPhotoBlock from './WorkoutPhotoBlock.svelte';
+	import WorkoutPhotoUpload from './WorkoutPhotoUpload.svelte';
+	import { WorkoutPhotos } from './workout-photos.svelte';
+	import { WorkoutEdits } from './workout-edits.svelte';
 	import AddSheet from '$lib/AddSheet.svelte';
 	import { FREE_TYPES, pickerUi } from '$lib/picker-ui';
 	import TrashAction from '$lib/TrashAction.svelte';
 	import { workoutUi } from '$lib/workout-ui';
-	import { photoClientSettings, resizeForUpload } from '$lib/photo-client';
-	import type { SubmitFunction } from '@sveltejs/kit';
-	import type { Action } from 'svelte/action';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let dirtyIds = $state<string[]>([]);
 	let appending = $state<string | null>(null);
@@ -64,74 +65,8 @@
 		exerciseName: string;
 		planned: boolean;
 	} | null>(null);
-	type SetLike = {
-		executedLoad: number | null;
-		executedReps: number | null;
-		executedRir: number | null;
-		notes: string | null;
-	};
-	const isLogged = (x: SetLike) =>
-		x.executedLoad != null || x.executedReps != null || x.executedRir != null || !!x.notes;
-	// Removing an exercise with nothing logged has a five-second Undo in place
-	// of a confirm step: the exercise is hidden at once and the removal is sent
-	// when the Undo runs out, or at once when the page is left.
-	let pendingRemove = $state<{ occurrenceId: string; name: string } | null>(null);
-	let removeTimer: ReturnType<typeof setTimeout> | undefined;
-	let editError = $state('');
-	async function sendRemove(occurrenceId: string, keepalive = false) {
-		const body = new FormData();
-		body.set('occurrenceId', occurrenceId);
-		const response = await fetch('?/removeExercise', {
-			method: 'POST',
-			body,
-			keepalive,
-			headers: { 'x-sveltekit-action': 'true' }
-		}).catch(() => null);
-		const result = response ? await response.json().catch(() => null) : null;
-		if (!keepalive) {
-			if (result?.type !== 'success') editError = 'Could not remove that exercise. Please reload.';
-			await invalidateAll();
-		}
-	}
-	function flushRemove(keepalive = false) {
-		clearTimeout(removeTimer);
-		const pending = pendingRemove;
-		pendingRemove = null;
-		if (pending) void sendRemove(pending.occurrenceId, keepalive);
-	}
-	function startRemove(occurrenceId: string, name: string) {
-		flushRemove();
-		editError = '';
-		pendingRemove = { occurrenceId, name };
-		removeTimer = setTimeout(() => flushRemove(), workoutUi.undoSeconds * 1000);
-	}
-	function undoRemove() {
-		clearTimeout(removeTimer);
-		pendingRemove = null;
-	}
-	beforeNavigate(() => flushRemove(true));
-	onMount(() => {
-		const leave = () => flushRemove(true);
-		window.addEventListener('pagehide', leave);
-		return () => window.removeEventListener('pagehide', leave);
-	});
-	const editSubmit: SubmitFunction = ({ cancel, formData, formElement }) => {
-		// The menu closes on any choice, as it would on a phone's action sheet.
-		const details = formElement.closest('details');
-		if (details) details.open = false;
-		const count = Number(formData.get('loggedCount') ?? 0);
-		const name = String(formData.get('exerciseName') ?? '');
-		if (count > 0 && !confirm(workoutUi.confirmRemoveLogged(name, count))) {
-			cancel();
-			return;
-		}
-		flushRemove();
-		editError = '';
-		return async ({ result, update }) => {
-			if (result.type === 'failure') editError = String(result.data?.message ?? '');
-			await update({ reset: false });
-		};
-	};
+	const edits = new WorkoutEdits();
+
 	const heading = $derived(data.quick ? workoutUi.sessionHeading : data.day.name);
 	const backHref = $derived(data.quick ? '/' : `/programs/${data.session.programId}`);
 	let appendError = $state('');
@@ -153,76 +88,8 @@
 			else if (!dirty && dirtyIds.includes(id)) dirtyIds = dirtyIds.filter((v) => v !== id);
 		});
 	}
-	// Photo in the workout (0.6.0). A photo opens a block at once; the page
-	// then reads it while sets are logged. Photo ids the page should read once
-	// (just uploaded), ids being read now, and match cards put off with "Later".
-	let autoRead = $state<string[]>([]);
-	let readingIds = $state<string[]>([]);
-	let laterIds = $state<string[]>([]);
-	let photoStage = $state<string | null>(null);
-	let photoError = $state('');
-	let photoRequestId = $state('');
-	let photoForm: HTMLFormElement | undefined = $state();
-	onMount(() => {
-		photoRequestId = newRequestId();
-	});
+	const photos = new WorkoutPhotos();
 	const toName = $derived(Object.keys(data.photoBlocks).length);
-
-	const photoSubmit: SubmitFunction = async ({ formData, cancel }) => {
-		if (photoStage) return cancel();
-		photoError = '';
-		photoStage = photoClientSettings.labels.preparing;
-		const chosen = formData.get('photo');
-		if (!(chosen instanceof File) || chosen.size === 0) {
-			photoStage = null;
-			return cancel();
-		}
-		const sent = await resizeForUpload(chosen);
-		formData.set('photo', sent, sent.name);
-		formData.set('clientOriginalBytes', String(chosen.size));
-		formData.set('clientResized', sent === chosen ? '0' : '1');
-		// The phone's own clock for the placeholder's label ("Photo 2:32 PM").
-		formData.set(
-			'timeLabel',
-			new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-		);
-		photoStage = workoutUi.photoAdding;
-		return async ({ result, update }) => {
-			try {
-				if (result.type === 'success' && result.data?.photoId) {
-					autoRead = [...autoRead, String(result.data.photoId)];
-					photoRequestId = newRequestId();
-				} else if (result.type === 'failure') {
-					photoError = String(result.data?.message ?? workoutUi.photoReadFailed);
-				} else if (result.type === 'error') {
-					photoError = 'The photo did not get through. Try again.';
-					return;
-				}
-				await update({ reset: true });
-			} finally {
-				photoStage = null;
-			}
-		};
-	};
-
-	const readSubmit =
-		(photoId: string): SubmitFunction =>
-		() => {
-			readingIds = [...readingIds, photoId];
-			autoRead = autoRead.filter((id) => id !== photoId);
-			return async ({ update }) => {
-				try {
-					await update();
-				} finally {
-					readingIds = readingIds.filter((id) => id !== photoId);
-				}
-			};
-		};
-
-	/** Submits the block's read form once, right after its photo was added. */
-	const readOnce: Action<HTMLFormElement, boolean> = (form, go) => {
-		if (go) form.requestSubmit();
-	};
 
 	const allSets = $derived(data.groups.flatMap((g) => g.sets));
 	const completed = $derived(
@@ -348,15 +215,14 @@
 			{/each}
 		</section>
 	{/if}
-	{#if pendingRemove}
+	{#if edits.pendingRemove}
 		<p class="undo-bar" role="status" data-testid="undo-remove">
-			<span>{workoutUi.removedLine(pendingRemove.name)}</span>
-			<button onclick={undoRemove}>{workoutUi.undo}</button>
+			<span>{workoutUi.removedLine(edits.pendingRemove.name)}</span>
+			<button onclick={edits.undoRemove}>{workoutUi.undo}</button>
 		</p>
 	{/if}
-	{#if editError}<p role="alert" class="error">{editError}</p>{/if}
-	{#each data.groups.filter((g) => g.occurrenceId !== pendingRemove?.occurrenceId) as group, index (group.key)}
-		{@const loggedCount = group.sets.filter(isLogged).length}
+	{#if edits.editError}<p role="alert" class="error">{edits.editError}</p>{/if}
+	{#each data.groups.filter((g) => g.occurrenceId !== edits.pendingRemove?.occurrenceId) as group, index (group.key)}
 		{@const photoId =
 			(group.occurrenceId &&
 				(data.photoBlocks[group.occurrenceId]?.photoId ??
@@ -388,152 +254,32 @@
 					</p>
 				</div>
 				{#if !data.session.endedAt && group.occurrenceId}
-					{@const occurrenceId = group.occurrenceId}
-					{@const visible = data.groups.filter(
-						(g) => g.occurrenceId !== pendingRemove?.occurrenceId
-					)}
-					<details class="exercise-menu" data-testid="exercise-menu" class:tool-hidden={!editing}>
-						<summary aria-label={workoutUi.exerciseMenu(group.exerciseName)}>⋯</summary>
-						<div class="menu-items">
-							{#each [['up', workoutUi.moveUp, index > 0], ['down', workoutUi.moveDown, index < visible.length - 1]] as const as [direction, label, show] (direction)}
-								{#if show}
-									<form method="POST" action="?/moveExercise" use:enhance={editSubmit}>
-										<input type="hidden" name="occurrenceId" value={occurrenceId} />
-										<input type="hidden" name="direction" value={direction} />
-										<button>{label}</button>
-									</form>
-								{/if}
-							{/each}
-							{#if loggedCount === 0 && !data.photoBlocks[occurrenceId]}
-								<button
-									type="button"
-									onclick={(e) => {
-										(e.currentTarget.closest('details') as HTMLDetailsElement).open = false;
-										swapTarget = {
-											occurrenceId,
-											exerciseId: group.exerciseId,
-											exerciseName: group.exerciseName,
-											planned: !data.quick && group.sets.some((x) => x.prescribedSetId != null)
-										};
-										swapOpen = true;
-									}}>{workoutUi.swap}</button
-								>
-								<button
-									type="button"
-									class="danger"
-									onclick={(e) => {
-										(e.currentTarget.closest('details') as HTMLDetailsElement).open = false;
-										startRemove(occurrenceId, group.exerciseName);
-									}}>{workoutUi.remove}</button
-								>
-							{:else if loggedCount > 0}
-								<p class="menu-note">{workoutUi.swapLocked}</p>
-								{#if loggedCount < group.sets.length}
-									<form method="POST" action="?/skipRest" use:enhance={editSubmit}>
-										<input type="hidden" name="occurrenceId" value={occurrenceId} />
-										<button>{workoutUi.skipRest}</button>
-									</form>
-								{/if}
-								<form method="POST" action="?/removeExercise" use:enhance={editSubmit}>
-									<input type="hidden" name="occurrenceId" value={occurrenceId} />
-									<input type="hidden" name="loggedCount" value={loggedCount} />
-									<input type="hidden" name="exerciseName" value={group.exerciseName} />
-									<button class="danger">{workoutUi.removeWithSets}</button>
-								</form>
-							{/if}
-						</div>
-					</details>
+					<ExerciseMenu
+						{group}
+						occurrenceId={group.occurrenceId}
+						{index}
+						groupCount={data.groups.filter(
+							(g) => g.occurrenceId !== edits.pendingRemove?.occurrenceId
+						).length}
+						quick={data.quick}
+						photoBlock={!!data.photoBlocks[group.occurrenceId]}
+						{editing}
+						{edits}
+						onswap={(target) => {
+							swapTarget = target;
+							swapOpen = true;
+						}}
+					/>
 				{/if}
 			</div>
-			{#if group.occurrenceId && data.photoBlocks[group.occurrenceId]}
-				{@const pb = data.photoBlocks[group.occurrenceId]}
-				<div class="photo-block" data-testid="photo-block">
-					{#if pb.kind === 'reading' && (readingIds.includes(pb.photoId) || autoRead.includes(pb.photoId))}
-						<p class="photo-line" aria-live="polite">{workoutUi.photoReading}</p>
-					{:else if pb.kind === 'match' && !laterIds.includes(group.occurrenceId)}
-						<form method="POST" action="?/identify" use:enhance class="identify">
-							<p class="model">{pb.modelLabel}</p>
-							<input type="hidden" name="occurrenceId" value={group.occurrenceId} />
-							<input type="hidden" name="modelId" value={pb.modelId} />
-							<label
-								>{workoutUi.photoExerciseLabel}<input
-									name="exerciseName"
-									value={pb.exerciseName}
-									maxlength="120"
-									autocomplete="off"
-									autocapitalize="words"
-									spellcheck="false"
-								/></label
-							>
-							<label
-								>{workoutUi.photoWeightLabel}<select name="loadConvention">
-									{#if pb.equipmentType === 'machine-plate'}<option
-											value="plates_per_side"
-											selected={pb.loadConvention === 'plates_per_side'}>Plates per side</option
-										><option value="total_plates" selected={pb.loadConvention === 'total_plates'}
-											>All plates combined</option
-										>{/if}
-									<option value="per_arm" selected={pb.loadConvention === 'per_arm'}
-										>Per hand / arm</option
-									><option value="displayed" selected={pb.loadConvention === 'displayed'}
-										>Total or displayed weight</option
-									><option value="unknown" selected={pb.loadConvention === 'unknown'}
-										>Not sure — keep separate</option
-									>
-								</select></label
-							>
-							<div class="identify-actions">
-								<button class="use">{workoutUi.photoUseThis}</button><button
-									type="button"
-									class="later"
-									onclick={() => (laterIds = [...laterIds, group.occurrenceId!])}
-									>{workoutUi.photoLater}</button
-								>
-							</div>
-							<a class="other" href="/photos/{pb.photoId}/review">{workoutUi.photoOtherMachine}</a>
-						</form>
-					{:else if pb.kind !== 'match'}
-						<p class="photo-line">{workoutUi.photoReadFailed}</p>
-					{/if}
-					{#if pb.kind === 'reading'}
-						<form
-							method="POST"
-							action="?/readPhoto"
-							class="photo-actions"
-							use:enhance={readSubmit(pb.photoId)}
-							use:readOnce={autoRead.includes(pb.photoId)}
-						>
-							<input type="hidden" name="photoId" value={pb.photoId} />
-							{#if !readingIds.includes(pb.photoId) && !autoRead.includes(pb.photoId)}<button
-									>{workoutUi.photoReadAgain}</button
-								><a href="/photos/{pb.photoId}/review">{workoutUi.photoNameIt}</a>{/if}
-						</form>
-					{:else if pb.kind === 'none' || laterIds.includes(group.occurrenceId)}
-						<div class="photo-actions">
-							<a href="/photos/{pb.photoId}/review">{workoutUi.photoNameIt}</a>
-						</div>
-					{/if}
-				</div>
-			{/if}
-			{#if !data.session.endedAt && group.occurrenceId && data.namedPhotoBlocks[group.occurrenceId]}
-				<form
-					method="POST"
-					action="?/undoIdentify"
-					class="photo-named"
-					data-testid="photo-named"
-					use:enhance={({ formData }) => {
-						// The new placeholder's label carries the phone's own time.
-						formData.set(
-							'timeLabel',
-							new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-						);
-					}}
-				>
-					<input type="hidden" name="occurrenceId" value={group.occurrenceId} />
-					<span
-						>{workoutUi.photoNamedFrom(data.namedPhotoBlocks[group.occurrenceId].modelLabel)}</span
-					><button>{workoutUi.photoUndo}</button>
-				</form>
+			{#if group.occurrenceId}
+				<WorkoutPhotoBlock
+					occurrenceId={group.occurrenceId}
+					block={data.photoBlocks[group.occurrenceId]}
+					named={data.namedPhotoBlocks[group.occurrenceId]}
+					live={!data.session.endedAt}
+					{photos}
+				/>
 			{/if}
 			{#if !data.session.endedAt && group.occurrenceId && !data.photoBlocks[group.occurrenceId] && !FREE_WEIGHT_UI.has(group.equipmentType) && !group.sets.some((x) => x.executedLoad != null || x.executedReps != null || x.executedRir != null || x.notes)}
 				<!-- The machine for a planned exercise (0.8.1): the add sheet in bind mode,
@@ -705,29 +451,7 @@
 </main>
 {#if !data.session.endedAt}<footer>
 		<div class="footer-inner">
-			{#if data.photoEnabled}<form
-					method="POST"
-					action="?/photo"
-					enctype="multipart/form-data"
-					class="photo-form"
-					bind:this={photoForm}
-					use:enhance={photoSubmit}
-				>
-					<input type="hidden" name="requestId" value={photoRequestId} />
-					<!-- No capture attribute: the phone offers camera, library and files (0.4.2). -->
-					<label class="photo-next" class:busy={photoStage !== null}
-						>{photoStage ?? workoutUi.photoNextMachine}<input
-							type="file"
-							name="photo"
-							id="photo-next-input"
-							accept="image/jpeg,image/png,image/webp"
-							class="sr-only"
-							disabled={photoStage !== null}
-							onchange={() => photoForm?.requestSubmit()}
-						/></label
-					>
-					{#if photoError}<p role="alert" class="photo-error">{photoError}</p>{/if}
-				</form>{/if}
+			{#if data.photoEnabled}<WorkoutPhotoUpload {photos} />{/if}
 			{#key data.session.id}<RestTimer
 					bind:this={timer}
 					sessionId={data.session.id}
@@ -966,48 +690,6 @@
 		flex: 1;
 		min-width: 0;
 	}
-	.exercise-menu {
-		position: relative;
-	}
-	.exercise-menu summary {
-		list-style: none;
-		display: grid;
-		place-items: center;
-		min-width: 44px;
-		min-height: 44px;
-		font-size: 22px;
-		color: #c7d2fe;
-		cursor: pointer;
-	}
-	.exercise-menu summary::-webkit-details-marker {
-		display: none;
-	}
-	.menu-items {
-		position: absolute;
-		right: 0;
-		z-index: 20;
-		width: min(16rem, calc(100vw - 48px));
-		padding: 6px;
-		border: 1px solid #3f3f46;
-		border-radius: 12px;
-		background: #18181b;
-	}
-	.menu-items button {
-		display: block;
-		width: 100%;
-		min-height: 44px;
-		padding: 0 12px;
-		text-align: left;
-		color: #e4e4e7;
-	}
-	.menu-items .danger {
-		color: #fca5a5;
-	}
-	.menu-note {
-		padding: 8px 12px;
-		font-size: 13px;
-		color: #a1a1aa;
-	}
 	.save-program {
 		margin-bottom: 20px;
 		padding: 14px 18px;
@@ -1159,117 +841,5 @@
 		color: #fcd34d;
 		font-size: 14px;
 		font-weight: 600;
-	}
-	.photo-block {
-		margin-bottom: 14px;
-		font-size: 14px;
-	}
-	.photo-line {
-		color: #b6c5da;
-	}
-	.photo-actions {
-		display: flex;
-		gap: 16px;
-		align-items: center;
-		margin-top: 6px;
-	}
-	.photo-actions a,
-	.photo-actions button {
-		min-height: 44px;
-		display: inline-flex;
-		align-items: center;
-		color: #c7d2fe;
-		font-weight: 600;
-	}
-	.identify {
-		display: grid;
-		gap: 10px;
-		border: 1px solid #3b4a63;
-		border-radius: 12px;
-		padding: 12px;
-	}
-	.identify .model {
-		font-weight: 600;
-		color: #e2e8f0;
-	}
-	.identify label {
-		display: grid;
-		gap: 4px;
-		color: #b6c5da;
-		font-size: 13px;
-	}
-	.identify input,
-	.identify select {
-		background: #0b1220;
-		color: #e2e8f0;
-		border: 1px solid #46546b;
-		border-radius: 9px;
-		padding: 10px;
-		font-size: 16px;
-	}
-	.identify-actions {
-		display: flex;
-		gap: 8px;
-	}
-	.identify-actions button {
-		min-height: 44px;
-		flex: 1;
-		border-radius: 9px;
-		font-weight: 600;
-	}
-	.identify-actions .use {
-		background: #c7d2fe;
-		color: #182044;
-	}
-	.identify-actions .later {
-		border: 1px solid #46546b;
-		color: #c7d2fe;
-	}
-	.identify .other {
-		min-height: 44px;
-		display: inline-flex;
-		align-items: center;
-		color: #c7d2fe;
-		font-size: 13px;
-		font-weight: 600;
-	}
-	.photo-named {
-		display: flex;
-		gap: 12px;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 12px;
-		font-size: 13px;
-		color: #b6c5da;
-	}
-	.photo-named button {
-		min-height: 44px;
-		color: #c7d2fe;
-		font-weight: 600;
-		flex: none;
-	}
-	.photo-form {
-		margin-bottom: 8px;
-	}
-	.photo-next {
-		min-height: 48px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 10px;
-		background: #059669;
-		color: #fff;
-		font-weight: 700;
-		font-size: 15px;
-		cursor: pointer;
-	}
-	.photo-next.busy {
-		opacity: 0.7;
-	}
-	.photo-error {
-		color: #fda4af;
-		font-size: 12px;
-		text-align: center;
-		margin-top: 6px;
 	}
 </style>

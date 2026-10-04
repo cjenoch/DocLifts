@@ -3534,3 +3534,14 @@ Public scratch checks verified the release/build on sign-in and signed-in pages,
 the absent global switch, newer-build prompt/manual refresh, all four workout
 layouts, saving, hidden values, set controls and 320/390px fit. Owner phone
 verification remains pending. No schema, auth, MCP or tunnel changes.
+
+## 0.18.2 Alpha — workout page refactor — not deployed
+
+- Separates photo upload, identification/review and exercise menus from the
+  workout page. Page-owned controllers retain upload/read state and removal
+  Undo state across server-data refreshes and component changes.
+- Keeps the existing forms, actions, styles, request IDs and confirmation
+  behavior. Set drafts, saving, timer, progression and account boundaries are
+  unchanged. No schema or provider changes.
+- Reuses the existing browser regression scenarios; no extra test cases added.
+  Deployment and real-phone acceptance remain pending.

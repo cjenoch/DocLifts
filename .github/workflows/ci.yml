@@ -7,13 +7,48 @@ on:
   # Manual runs, e.g. to validate a workflow change on a branch before merging.
   workflow_dispatch:
 
-# Neither job writes to the repository or uses a secret: a read-only token,
+# Jobs do not write to the repository or use secrets: a read-only token,
 # stated here rather than left to the repository's default setting.
 permissions:
   contents: read
 
 jobs:
-  test:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Classify the complete change
+        id: scope
+        run: node scripts/ci-scope.ts
+
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Enable corepack pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.3.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  full-test:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The whole job runs inside the Playwright image so the browser suites
@@ -154,6 +189,8 @@ jobs:
   # binary. The Dockerfile's runtime stage loads sharp at build time, so a
   # missing binary fails this step rather than the first upload in production.
   docker:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -169,3 +206,31 @@ jobs:
         run: >-
           docker run --rm -w /app doclifts-web:ci node -e
           "require('sharp')({create:{width:8,height:6,channels:3,background:'#123'}}).jpeg().toBuffer().then(b=>console.log('sharp ok',b.length))"
+
+  # Preserve one stable check name; a failed/skipped dependency cannot silently pass.
+  test:
+    needs: [changes, docs, full-test, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SCOPE_RESULT: ${{ needs.changes.result }}
+      DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+      DOCS_RESULT: ${{ needs.docs.result }}
+      FULL_RESULT: ${{ needs.full-test.result }}
+      DOCKER_RESULT: ${{ needs.docker.result }}
+    steps:
+      - name: Require the selected gate to pass
+        shell: bash
+        run: |
+          set -eu
+          test "$SCOPE_RESULT" = success
+          if [ "$DOCS_ONLY" = true ]; then
+            test "$DOCS_RESULT" = success
+            test "$FULL_RESULT" = skipped
+            test "$DOCKER_RESULT" = skipped
+          else
+            test "$DOCS_ONLY" = false
+            test "$FULL_RESULT" = success
+            test "$DOCKER_RESULT" = success
+          fi

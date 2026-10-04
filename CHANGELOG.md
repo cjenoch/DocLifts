@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.18.2 Alpha — workout page refactor — not deployed
+
+- Separates photo upload, identification/review and exercise menus from the
+  workout page. Page-owned controllers retain upload/read state and removal
+  Undo state across server-data refreshes and component changes.
+- Keeps the existing forms, actions, styles, request IDs and confirmation
+  behavior. Set drafts, saving, timer, progression and account boundaries are
+  unchanged. No schema or provider changes.
+- Reuses the existing browser regression scenarios; no extra test cases added.
+  Deployment and real-phone acceptance remain pending.
+
 ## 0.18.1 Alpha — visible builds and one workout view system — deployed, acceptance pending
 
 - Shows the release and loaded build on the sign-in page and signed-in header.

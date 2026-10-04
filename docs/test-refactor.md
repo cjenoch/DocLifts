@@ -1,4 +1,4 @@
-# Test suite refactor, first pass
+# Refactor progress
 
 The first pass changes test infrastructure only. It does not change app behavior, database schema, deployed runtime or account data.
 
@@ -14,8 +14,14 @@ The first pass changes test infrastructure only. It does not change app behavior
 ## Next cuts, after this pass
 
 1. Review route-level and database-level assertions by behavior. Consolidate genuine duplication only after naming which remaining test catches the same failure.
-2. Extract photo orchestration and exercise editing from the large workout page in separate changes, keeping the existing saved-set, hidden-field and cross-account regressions. Avoid a simultaneous rewrite of the editor and logger.
+2. Continue breaking down large UI files only at behavior boundaries, keeping saved-set, hidden-field and cross-account regressions. Avoid a simultaneous rewrite of the editor and logger.
 3. Profile test DB resets and module import cost before splitting or parallelizing suites. Today they share one isolated test database; enabling parallel files without isolation is unsafe.
 4. Replace unnecessary browser idle waits with explicit readiness checks where a scenario demonstrates the replacement is reliable. Keep the authentication and throttle timing tests, whose waits are the behavior under test.
 
 Record before/after timings on the same host and build; counts alone are not a performance metric.
+
+## Workout page extraction (0.18.2 Alpha)
+
+The workout page falls from 1,275 to 845 lines. Photo upload, photo review and exercise menus now render in route-local components. Page-owned controllers preserve photo request/read state and the removal Undo timer while server data refreshes. Set drafts and the logger remain in place; no server actions or database behavior change.
+
+The existing photo-workout, live-edit and faster-set-entry browser scenarios exercise these boundaries. No test cases were added for the extraction.

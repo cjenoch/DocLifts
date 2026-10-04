@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ActionData } from './$types';
 	import PasswordInput from '$lib/PasswordInput.svelte';
+	import BuildVersion from '$lib/BuildVersion.svelte';
 	import { appShell } from '$lib/app-shell';
 
 	let { form, data }: { form: ActionData; data: { next?: string } } = $props();
@@ -65,7 +66,7 @@
 <main class="mx-auto max-w-sm px-4 py-16">
 	<!-- What this is, in one line (0.5.5). No sign-up link while sign-up is closed. -->
 	<h1 class="text-3xl font-semibold tracking-tight text-zinc-100">{appShell.signInHeadline}</h1>
-	<p class="mt-2 text-sm font-medium text-zinc-400">{appShell.appName}</p>
+	<p class="mt-2 text-sm font-medium text-zinc-400">{appShell.appName}<BuildVersion /></p>
 	<p class="mt-2 mb-8 text-zinc-400" data-testid="tagline">{appShell.tagline}</p>
 	<h2 class="mb-6 text-2xl font-semibold">Sign in</h2>
 

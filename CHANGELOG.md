@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.18.1 Alpha — visible builds and one workout view system — not deployed
+
+- Shows the release and loaded build on the sign-in page and signed-in header.
+- Checks for a newer build when a tab opens or regains focus; an update prompt
+  offers an explicit Refresh app button. No automatic refresh interrupts a set.
+  Account includes Check for updates; a failed check never claims to be current.
+- Removes the obsolete global Simple/Advanced switch, context and storage code.
+  Workout View/Customize controls remain. Home and Account explain where to find
+  the four layouts; program controls stay available without a global mode.
+- No database, auth, progression, MCP or tunnel changes. Owner phone verification
+  remains pending after deployment.
+
 ## 0.18.0 Alpha — workout layouts — deployed, acceptance pending
 
 - Four workout views: Guided with an available private machine photo, compact

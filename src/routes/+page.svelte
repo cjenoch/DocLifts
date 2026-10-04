@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { getContext } from 'svelte';
-	import { WORKOUT_VIEW, type WorkoutView } from '$lib/workout-view.svelte';
-	const view = getContext<WorkoutView>(WORKOUT_VIEW);
 	import type { PageData } from './$types';
 	import { workoutUi } from '$lib/workout-ui';
 	import { appShell, pageTitle } from '$lib/app-shell';
@@ -13,10 +10,10 @@
 
 <div class="mx-auto max-w-md px-4 py-6">
 	<h1 class="mb-2 text-2xl font-semibold tracking-tight">Workout</h1>
-	<p class="mb-5 text-sm text-zinc-400">
-		{view.mode === 'simple'
-			? 'Document your lifts, one set at a time.'
-			: 'Your workouts, programs and training history.'}
+	<p class="mb-5 text-sm text-zinc-400">Document your lifts, one set at a time.</p>
+
+	<p class="mb-5 text-xs text-zinc-400">
+		Open a workout to choose Guided, Set table, Notebook or Tap sets.
 	</p>
 
 	{#if data.firstRun}
@@ -55,11 +52,7 @@
 			>
 		{/if}
 
-		<details
-			open={view.mode === 'advanced'}
-			class="mb-5 rounded-xl border border-zinc-800 px-4"
-			data-testid="program-tools"
-		>
+		<details class="mb-5 rounded-xl border border-zinc-800 px-4" data-testid="program-tools">
 			<summary class="min-h-12 cursor-pointer py-3 text-sm font-semibold text-zinc-300"
 				>Program tools</summary
 			>

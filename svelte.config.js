@@ -18,8 +18,8 @@ const config = {
 		// The 0.2.1 lockout ended with a browser unable to sign in and no way to
 		// tell why. SvelteKit's own answer is these two settings: `_app/version.json`
 		// serves `version.name`, and a client whose value differs from what it
-		// loaded detects a new deploy and forces a full reload instead of running
-		// stale client code against a new server.
+		// loaded detects a new deploy. AppUpdate shows a refresh prompt; polling
+		// alone does not refresh an idle tab. The user chooses when to reload.
 		//
 		// Built from git so the value changes exactly when the deployed code
 		// does. Falls back to 'dev' outside a checkout; that is still a valid,

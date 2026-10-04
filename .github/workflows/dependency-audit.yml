@@ -2,7 +2,7 @@
 # finds (owner decision, 2026-10-02). The report is the run's job summary:
 # every finding (package, severity, path, advisory link), then whether a gate
 # at "high" would fail and which packages would trigger it. The CI job runs the
-# same report on every push to main and every PR.
+# same report on the full CI path; documentation-only changes skip it.
 #
 # GitHub disables scheduled workflows in a repository with no activity for 60
 # days (as happened to the old Browser CI workflow); re-enable it from the
@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version-file: .node-version
 
       - name: Enable corepack pnpm
         run: |

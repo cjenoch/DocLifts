@@ -1,94 +1,51 @@
-# DocLifts — STATUS for Project Claude (PC)
+# DocLifts — current status
 
-**Date:** 2026-05-31  
-**Branch:** `main`  
-**Latest commit:** `HEAD` (resolve at read time: `git rev-parse --short HEAD`)  
-**Deployment target:** `doclifts.service` on TestDev01 (`releases/current` runtime via `/usr/bin/node .`, port 3000)
+Updated October 3, 2026. Current application: **0.16.3 Alpha**, runtime `d56be47`.
+Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
+Markdown merge does not require rebuilding the application.
 
-## Executive summary
+## Live
 
-Delta re-audit items from PC were addressed on `main` with production-safe, tested changes.
-The hot-path progression wiring bug is fixed: SECONDARY/ISOLATION now gate progression at exercise-level across all working sets, while preserving per-position baselines. Warmups now explicitly bypass engine progression. Suggestion rationale is now snapshotted at session start and displayed in-session. UUID route hardening is in place for session/program/day entry points. `.env.example` now matches docker-compose credentials for fresh clones.
+- [App](https://doclifts.runthe.ai): separate accounts, photo-assisted machine
+  identification, per-machine history, editable programs and workout logging.
+- [MCP endpoint](https://doclifts-mcp.runthe.ai/mcp): eight account-scoped read tools,
+  including bulk app sets and imported notebook history. OAuth consent, optional
+  notes, refresh and revocation are implemented. The Muse chat app has made
+  successful reads of both history collections; its notes permission is approved.
+- Image screening runs before persistent storage and vision identification, with
+  controlled local/OpenRouter A/B testing. Failed screening refuses the upload.
+- Android and iPhone sign-in were owner-tested. Signup remains closed; Alpha
+  accounts are operator-managed. The old disposable demo is retired.
 
-## What changed (PC delta plan closure)
+## Deployment and evidence
 
-### N1 — Tier-correct prefill assembly + warmup guard ✅
+SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
+through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
+Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-- **File:** `src/lib/server/sessions.ts`
-- **Fixes:**
-  - non-MAIN progression decision now uses all working sets for an exercise
-  - per-position baseline retained when applying hold/advance/deload decision
-  - warmup rows bypass engine and use history-or-initial path
-- **Engine functions unchanged** (`suggestNextLoad` remains caller-assembled as intended)
+0.16.3 passed local lint, types, Drizzle checks, build, 901 server tests
+(+2 expected skips), 40 component tests and 171 browser tests, then
+[exact-head CI](https://github.com/cjenoch/DocLifts/actions/runs/37165497476).
+Public test-account checks covered both new readers, pagination, note consent,
+refresh/revocation and normal login/history. A backup was restored and checked;
+at least two prior images are retained. Private evidence stays in the private
+operations repository. See [release records](docs/release-0.2.0.md).
 
-### N2 — Provenance threading (reasoning persisted and shown) ✅
+Actual client read success is not a guarantee of complete pagination or correct
+training analysis. Other agent clients and owner interpretation review remain
+separate acceptance work.
 
-- **Schema:** `sets.suggestion_reasoning` nullable text
-- **Files:**
-  - `src/lib/server/db/schema.ts`
-  - `drizzle/0004_bouncy_ezekiel_stane.sql`
-  - `src/lib/server/sessions.ts`
-  - `src/routes/sessions/[id]/+page.server.ts`
-  - `src/routes/sessions/[id]/SetRow.svelte`
-- Behavior: engine-driven rows show persisted rationale; warmup/cold-start rows stay null (no empty label spam)
+## Next work, not shipped
 
-### N3 — Regex increment heuristic replaced by schema column ✅
+- Off-host encrypted backup automation and a timed restore drill. Current local
+  dumps and rehearsals do not provide redundancy or off-host recovery.
+- Measured capacity tests and follow-up on the existing security findings before
+  widening Alpha access. Screening does not solve prompt injection.
+- Signup/approval gates, beginner onboarding, and simple/advanced UI choices.
+- Explicit test/training labels; richer import/export and reviewed notebook
+  ingestion. Existing imported history is readable, not a self-service importer.
+- Beginner machine guidance and further client compatibility checks.
 
-- **Schema:** `exercises.is_lower_body` boolean (default false)
-- **Runtime:** increment now derives from `isLowerBody`, not exercise name regex
-- **Seed:** explicit `exerciseMeta` map now sets both `equipmentType` and `isLowerBody`
-
-### N4 — `.env.example` mismatch ✅
-
-- `.env.example` now uses `doclifts:dev` to match `docker-compose.yml`
-
-### L1 — UUID route validation ✅
-
-- `programs/[id]` and `sessions/[id]` entry points validate UUIDs and return 4xx for malformed ids
-- start-session action validates `dayId` UUID before DB access
-
-### M3 — CI gate expansion ✅ (with one pragmatic adjustment)
-
-- CI now includes: lint signal, check, server tests, build, prod-audit signal
-- Lint is currently **non-blocking signal** because repo has broad historical prettier drift unrelated to this patch set
-
-## Verification (local)
-
-- `pnpm run db:migrate` ✅
-- `pnpm run check` ✅
-- `pnpm run test:unit --project server` ✅ (122 passed)
-- `pnpm run test:unit --project client` ✅ (2 passed)
-- `pnpm run build` ✅
-
-## CI evidence
-
-- **CI** run `26705564919` ✅  
-  https://github.com/cjenoch/DocLifts/actions/runs/26705564919
-- **Browser CI** run `26705564909` ✅  
-  https://github.com/cjenoch/DocLifts/actions/runs/26705564909
-
-## Recent commits (highest signal)
-
-- `5217735` — fix: poll listening check inside verify wait loop (rollback readiness race)
-- `650c6ce` — docs: mark canonical systemd unit and remove superseded override script
-- `b465f11` — ops: harden deploy rollback (pre-migrate pg_dump + pg_restore) and codify release-symlink unit
-- `7685a34` — CI: make lint non-blocking signal until baseline formatting cleanup
-- `0770b34` — progression wiring fix + reasoning snapshot + UUID hardening + schema/migration
-
-## Current operational state
-
-- App build and tests are green locally.
-- CI is green on the latest commit. The separate Browser CI workflow was removed on 2026-09-29: GitHub had auto-disabled it for repository inactivity on 2026-08-02, so the component suite had not run in CI for any commit since. Its job now runs as a step of the single CI workflow.
-- Deploy converged: `doclifts.service` runs from `releases/current` (committed `deploy/doclifts.service` matches the installed host unit; superseded override script removed).
-- Rollback drilled end-to-end on the host (`DOCLIFTS_DEPLOY_FAIL_AFTER_MIGRATE=1`): forced post-migrate failure restored the pre-migrate `pg_dump`, repointed `current` to the prior release, restarted, and passed readiness (`exit 91`). Session data round-tripped intact (14 → 14). Two issues surfaced and fixed during the drill: a missing NOPASSWD sudoers entry for `systemctl` (host config, see below), and a readiness-check race where the listening probe fired before the swap loop — fixed in `scripts/verify-doclifts-up.sh` (commit `5217735`).
-- Migrations run only inside `deploy-safe.sh` (the live unit has no `ExecStartPre` migrate), so every migration is preceded by the pre-migrate dump. A bare `systemctl restart` never migrates.
-
-**Host-config dependency (not in repo):** rollback requires a NOPASSWD sudoers entry for `systemctl restart/is-active doclifts.service` at `/etc/sudoers.d/doclifts`. Without it the rollback fails closed at the restart step. Required on any rebuilt host.
-
-## Remaining follow-up (outside this delta patch set)
-
-1. Promote CI lint from signal to blocking after repo-wide formatting baseline cleanup.
-2. Optional: add explicit route-level tests for malformed UUID params returning 400.
-3. Low/latent (unchanged from audit): M2 program-delete FK semantics (decide before a program-edit/delete flow ships); L2 DB CHECK constraints on enum-ish text columns; L3 `programs.updatedAt` $onUpdate; L4 post-23505 retry.
-
-Note: item 2 from the prior list (deploy convergence + rollback re-verify) is DONE — see Current operational state.
+See [application overview](APP_DOCS.md), [MCP guide](docs/mcp-alpha.md),
+[README](README.md) and [changelog](CHANGELOG.md). Historical status and design
+notes remain in Git history; they are not current deployment instructions.

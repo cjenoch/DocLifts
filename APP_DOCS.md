@@ -1,234 +1,97 @@
-# DocLifts — Application Documentation
-
-## Summary
-
-DocLifts is a single-user lifting log for the gym. It encodes a structured training program (the "v5 program"), prescribes the next set's load + reps + RIR target based on history, captures executed work as you go, and preserves what was prescribed at the time even if the program template later changes. It is intentionally a personal tool, not a product — no auth, no cloud, no sharing.
-
-The runtime model is a SvelteKit app talking to a local Postgres in Docker. The app is used on a phone at the gym via Tailscale, hitting a production build (adapter-node) served by systemd on the VM. Forms are progressively enhanced: they work as plain HTML POSTs with no JavaScript, and when JavaScript is available `use:enhance` submits them via `fetch` without a full-page reload.
-
----
-
-## What it does, from the user's perspective
-
-**Open the app at the gym.** You see a list of programs (typically one active program).
-
-**Pick a program.** You see the program's days in order. Each day is either:
-
-- **Startable** — no open session for that day exists. A "Start" button appears.
-- **Resumable** — an open session for that day exists. A "Resume" button takes you back to it.
-
-**Start a day's session.** The app snapshots the day's prescribed sets into the session: one row per set, frozen with the prescription that was active at session-start. Each row is prefilled with a target load (last executed load for that exercise + set role + position, or the cold-start `initialLoad` if no history exists).
-
-**Log sets as you train.** Each set row shows: position, role (warmup / working / top / backoff), prescribed load × reps target with RIR, and the most recent completed prior set ("Last: 284 × 3 @ RIR 1"). You fill in `load`, `reps`, `RIR`, optional `notes`, and tap Save. The row turns green and shows a "logged" badge, and the view scrolls to the next set so you move down the workout without scrolling manually.
-
-**End the session.** A sticky bottom button stamps `endedAt` and returns you to the program list. The session view becomes read-only after this.
-
-**View a past session.** Navigate to any session URL to see what was prescribed and what you executed, no longer editable.
-
-That's the entire flow. There is no rest timer UI, no chart, no streak counter, no goal-setting screen — by design.
-
----
-
-## The v5 program model
-
-A **program** has many **days** (e.g. "Day 1 - Upper", "Day 2 - Lower"). Days have a `position` for ordering and an optional `alternateGroupId` so two days can be presented as A/B alternates within a slot.
-
-Each day has many **day_exercises** — one per exercise in the day's plan. Each carries:
-
-- **Tier**: `main` | `secondary` | `isolation`. Drives progression logic.
-- **Progression policy**: `standard` | `cautious` | `hold`.
-  - `standard` — engine progresses linearly per tier rules.
-  - `cautious` — engine holds; user must manually advance after clean sessions at low RIR. Used for right-shoulder-fragile lifts: shoulder press, DB lateral raise, band external rotations.
-  - `hold` — engine never suggests progression. Used for wave-loaded lifts like deadlift, where the user inputs target directly per the wave plan.
-
-Each day_exercise has many **prescribed_sets** — the actual rows of the workout:
-
-- `setRole`: `warmup` | `working` | `top` | `backoff`
-- `targetMetric`: `reps` or `seconds` (planks etc.)
-- `targetRepsMin` / `targetRepsMax` — a range, not a single value
-- `targetRir` — leftover reps after the set
-- `initialLoad` — cold-start load when no history exists. **Not** the current target load.
-- Rest range (min/max seconds) — captured in schema, not yet surfaced as a timer UI.
-
-**Key design rule:** the template stores structure and cold-start, never current loads. Current loads come from history + the progression engine.
-
----
-
-## Data model (Drizzle / Postgres)
-
-Tables, in dependency order:
-
-| Table             | Notes                                                                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `programs`        | Self-FK `sourceProgramId` for duplicate-on-edit lineage. `isActive` flag.                                                                        |
-| `days`            | Belongs to a program. `position` unique within program. Optional `alternateGroupId`.                                                             |
-| `exercises`       | Master list. `name` unique. `equipmentType` is the dispatch key for plate snap.                                                                  |
-| `day_exercises`   | Pivot: a day's exercises in order. Carries tier + progression policy.                                                                            |
-| `prescribed_sets` | Per day_exercise, structural prescription + `initialLoad`. Range rep columns.                                                                    |
-| `sessions`        | One per workout instance. `programId` denormalized from `days.programId`. `endedAt` nullable.                                                    |
-| `sets`            | The actual logged rows. Snapshotted from prescribed_sets at session-start. Carries both prescribed (snapshot) and executed (user input) columns. |
-| `pain_events`     | Optional rows linked to a session, set, or exercise. CHECK requires at least one parent FK non-null.                                             |
-
-**Numeric columns** use `mode: 'number'` (loads are bounded under 1000 lb; JS-number precision is safe). **All FK columns have explicit indexes** — Drizzle does not auto-index FKs and neither does Postgres. **Position columns** have unique constraints with their parent so accidental dup-position rows fail loudly.
-
-The `sets` table has a composite index `(exerciseId, setRole, position, loggedAt DESC)` that supports the prefill query.
-
----
-
-## Core pipelines
-
-### 1. History lookup → engine → plate snap → display
-
-This is the locked pipeline order for any "what should I do next" question, and it is now wired in runtime session-start prefill: history lookup feeds progression suggestion, then plate snap adapts the load for equipment before display/storage in the session snapshot. The engine/snap modules remain independently tested as pure functions as well.
-
-**History lookup** (`getLastCompletedSet`, `progression.ts`): selects the most recent `sets` row matching `(exerciseId, setRole, position)`, **always** filtered by:
-
-```sql
-WHERE executed_load IS NOT NULL
-  AND executed_reps IS NOT NULL
-  AND sessions.ended_at IS NOT NULL
-```
-
-This filter prevents **blank-row poisoning** — a newly-created session has pre-filled `sets` rows with NULL executed values, and a naive `ORDER BY logged_at DESC LIMIT 1` would return that empty row as "history." The filter rule applies to **every** history lookup, not just the prefill.
-
-`getLastCompletedSet` also takes an optional `excludeSessionId` parameter. The session-view loader passes it the current session's id — otherwise, once that session ends, its own set becomes "the most recent completed" for the slot and the per-row "Last: …" line duplicates the Executed value shown right above it.
-
-**Progression engine** (`suggestNextLoad`, `progression.ts`): pure function, no DB access. Takes executed sets + targets + policy + tier and produces a suggested raw load with a one-line reasoning string ("Suggested 290 lb (last: 284 × 3 @ RIR 1, +5 hit target)"). The engine is **tier-aware**: MAIN passes only the top set; SECONDARY / ISOLATION pass all working sets and require ALL to clear the top of the range to advance. Two consecutive backwards sessions trigger a 10% deload. Cautious and hold policies short-circuit before the deload check.
-
-**Plate snap** (`snapForEquipment`, `plates.ts`): equipment-aware router. Dispatches to the right math based on the exercise's `equipmentType`:
-
-| Equipment                                                           | Behavior                                                       |
-| ------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `barbell`                                                           | Subtract bar (44 lb), halve, snap plates per side, double back |
-| `barbell-ez`                                                        | Same with EZ bar (25 lb)                                       |
-| `machine-plate`                                                     | Snap directly on per-side plate sums (no bar)                  |
-| `machine-stack`, `cable`, `dumbbell`, `smith`, `bodyweight`, `band` | Pass-through                                                   |
-| anything else                                                       | Pass-through                                                   |
-
-The router exists because callers shouldn't have to remember which math each equipment uses. Never call `snapToAchievable` directly from the pipeline.
-
-**Display** is the final step: the prescribed load + reps row in the UI, with provenance ("Last: 284 × 3 @ RIR 1") visible underneath — not in a tooltip, since this is information you need every set.
-
-### 2. Session-start integrity
-
-The `startSession` action accepts only a `dayId` from the form. The action looks up the day server-side to derive `programId` — **it never trusts a client-supplied programId**. There is no database trigger or composite FK enforcing this; application code is solely responsible. A bug here would silently route sessions to the wrong program and corrupt every subsequent history query that filters by `programId`.
-
-The session-start helper (`startSessionForDay(db, dayId)` in `sessions.ts`) makes this structural — the function signature physically does not accept a `programId` parameter, so the invariant is enforced at compile time as well as at runtime.
-
-### 3. Snapshot semantics
-
-When `startSessionForDay` creates the session, it copies the day's prescribed sets into the `sets` table — one `sets` row per `prescribed_sets` row, with the same `setRole`, `targetMetric`, `position`, and rep/RIR targets. The `prescribed_set_id` is captured as an FK for traceability. After this point, editing the program template does **not** alter the past session's `sets` rows. History is append-only in effect.
-
-### 4. Duplicate-on-edit for programs
-
-When a program is edited (UI not built yet), the model is to **deep-copy** the program AND all child rows (`days`, `day_exercises`, `prescribed_sets`), mark the old program inactive via `isActive = false`, and let the user edit the copy. `sourceProgramId` tracks lineage. A shallow copy would create historical-mutation problems (past sessions reference rows whose meaning has changed); deep copy keeps history meaningful.
-
----
-
-## Server actions
-
-Four actions across three pages. All four extract their business logic into helpers in `$lib/server/sessions.ts` so the logic is unit-testable independent of the HTTP layer.
-
-| Action         | Page                            | Helper                                            | What it does                                                                                                                                                                                                                                           |
-| -------------- | ------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `startSession` | `programs/[id]/+page.server.ts` | `startSessionForDay(db, dayId)`                   | Creates a session for a day, snapshots prescribed sets, applies dumb prefill. Returns 404 if the day doesn't exist.                                                                                                                                    |
-| `endSession`   | `sessions/[id]/+page.server.ts` | `endSession(db, sessionId)`                       | Idempotently stamps `endedAt` if null. Returns `{updated: boolean}` for testability.                                                                                                                                                                   |
-| `updateSet`    | `sessions/[id]/+page.server.ts` | `updateSetInSession(db, sessionId, setId, input)` | Validates input via Zod, writes one `sets` row. Returns 404 (no session), 409 (ended session, stale-tab guard), 400 (Zod fail) with field errors, or success. The UPDATE is scoped by `(setId, sessionId)` so cross-session injection silently no-ops. |
-| Loaders        | All three                       | inline                                            | Read-only page data: programs list, program detail with open-session badges, session view with per-set history.                                                                                                                                        |
-
----
-
-## UI conventions
-
-- **Dark theme** is always-on (not user-toggleable). Zinc-950 background, zinc-900 cards with zinc-800 borders, indigo accents, emerald for success states (logged, end session), amber for top-set + resume.
-- **`color-scheme: dark`** is set in the base layer so native form controls (number spinners, scrollbars) also render dark on iOS/Android.
-- **Inputs are 16px minimum** to prevent iOS Safari's auto-zoom-on-focus behavior. Enforced in the base layer; Tailwind `text-sm`/`text-xs` would override the 16px floor if applied to inputs, so don't.
-- **Forms are progressively enhanced** via `use:enhance`. With no JavaScript they fall back to plain HTML POSTs, so a save still succeeds if scripts fail; with JavaScript, submissions go through `fetch` and the page updates without a full reload.
-- **Provenance lives near the load field**, never in a tooltip. "Last: 284 × 3 @ RIR 1" is something you need to see every set.
-- **Past sessions are read-only.** The session view detects `endedAt != null` and replaces editable forms with executed-value displays.
-- **Numeric values use `font-mono` and `tabular-nums`** so loads and reps align column-wise across set rows.
-
----
-
-## Development workflow
-
-```bash
-# First time
-docker compose up -d              # Start Postgres
-pnpm install
-pnpm db:migrate                   # Apply schema
-
-# Daily
-pnpm dev                          # Vite dev for local development
-scripts/compose-prod.sh up -d --build --wait web   # Build + recreate the web container
-scripts/migrate-prod.sh                            # Verified dump, then apply migrations
-                                  # (fails closed; auto-rolls back to previous release on failed restart/health)
-pnpm test                         # Full suite, ~10s
-pnpm test --project server        # Server tests only, ~5s
-pnpm check                        # Type check
-```
-
-The test suite includes a `doclifts_test` Postgres database. The test-db helper auto-creates it on first run; no manual setup is needed beyond having Docker running.
-
-For schema changes:
-
-```bash
-pnpm db:generate                  # Generate migration SQL from schema
-pnpm db:migrate                   # Apply to dev DB
-```
-
-Generated migration files in `drizzle/` are committed to the repo.
-
-Deployment is Compose-based. `scripts/compose-prod.sh` is the only sanctioned way to run
-it: it passes the production env file (`/srv/doclifts/.env`, outside the repository)
-explicitly, so the checkout's `.env` is never consulted. `scripts/migrate-prod.sh`
-applies migrations and takes a verified pre-migrate dump first.
-
-The former systemd path (unit + release symlink + `pnpm redeploy`) is removed. It is
-described in historical reports under `docs/`; those records are left as they were
-written and do not describe the current deployment.
-
-For a stronger ops invariant independent of operator behavior, run `scripts/apply-doclifts-systemd-override.sh` (sudo) once on the host. It installs a systemd drop-in with `ExecStartPre=pnpm db:migrate` and `ExecStart=/usr/bin/node /home/chris/code/DocLifts/releases/current`.
-
----
-
-## File conventions
-
-- `src/lib/server/db/schema.ts` — all Drizzle table definitions
-- `src/lib/server/db/seed.ts` — v5 program seed
-- `src/lib/server/db/index.ts` — Drizzle client singleton
-- `src/lib/server/progression.ts` — engine + history helpers
-- `src/lib/server/plates.ts` — plate snap algorithms + router
-- `src/lib/server/sessions.ts` — session-action helpers (startSession, endSession, updateSet)
-- `src/lib/server/gym-config.ts` — single-gym hardware config (move to `gyms` table when multi-gym arrives)
-- `src/lib/server/test-db.ts` — integration-test database bootstrap (not imported by production code)
-- `drizzle/` — generated migration SQL (committed)
-- `drizzle.config.ts` — Drizzle Kit config
-
-DB code lives **only** under `src/lib/server`. Importing DB code from a client component is a build error and should stay that way.
-
----
-
-## Out of scope (not built, by intent)
-
-Per the locked design decisions, none of the following will be added without explicit user approval:
-
-- Authentication or login (note: CSRF is currently enabled via `csrf: { trustedOrigins: [...] }` for the single-origin Tailscale deployment. If auth is ever added and deployment topology changes, re-review `trustedOrigins` plus adapter-node proxy header settings.)
-- Cloud deployment
-- AI/LLM integration in the app
-- Mobile or PWA shells
-- Sync between devices
-- Charts or trend visualizations
-- Rest-timer UI (rest **targets** in schema are fine — just no timer widget)
-- Multi-gym support
-- Wave-loading state machine
-- Sleep / energy / readiness fields on sessions
-- Gamification, social features, streaks
-
-The "personal tool, not product" framing is locked.
-
----
-
-## When in doubt
-
-`CLAUDE.md` in the repo root is the source of truth for locked architectural principles and AI-assistant operating rules. If documentation and code disagree, fix the documentation so it reflects the current implementation and dated design decisions.
+# DocLifts — application overview
+
+Current through **0.16.3 Alpha**, October 3, 2026. DocLifts is a live multi-user
+workout log at [doclifts.runthe.ai](https://doclifts.runthe.ai). Accounts own their
+workouts, programs, gyms and machines. Alpha access is operator-managed; signup
+remains closed. The sign-in leads with **Document your Lifts**.
+
+## During a workout
+
+Choose an editable starter program or begin a quick workout. Photograph a machine
+and record sets while identification runs. Review the match when ready; saved
+sets survive identification and a failed model call does not block manual logging.
+Repeat-machine recognition has a review/undo path.
+
+Record load, repetitions or duration, RIR and optional notes. Add, move, remove,
+skip or swap exercises during a session. “Just today” and “From now on” distinguish
+a session change from a program change. Set entry includes machine-aware increments
+and a rest timer. Browser drafts are not saved or synced records.
+
+History and reports show recorded work; workouts can be edited and restored from
+Trash. Missing values mean unknown, not zero. A populated Alpha test entry is not
+independently verified performance.
+
+## Programs, identity and progression
+
+Programs contain ordered days, exercises and prescribed set structure. Editing a
+program copies its version and children; past prescriptions remain snapshots.
+Session-start copies the set role, target metric, rep range and RIR prescription.
+The carefully gated machine-binding and live-swap exceptions are documented in
+[project rules](CLAUDE.md) and [machine identity](docs/machine-identity.md).
+
+Machine history follows the physical machine and load convention. Free-weight
+history follows the exercise across gyms. Do not compare per-arm, per-side and
+total loads without their recorded context. Timed sets use seconds, not repetition
+volume.
+
+Progression is deterministic and tier-aware: main work uses the top set;
+secondary/isolation work requires all working positions to clear the target.
+Warmups do not advance through the progression engine. Standard, cautious and hold
+policies control suggestions. Equipment-aware plate calculations follow the
+history/progression decision. The explanation accompanies the suggested load,
+and the user can change it. Completed-history filters protect suggestions from
+blank pre-created rows; the rules are specified in [CLAUDE.md](CLAUDE.md).
+
+## Photos and AI
+
+Uploads are rebuilt into cleaned images in memory, screened, and only then stored
+or sent for identification. A rejection or scanner failure refuses the upload;
+manual set logging remains available. Local and OpenRouter screeners support
+controlled A/B testing. See [photo safety](docs/photo-safety.md).
+
+Model requests pass through one interface for structured-output validation,
+timeouts, per-user limits and usage records. The model suggests equipment identity;
+it does not write executed set values. Content screening and prompt injection are
+separate concerns. See [AI interface](docs/llm.md) and [photos](docs/photos.md).
+
+## Imported notebooks and agent access
+
+The imported archive preserves workout dates or date ranges, titles, gyms, source
+lines, original text, load conventions and structured load/reps pairs. Sets retain
+explicit or user-authorized-estimate evidence. It stays separate from app sessions
+and does not drive current progression. There is no canonical exercise ID on a
+notebook line; its original text is needed to interpret the exercise.
+
+The live [MCP endpoint](https://doclifts-mcp.runthe.ai/mcp) provides eight read-only
+tools. A user signs in, consents to named account permissions and may revoke the
+connection. Notebook text and written notes require optional notes:read. Agents
+receive bounded data responses, not database credentials or arbitrary SQL access.
+
+For history analysis, list_workouts supplies session metadata (including empty
+sessions), list_workout_sets supplies bulk contextual set rows, and
+list_imported_workouts supplies notebook workouts with their structured sets.
+Use limit50 and follow nextCursor. Read get_data_dictionary first: keep estimates,
+uncertain dates and test/incomplete entries visible, and do not double-count
+potentially overlapping collections. The Muse chat app has successfully read both
+collections. Other clients require individual verification.
+
+See [MCP setup, permissions and semantics](docs/mcp-alpha.md). These reads are not
+a complete database backup or a portable restore format. Self-service notebook
+uploads, full import/export, custom fields and agent writes remain future work.
+
+## Runtime and release workflow
+
+SvelteKit/Svelte 5, TypeScript, Tailwind and Zod; PostgreSQL 16 and Drizzle; Better
+Auth for accounts and OAuth. Node 24 and Docker Compose run on a VPS behind
+Cloudflare Tunnel. Accepted photos use private S3-compatible object storage. The
+database has no public port. One origin is not a redundant deployment.
+
+Application code and fictional tests are public. Credentials, workout payloads,
+production dumps and host settings remain outside this repository. Releases follow
+local/CI gates, backup checks, production wrappers, retained recovery images and
+public test-account verification. Owner/client acceptance is recorded separately.
+
+Current operations: [STATUS.md](STATUS.md), [release log](docs/release-0.2.0.md),
+[public address](docs/public-address.md), [migrations](docs/migrations.md),
+[development rules](CLAUDE.md). Earlier single-user/systemd descriptions are
+historical and remain available in Git history.

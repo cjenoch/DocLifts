@@ -30,9 +30,11 @@ Identification requests go through one model-call interface with structured-outp
 
 ## Your data beyond the app
 
-**0.16.1 Alpha is live; real-agent acceptance is pending.** It adds read-only MCP access to your workouts, programs and equipment, with explicit account consent, optional access to notes and revocation from Account → Connected agents. The [MCP specification](docs/mcp-alpha.md) describes the six tools, permissions, data dictionary and client acceptance work. Connect at `https://doclifts-mcp.runthe.ai/mcp`.
+**MCP is live in 0.16.3 Alpha.** Connect an agent at `https://doclifts-mcp.runthe.ai/mcp`, sign in to DocLifts, and approve account-scoped read access. Notes are optional; revoke access from Account → Connected agents. The Muse chat app has successfully read both app workouts and imported history, with notes access authorized. Other clients still need individual verification.
 
-A separate imported-history archive already preserves original notes, recalled estimates and uncertain dates. Those archive records do not feed progression or operational workout totals. Personal import payloads are kept outside this repository.
+Eight read-only tools cover workouts, bulk set history, imported notebooks, programs, equipment and a data dictionary. Bulk reads avoid opening every workout separately. Original notebook text, explicit-versus-estimated evidence, uncertain dates, weight conventions and historical machine context remain available for interpretation. Read [the MCP guide](docs/mcp-alpha.md) for setup, scopes, tool names and pagination.
+
+Imported records remain separate from app sessions and do not feed automatic progression or operational workout totals. The collections can overlap; an agent should not blindly add their totals. App entries can also contain tests or incomplete sets. Personal import payloads stay outside this repository.
 
 Self-service notebook ingestion, portable full-data import/export, custom fields, and beginner machine guidance/videos are planned work, not current features. The intended direction is straightforward: document your training in a form you can understand, keep and use elsewhere.
 

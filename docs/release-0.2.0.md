@@ -3433,3 +3433,11 @@ The synthetic archive was removed afterward; owner history was never changed.
 Normal sign-in/history and build identity passed. Real Muse imported-history
 acceptance remains pending. Its last observed grant lacked notes:read; seeing
 notebook exercise text requires requesting and approving that optional scope.
+
+### Actual Muse reads and optional notes
+
+After deployment, hashed-account-correlated tool metadata confirmed successful
+list_imported_workouts and list_workout_sets calls from the connected Muse account.
+Subsequent consent metadata includes notes:read following owner reauthorization.
+No assistant changed consent or tokens. This verifies real-client access; log
+counts alone do not establish complete pagination or sound training conclusions.

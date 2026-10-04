@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.18.0 Alpha — workout layouts — not deployed
+## 0.18.0 Alpha — workout layouts — deployed, acceptance pending
 
 - Four workout views: Guided with an available private machine photo, compact
   Set table, dense Notebook and Tap sets. Quick workouts start Guided; planned
@@ -17,6 +17,17 @@
 - One set-save implementation serves all views. The timer is extracted and
   superseded set-entry markup is removed. No database migration, auth, MCP,
   progression or tunnel change. Owner gym acceptance is pending after deployment.
+
+Deployed October 4, 2026 on `f1eff6f` (tag `0.18.0`) after PR23, full local
+lint/types/Drizzle/build, 902 server tests (+2 expected private-data skips),
+42 component tests and 176 browser tests. Exact-head CI37212527852 passed.
+The fresh encrypted snapshot ca7887f8 restored with matching database totals,
+24 photo hashes, seven SQLite integrity checks and scratch login/history.
+Recovery images including pre-0.18.0 and earlier releases are retained.
+Public Alpha scratch checks passed all four layouts, distinct drafts, hidden
+zero RIR/notes, saving/reload, append/remove empty set, timer settings, 320/390px
+fit and finish/history. No schema, auth or tunnel changes. Owner gym/phone
+acceptance is pending; automated checks do not confirm actual phone audio.
 
 ## 0.17.0 Alpha — Simple and Advanced views — deployed, acceptance pending
 

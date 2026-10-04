@@ -1,6 +1,6 @@
 # Workout layouts — 0.18.0 Alpha
 
-Status: implemented, not deployed. Owner approved shipping for gym testing.
+Status: deployed on f1eff6f; owner gym acceptance pending.
 
 The user selects Guided, Set table, Notebook or Tap sets without changing the
 underlying workout. Guided displays one exercise and one selected set with an

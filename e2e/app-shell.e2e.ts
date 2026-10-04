@@ -107,6 +107,62 @@ run('app shell for a new account (production build)', () => {
 	const accountButton = (page: Page) =>
 		page.getByRole('link', { name: appShell.accountLabel, exact: true });
 
+	it('shows the loaded build and offers a non-disruptive refresh for a newer build', async () => {
+		const page = await signedInPage();
+		await page.goto(`${origin}/account`, { waitUntil: 'networkidle' });
+		const deployed = await (await page.request.get(`${origin}/_app/version.json`)).json();
+		expect(await page.getByTestId('build-version').getAttribute('data-build')).toBe(
+			deployed.version
+		);
+		expect(await page.getByTestId('build-version').innerText()).toContain(
+			deployed.version.slice(0, 7)
+		);
+		await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
+		await page.getByText('This tab has the current build.', { exact: true }).waitFor();
+		await page.route('**/_app/version.json', (route) => route.abort('failed'));
+		await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
+		await page
+			.getByText('Could not check for updates. Try again when connected.', { exact: true })
+			.waitFor();
+		expect(await page.getByText('This tab has the current build.', { exact: true }).count()).toBe(
+			0
+		);
+		await page.unroute('**/_app/version.json');
+		await page.route('**/_app/version.json', (route) =>
+			route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({ version: 'next-distinct-build' })
+			})
+		);
+		await page.getByRole('button', { name: 'Check for updates', exact: true }).click();
+		await page.getByRole('button', { name: 'Refresh app', exact: true }).waitFor();
+		expect(await page.getByTestId('build-version').getAttribute('data-build')).toBe(
+			deployed.version
+		);
+		expect(page.url()).toBe(`${origin}/account`);
+		await page.unroute('**/_app/version.json');
+		await page.getByRole('button', { name: 'Refresh app', exact: true }).click();
+		await page.waitForLoadState('networkidle');
+		expect(await page.getByRole('button', { name: 'Refresh app', exact: true }).count()).toBe(0);
+		expect(await page.getByTestId('build-version').getAttribute('data-build')).toBe(
+			deployed.version
+		);
+		await page.goto(`${origin}/login`, { waitUntil: 'networkidle' });
+		// A signed-in login request redirects; use a clean page for the public screen.
+		const login = await browser.newPage({ viewport: { width: 320, height: 740 } });
+		await login.goto(`${origin}/login`, { waitUntil: 'networkidle' });
+		expect(await login.getByTestId('build-version').getAttribute('data-build')).toBe(
+			deployed.version
+		);
+		expect(await login.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+			true
+		);
+		expect(await violations(page)).toEqual([]);
+		await login.close();
+		await page.close();
+	});
+
 	it('Home on first run: three lines and one primary button, nothing about programs', async () => {
 		const page = await signedInPage();
 		await page.goto(`${origin}/`, { waitUntil: 'networkidle' });
@@ -253,75 +309,26 @@ run('app shell for a new account (production build)', () => {
 		await page.close();
 	});
 
-	it('keeps view preferences with the account in a shared browser, with storage failure fallback', async () => {
+	it('retires the global mode switch while keeping workout guidance and phone fit', async () => {
 		const page = await signedInPage();
-		await page.goto(origin + '/', { waitUntil: 'networkidle' });
-		await page.getByRole('button', { name: 'Advanced view', exact: true }).click();
+		await page.addInitScript(() => localStorage.setItem('doclifts:view:old-account', 'advanced'));
+		for (const path of ['/', '/account', '/gyms', '/history', '/reports', '/workout/start']) {
+			await page.goto(origin + path, { waitUntil: 'networkidle' });
+			expect(await page.getByRole('button', { name: /^(Simple|Advanced) view$/ }).count()).toBe(0);
+			expect(await page.getByTestId('build-version').isVisible()).toBe(true);
+			await page.setViewportSize({ width: 320, height: 740 });
+			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+				true
+			);
+		}
 		await page.goto(origin + '/account', { waitUntil: 'networkidle' });
 		expect(
 			await page
-				.getByRole('button', { name: 'Advanced view', exact: true })
-				.getAttribute('aria-pressed')
-		).toBe('true');
-		const secondEmail = 'view-second@test.local';
-		await seedTestUser(harness.db, secondEmail);
-		const secondCookie = await signInAs(origin, { email: secondEmail });
-		const eqAt = secondCookie.indexOf('=');
-		await page.context().clearCookies();
-		await page.context().addCookies([
-			{
-				name: secondCookie.slice(0, eqAt),
-				value: decodeURIComponent(secondCookie.slice(eqAt + 1)),
-				domain: '127.0.0.1',
-				path: '/'
-			}
-		]);
-		await page.goto(origin + '/', { waitUntil: 'networkidle' });
-		expect(
-			await page
-				.getByRole('button', { name: 'Simple view', exact: true })
-				.getAttribute('aria-pressed')
-		).toBe('true');
-		await page.context().clearCookies();
-		const firstEq = cookie.indexOf('=');
-		await page.context().addCookies([
-			{
-				name: cookie.slice(0, firstEq),
-				value: decodeURIComponent(cookie.slice(firstEq + 1)),
-				domain: '127.0.0.1',
-				path: '/'
-			}
-		]);
-		await page.goto(origin + '/', { waitUntil: 'networkidle' });
-		expect(
-			await page
-				.getByRole('button', { name: 'Advanced view', exact: true })
-				.getAttribute('aria-pressed')
-		).toBe('true');
-		await page.close();
-		const blocked = await signedInPage();
-		await blocked.addInitScript(() => {
-			Object.defineProperty(window, 'localStorage', {
-				get() {
-					throw new DOMException('Blocked', 'SecurityError');
-				}
-			});
-		});
-		await blocked.goto(origin + '/account', { waitUntil: 'networkidle' });
-		await blocked.getByRole('button', { name: 'Advanced view', exact: true }).click();
-		expect(
-			await blocked
-				.getByRole('button', { name: 'Advanced view', exact: true })
-				.getAttribute('aria-pressed')
-		).toBe('true');
-		expect(
-			await blocked
-				.getByText('Browser storage is unavailable. Your choice lasts for this visit.', {
-					exact: true
-				})
+				.getByText('Inside a workout, use View to choose Guided, Set table, Notebook or Tap sets.')
 				.isVisible()
 		).toBe(true);
-		await blocked.close();
+		expect(await violations(page)).toEqual([]);
+		await page.close();
 	});
 	// Last: it ends the session the other tests use.
 	it('Sign out on the account page ends the session', async () => {

@@ -14,7 +14,9 @@ preserves saved values and drafts. Preferences are per account and program in
 this browser, with a storage fallback; devices do not synchronize them. Edit
 workout reveals session controls. The clock opens duration and optional alerts;
 sound starts off, and background/locked-phone alerts are not guaranteed.
-Simple/Advanced remains available elsewhere in the app.
+The obsolete Simple/Advanced switch is removed in the pending 0.18.1 release.
+That release also shows the loaded build and an explicit refresh prompt when an
+update is detected; it never automatically reloads an active workout.
 Fresh accounts can explore starter programs, and the gym/empty-workout screens
 provide a first-set guide. This is the first beginner UI pass, not full onboarding.
 

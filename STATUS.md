@@ -50,6 +50,11 @@ checks, and no failed system or user units remained. Ubuntu deferred one phased
 audio configuration update. Host updates do not resolve JavaScript dependency
 advisories. Signup stays closed.
 
+## Release in progress
+
+0.18.1 removes the global mode switch and adds visible release/build identity
+and an explicit refresh prompt. Implemented; deployment checks pending.
+
 ## Next work, not shipped
 
 - Complete replacement-VPS recovery rehearsal and external host-down monitoring.

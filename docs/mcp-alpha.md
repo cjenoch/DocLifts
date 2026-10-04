@@ -1,7 +1,8 @@
 # DocLifts MCP — Alpha 0.16.3 specification
 
-Status: 0.16.3 bulk/imported-history extension is not deployed. 0.16.2 is live;
-real Muse app-session reads were confirmed.
+Status: 0.16.3 is live on gated build d56be47. Public SDK bulk/imported reads,
+pagination and both note-scope variants passed. Real Muse imported-history
+acceptance is pending; earlier app-session reads were confirmed.
 Public browser/SDK consent, read, refresh and revoke passed with resource omitted
 at authorization, exchange and refresh. Start a fresh Muse connection with the
 registered client ID after upgrading.

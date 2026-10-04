@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.16.3 Alpha — bulk and imported history for agents — not deployed
+## 0.16.3 Alpha — bulk and imported history for agents — deployed, acceptance pending
 
 - Adds `list_workout_sets` for bulk app history with workout and historical
   exercise/machine context, reducing per-workout requests.
@@ -11,6 +11,11 @@
   entire source documents and unrecognized JSON fields are never exported.
 - Dictionary and tool descriptions explain both history collections, mixed test
   data, possible overlap and incomplete entries. No schema, auth or tunnel changes.
+
+- Deployed 2026-10-03 on d56be47 after full local gate (901 server, 40 component,
+  171 browser tests) and exact-head CI37165497476. Public tunnel checks passed
+  for both history readers, pagination, notes excluded/included by consent,
+  refresh/revocation and ordinary login/history. Real Muse archive acceptance pending.
 
 ## 0.16.2 Alpha — OAuth resource compatibility — deployed, acceptance pending
 

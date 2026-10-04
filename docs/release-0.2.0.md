@@ -3403,7 +3403,7 @@ history and browser build identity also passed. Start a fresh Connect in Muse
 with the existing client ID; old signed requests are not rewritten.
 Real Muse acceptance pending. Signup closed; safety A/B unchanged.
 
-## 50. 0.16.3 Alpha — bulk and imported history for agents — NOT DEPLOYED
+## 50. 0.16.3 Alpha — bulk and imported history for agents — DEPLOYED, ACCEPTANCE PENDING
 
 Owner requested access to the existing imported notebook archive after Muse's
 first analysis saw only app sessions. Adds one account-scoped read tool with
@@ -3418,3 +3418,18 @@ The first head passed the full local gate, but CI37164849125 caught an unrelated
 rest-timer test race: it asserted render immediately after observing the database
 commit. The test now waits for the timer to be visible before asserting it exists.
 Final combined changes must pass a new full local and exact-head CI gate.
+
+Deployed 2026-10-03 on d56be47 (tag 0.16.3), after PR16 head08a45ff passed
+full local gate:901 server tests (+2 expected skips),40 component tests,171 e2e
+tests, lint/check/Drizzle/build. Exact-head CI37165497476 and CodeQL passed.
+Backup restored with matching application/import counts. Prior production image
+retained as pre-0.16.3 alongside earlier recovery images. Compose dry run, build,
+healthy restart and public version identity passed; no migration/env/tunnel change.
+
+Public SDK checks used synthetic imported workouts on alpha-test-01, with and
+without notes:read. Both new readers, pagination, exact structured values,
+source-document/unknown-field exclusion, consent, refresh and revocation passed.
+The synthetic archive was removed afterward; owner history was never changed.
+Normal sign-in/history and build identity passed. Real Muse imported-history
+acceptance remains pending. Its last observed grant lacked notes:read; seeing
+notebook exercise text requires requesting and approving that optional scope.

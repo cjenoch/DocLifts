@@ -439,8 +439,7 @@ run('production build: CSP and page render', () => {
 			const page = await authenticatedPage(browser, cookie);
 			await page.goto(origin + '/history', { waitUntil: 'domcontentloaded' });
 			expect(page.url(), 'a signed-in visitor must not be bounced to /login').not.toContain(
-				'/login',
-				'/privacy'
+				'/login'
 			);
 			await page.close();
 		});

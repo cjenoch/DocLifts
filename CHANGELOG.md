@@ -15,7 +15,8 @@
 - Deployed 2026-10-03 on d56be47 after full local gate (901 server, 40 component,
   171 browser tests) and exact-head CI37165497476. Public tunnel checks passed
   for both history readers, pagination, notes excluded/included by consent,
-  refresh/revocation and ordinary login/history. Real Muse archive acceptance pending.
+  refresh/revocation and ordinary login/history. Real Muse imported/bulk tool calls are confirmed, with optional notes access
+  authorized. Owner interpretation review and other clients remain separate checks.
 
 ## 0.16.2 Alpha — OAuth resource compatibility — deployed, acceptance pending
 

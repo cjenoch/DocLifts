@@ -1,14 +1,12 @@
 # DocLifts MCP — Alpha 0.16.3 specification
 
-Status: 0.16.3 is live on gated build d56be47. Public SDK bulk/imported reads,
-pagination and both note-scope variants passed. Real Muse imported-history
-acceptance is pending; earlier app-session reads were confirmed.
-Public browser/SDK consent, read, refresh and revoke passed with resource omitted
-at authorization, exchange and refresh. Start a fresh Muse connection with the
-registered client ID after upgrading.
-0.16.0 was briefly rolled back because the acceptance harness referenced a retired
-credential file. Corrected checks preflight the current Alpha test account before
-network work. The owner authorized fixing forward with retained recovery images.
+Status: **0.16.3 Alpha is live**, runtime `d56be47`. Public SDK checks passed for
+bulk/imported reads, pagination, notes excluded/included by consent, refresh and
+revocation. The **Muse chat app** has successfully called the imported-history and
+bulk-set tools, and its user-approved grant includes notes:read. This confirms
+actual client access, not complete pagination or correctness of its analysis.
+Other clients remain individual compatibility checks. Release history is in the
+[changelog](../CHANGELOG.md) and [deployment log](release-0.2.0.md).
 
 ## Outcome and first scope
 
@@ -157,17 +155,47 @@ Use `https://doclifts-mcp.runthe.ai/mcp` as the remote Streamable
 HTTP server URL and OAuth as the authentication method. Never supply a DocLifts
 password as a tool argument or copy an app session cookie into an agent.
 
-Hermes supports a remote server entry with `url` and `auth: oauth`; its browser
-flow grants access and its OAuth store refreshes it. Google Gemini CLI supports
-remote HTTP MCP and OAuth discovery. Muse Code documents HTTP transport and
-`muse mcp login`; confirm which Muse application is being connected before using
-client-specific commands. These are documented capabilities, not a claim that
-these client connections have been completed. Claude and ChatGPT likewise remain
-individual client acceptance checks after the generic SDK and tunnel checks.
+### Verified client and history retrieval
 
-- https://github.com/NousResearch/hermes-agent/blob/main/website/docs/reference/mcp-config-reference.md
-- https://geminicli.com/docs/tools/mcp-server/
-- https://meta-models.github.io/muse-code-sdk/next/guides/extend/mcp-servers/
+The tested Muse client is the **Meta chat app**, not Muse Code CLI. Its custom
+connector asks for the MCP URL and an OAuth Client ID; the Client ID is an
+application identifier, not the user's email or password. Use the exact callback
+provided by the client when registering it. The Muse chat callback used in this
+test was `https://agent.meta.ai/api/hatch/oauth/callback`.
+
+Refreshing/reconnecting may be needed when a client caches the tool list. A
+reconnect with only the original scopes does not add notes access: the client must
+request notes:read, and the user must approve it. Never change stored consent or
+tokens to bypass that flow.
+
+Suggested instruction to a connected agent:
+
+> Read get_data_dictionary. Fetch list_workouts for session metadata,
+> list_workout_sets for bulk app sets, and list_imported_workouts for imported
+> notebooks. Use limit50, follow nextCursor until null and cache completed pages.
+> Respect Retry-After on429. Preserve source, units, uncertain dates and estimated
+> evidence; do not infer exercise names when source text is unavailable or treat
+> missing values as proof of no training. Request notes:read if original text is
+> needed, and explain that permission to the user.
+
+| Tool                   | Purpose                                              | Required scope       |
+| ---------------------- | ---------------------------------------------------- | -------------------- |
+| get_data_dictionary    | Units, conventions, sources and interpretation rules | Any valid connection |
+| list_workouts          | App-session metadata, including empty sessions       | workouts:read        |
+| list_workout_sets      | Bulk set rows with workout and historical context    | workouts:read        |
+| get_workout            | One app workout with paginated set details           | workouts:read        |
+| list_imported_workouts | Notebook workouts and structured sets in pages       | workouts:read        |
+| list_programs          | Program versions and lineage                         | programs:read        |
+| get_program            | Prescribed structure of one program                  | programs:read        |
+| list_equipment         | Owned gyms and physical equipment instances          | equipment:read       |
+
+Notes are an additional optional scope, not a ninth tool. Imported records are
+workout → notebook lines → sets (load, reps, evidence), with date bounds and source
+positions. They do not gain canonical exercise IDs merely by being read via MCP.
+
+Generic SDK consent/read/refresh/revoke is verified. Hermes, Google agent tooling,
+Claude and ChatGPT remain separate client acceptance work; support is not inferred
+from generic protocol compatibility.
 
 ## References
 

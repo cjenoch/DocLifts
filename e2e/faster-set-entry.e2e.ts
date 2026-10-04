@@ -1,3 +1,4 @@
+import { browserSuite, authenticatedPage, violations } from './browser';
 /**
  * SPEC 0.5.0 Part F, "Accept when", through the PRODUCTION build at 390 px:
  * a set with the right prefill saves in one tap; weight moves one machine
@@ -6,14 +7,12 @@
  *
  * Prerequisites and skip rules are the same as csp.e2e.ts.
  */
-import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { and, asc, eq } from 'drizzle-orm';
 import { setupTestDb } from '$lib/server/test-db';
 import {
-	BUILD_ENTRY,
 	freshTestDb,
 	seedTestUser,
 	signInAs,
@@ -26,32 +25,7 @@ import { startSessionForDay } from '$lib/server/sessions';
 import { bindSessionMachine, createGym, createMachine } from '$lib/server/machines';
 import { workoutUi as ui } from '$lib/workout-ui';
 
-function chromiumPath(): string | undefined {
-	if (process.env.PW_EXECUTABLE_PATH) return process.env.PW_EXECUTABLE_PATH;
-	try {
-		const p = chromium.executablePath();
-		return existsSync(p) ? p : undefined;
-	} catch {
-		return undefined;
-	}
-}
-const haveBuild = existsSync(BUILD_ENTRY);
-const executablePath = chromiumPath();
-const missing = [
-	...(haveBuild ? [] : [`${BUILD_ENTRY} (run pnpm build)`]),
-	...(executablePath ? [] : ['a Chromium for Playwright'])
-];
-if (missing.length && process.env.CI) {
-	throw new Error(`e2e prerequisites missing in CI: ${missing.join('; ')}`);
-}
-const run = missing.length ? describe.skip : describe;
-if (missing.length) console.warn(`[e2e] skipped — missing ${missing.join('; ')}`);
-
-declare global {
-	interface Window {
-		__cspViolations: string[];
-	}
-}
+const { run, executablePath } = browserSuite();
 
 run('faster set entry (production build)', () => {
 	let harness: Awaited<ReturnType<typeof setupTestDb>>;
@@ -131,29 +105,8 @@ run('faster set entry (production build)', () => {
 		await harness?.end();
 	});
 
-	async function signedInPage(): Promise<Page> {
-		const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-		const eqAt = cookie.indexOf('=');
-		await page.context().addCookies([
-			{
-				name: cookie.slice(0, eqAt),
-				value: decodeURIComponent(cookie.slice(eqAt + 1)),
-				domain: '127.0.0.1',
-				path: '/'
-			}
-		]);
-		await page.addInitScript(() => {
-			window.__cspViolations = [];
-			document.addEventListener('securitypolicyviolation', (e) => {
-				window.__cspViolations.push(`${e.violatedDirective} ${e.blockedURI || 'inline'}`);
-			});
-		});
-		return page;
-	}
-	const violations = async (page: Page) =>
-		(await page.evaluate(() => window.__cspViolations)).filter(
-			(v) => !v.startsWith('style-src-attr ')
-		);
+	const signedInPage = () =>
+		authenticatedPage(browser, cookie, { viewport: { width: 390, height: 844 } });
 	const logged = async () =>
 		(
 			await harness.db

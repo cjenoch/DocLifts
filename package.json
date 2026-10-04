@@ -24,7 +24,11 @@
 		"format": "prettier --write .",
 		"test:unit": "vitest --run",
 		"test:e2e": "vitest --run --project e2e",
-		"test": "pnpm run test:unit"
+		"test": "pnpm run test:unit",
+		"test:server": "vitest --run --project server",
+		"test:client": "vitest --run --project client",
+		"test:changed": "vitest --run --project server --project client --changed",
+		"test:e2e:workout": "vitest --run --project e2e quick-workout photo-workout faster-set-entry live-edit add-sheet history-trash save-as-program program-bind"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.5.4",

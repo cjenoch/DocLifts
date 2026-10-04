@@ -16,10 +16,12 @@ const dictionary = {
 		'Descriptions/notes are omitted without notes:read. Photos, pain events, credentials and audit logs are excluded.'
 	],
 	collections: {
-		app: 'list_workouts / get_workout: in-app sessions, may include test and incomplete entries.',
+		app: 'list_workouts: session metadata including empty workouts. list_workout_sets: preferred bulk read for all set rows with workout and snapshot context; get_workout: individual workout detail. May include test and incomplete entries.',
 		imported:
 			'list_imported_workouts: imported notebook archive, separate from app sessions. Read both collections for full history; overlaps are possible, do not add their volumes blindly.'
 	},
+	pagination:
+		'Use limit=50 for bulk history, follow nextCursor, and cache pages. list_workout_sets is ordered by set UUID, not workout/date; group by workoutId and sort using supplied positions. from is inclusive and to exclusive on session start. Fetch list_workouts for sessions with no set rows. Do not repeat get_workout for sets already obtained in bulk. Respect Retry-After on 429.',
 	importedHistory: {
 		dates:
 			'workoutDate, earliestDate and latestDate are calendar dates (YYYY-MM-DD), not timestamps. Null workoutDate means uncertain date; retain the interval without inventing a day.',
@@ -53,6 +55,31 @@ export async function readMcpData(
 		async (tx) => {
 			await tx.execute(sql`set local statement_timeout = '5s'`);
 			const limit = Math.min(50, Math.max(1, args.limit || 20));
+			const setFields = {
+				id: s.sets.id,
+				position: s.sets.position,
+				exerciseId: s.sets.exerciseId,
+				exercise: sql<string>`coalesce(${s.sessionExercises.exerciseName}, ${s.exercises.name})`,
+				exercisePosition: s.sessionExercises.position,
+				equipmentType: s.sessionExercises.equipmentType,
+				machineLabel: s.sessionExercises.machineLabel,
+				gymName: s.sessionExercises.gymName,
+				modelName: s.sessionExercises.modelName,
+				loggedAt: s.sets.loggedAt,
+				sessionExerciseId: s.sets.sessionExerciseId,
+				machineId: s.sets.gymEquipmentId,
+				loadConvention: s.sets.loadConvention,
+				setRole: s.sets.setRole,
+				targetMetric: s.sets.targetMetric,
+				prescribedLoad: s.sets.prescribedLoad,
+				prescribedRepsMin: s.sets.prescribedRepsMin,
+				prescribedRepsMax: s.sets.prescribedRepsMax,
+				prescribedRir: s.sets.prescribedRir,
+				executedLoad: s.sets.executedLoad,
+				executedReps: s.sets.executedReps,
+				executedRir: s.sets.executedRir,
+				...(notes ? { notes: s.sets.notes } : {})
+			};
 			if (tool === 'list_imported_workouts') {
 				const rows = await tx
 					.select({
@@ -133,8 +160,59 @@ export async function readMcpData(
 				return {
 					source: 'app_session',
 					importedHistoryTool: 'list_imported_workouts',
+					setsTool: 'list_workout_sets',
 					workouts: rows.slice(0, limit),
 					nextCursor: rows.length > limit ? rows[limit - 1].id : null
+				};
+			}
+			if (tool === 'list_workout_sets') {
+				const rows = await tx
+					.select({
+						...setFields,
+						workoutId: s.sessions.id,
+						workoutStartedAt: s.sessions.startedAt,
+						workoutEndedAt: s.sessions.endedAt,
+						programId: s.sessions.programId,
+						gymId: s.sessions.gymId,
+						day: s.days.name,
+						program: s.programs.name,
+						...(notes ? { workoutNotes: s.sessions.notes } : {})
+					})
+					.from(s.sets)
+					.innerJoin(s.sessions, eq(s.sessions.id, s.sets.sessionId))
+					.innerJoin(s.days, eq(s.days.id, s.sessions.dayId))
+					.innerJoin(s.programs, eq(s.programs.id, s.sessions.programId))
+					.innerJoin(s.exercises, eq(s.exercises.id, s.sets.exerciseId))
+					.leftJoin(
+						s.sessionExercises,
+						and(
+							eq(s.sessionExercises.id, s.sets.sessionExerciseId),
+							eq(s.sessionExercises.sessionId, s.sessions.id),
+							eq(s.sessionExercises.exerciseId, s.sets.exerciseId)
+						)
+					)
+					.where(
+						and(
+							eq(s.sessions.userId, userId),
+							eq(s.sets.userId, userId),
+							eq(s.programs.userId, userId),
+							eq(s.exercises.userId, userId),
+							isNull(s.sessions.deletedAt),
+							args.after ? gt(s.sets.id, args.after) : undefined,
+							args.from ? gte(s.sessions.startedAt, new Date(args.from)) : undefined,
+							args.to ? lt(s.sessions.startedAt, new Date(args.to)) : undefined
+						)
+					)
+					.orderBy(asc(s.sets.id))
+					.limit(limit + 1);
+				return {
+					schemaVersion: dictionary.schemaVersion,
+					source: 'app_session',
+					sets: rows.slice(0, limit),
+					nextCursor: rows.length > limit ? rows[limit - 1].id : null,
+					units: dictionary.units,
+					notesIncluded: notes,
+					workoutsTool: 'list_workouts'
 				};
 			}
 			if (tool === 'get_workout') {
@@ -158,31 +236,7 @@ export async function readMcpData(
 					.limit(1);
 				if (!workout) return { notFound: true };
 				const sets = await tx
-					.select({
-						id: s.sets.id,
-						position: s.sets.position,
-						exerciseId: s.sets.exerciseId,
-						exercise: sql<string>`coalesce(${s.sessionExercises.exerciseName}, ${s.exercises.name})`,
-						exercisePosition: s.sessionExercises.position,
-						equipmentType: s.sessionExercises.equipmentType,
-						machineLabel: s.sessionExercises.machineLabel,
-						gymName: s.sessionExercises.gymName,
-						modelName: s.sessionExercises.modelName,
-						loggedAt: s.sets.loggedAt,
-						sessionExerciseId: s.sets.sessionExerciseId,
-						machineId: s.sets.gymEquipmentId,
-						loadConvention: s.sets.loadConvention,
-						setRole: s.sets.setRole,
-						targetMetric: s.sets.targetMetric,
-						prescribedLoad: s.sets.prescribedLoad,
-						prescribedRepsMin: s.sets.prescribedRepsMin,
-						prescribedRepsMax: s.sets.prescribedRepsMax,
-						prescribedRir: s.sets.prescribedRir,
-						executedLoad: s.sets.executedLoad,
-						executedReps: s.sets.executedReps,
-						executedRir: s.sets.executedRir,
-						...(notes ? { notes: s.sets.notes } : {})
-					})
+					.select(setFields)
 					.from(s.sets)
 					.innerJoin(s.exercises, eq(s.exercises.id, s.sets.exerciseId))
 					.leftJoin(

@@ -1,6 +1,6 @@
 # DocLifts MCP — Alpha 0.16.3 specification
 
-Status: 0.16.3 imported-history extension is not deployed. 0.16.2 is live;
+Status: 0.16.3 bulk/imported-history extension is not deployed. 0.16.2 is live;
 real Muse app-session reads were confirmed.
 Public browser/SDK consent, read, refresh and revoke passed with resource omitted
 at authorization, exchange and refresh. Start a fresh Muse connection with the
@@ -18,7 +18,7 @@ remain reachable without horizontal scrolling. MCP never asks an agent for a
 DocLifts password. Signup stays closed.
 
 Streamable HTTP with stateless JSON responses, using the official TypeScript
-SDK 1.32.0. Seven tools: list_workouts, get_workout, list_imported_workouts, list_programs,
+SDK 1.32.0. Eight tools: list_workouts, list_workout_sets, get_workout, list_imported_workouts, list_programs,
 get_program, list_equipment, get_data_dictionary. No write, SQL, shell, model, URL-fetch,
 photo, pain-record or administration tool. Richer complete native archive/CSV
 export and note scribing remain later features; these reads are not a backup.
@@ -71,6 +71,15 @@ Workouts exclude Trash. Programs retain lineage and inactive versions. Equipment
 identifies the physical instance and includes archive state. Units, conventions,
 nulls, prescribed versus executed values and seconds targets are documented in
 the dictionary. Do not infer a performed set from logged_at alone.
+
+`list_workout_sets` returns up to 50 set rows per call across app workouts, with
+workout IDs/dates/program metadata and the same historical exercise/machine fields
+as get_workout. It uses workouts:read, excludes Trash and preserves blank, zero
+and timed values. Optional notes cover set and workout notes. from is inclusive
+and to exclusive on session start; UUID cursor order is not chronological. Group
+by workoutId and order by exercisePosition/position. list_workouts still provides
+empty sessions. Cache pages and use this tool instead of one get_workout per
+session when analyzing full history. The request/rate/output bounds are unchanged.
 
 `list_imported_workouts` uses the existing workouts:read grant and returns whole
 imported workouts with structured lines/sets, 20 by default and at most 50 per page.

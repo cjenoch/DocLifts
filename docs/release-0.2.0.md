@@ -3403,7 +3403,7 @@ history and browser build identity also passed. Start a fresh Connect in Muse
 with the existing client ID; old signed requests are not rewritten.
 Real Muse acceptance pending. Signup closed; safety A/B unchanged.
 
-## 50. 0.16.3 Alpha — imported history for agents — NOT DEPLOYED
+## 50. 0.16.3 Alpha — bulk and imported history for agents — NOT DEPLOYED
 
 Owner requested access to the existing imported notebook archive after Muse's
 first analysis saw only app sessions. Adds one account-scoped read tool with
@@ -3411,3 +3411,10 @@ workout/set pages, evidence and source provenance. Optional notes consent gates
 notebook text. No schema, environment, auth or tunnel changes. Release requires
 full local and exact-head CI gates, restored backup, retained prior images and
 public scratch-account SDK checks. Real Muse imported-history acceptance is owed.
+
+Owner additionally requested improving the app-workout pull. Added list_workout_sets
+with contextual rows and 50-row pagination; no per-session detail request needed.
+The first head passed the full local gate, but CI37164849125 caught an unrelated
+rest-timer test race: it asserted render immediately after observing the database
+commit. The test now waits for the timer to be visible before asserting it exists.
+Final combined changes must pass a new full local and exact-head CI gate.

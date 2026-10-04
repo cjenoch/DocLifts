@@ -231,6 +231,8 @@ run('faster set entry (production build)', () => {
 			[50, 8],
 			[20, 9]
 		]);
+		// The DB commit can precede the enhanced form response and timer render.
+		await page.getByTestId('rest-timer').waitFor({ state: 'visible' });
 		expect(await page.getByTestId('rest-timer').count()).toBe(1);
 		expect(
 			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)

@@ -142,7 +142,7 @@ describe('MCP OAuth and account boundaries', () => {
 		);
 		expect(response.status).toBe(200);
 		const data = await response.json();
-		expect(data.result.tools).toHaveLength(7);
+		expect(data.result.tools).toHaveLength(8);
 		expect(
 			data.result.tools.every(
 				(t: { annotations: { readOnlyHint: boolean } }) => t.annotations.readOnlyHint
@@ -237,7 +237,13 @@ describe('MCP scoped tools and bounded requests', () => {
 		expect(response.status).toBe(200);
 		expect(
 			(await response.json()).result.tools.map((t: { name: string }) => t.name).sort()
-		).toEqual(['get_data_dictionary', 'get_workout', 'list_imported_workouts', 'list_workouts']);
+		).toEqual([
+			'get_data_dictionary',
+			'get_workout',
+			'list_imported_workouts',
+			'list_workout_sets',
+			'list_workouts'
+		]);
 		const hidden = await (
 			await rpc(g.token, 'tools/call', { name: 'list_programs', arguments: {} })
 		).json();
@@ -410,6 +416,20 @@ describe('MCP scoped tools and bounded requests', () => {
 				}
 			]
 		});
+		expect(await readMcpData(h.db, alice, 'list_workout_sets', {})).toMatchObject({
+			sets: [
+				{
+					id: set.id,
+					workoutId: workout.id,
+					exercise: 'Historical exercise',
+					machineLabel: 'Historical machine',
+					loadConvention: 'displayed',
+					prescribedLoad: 20,
+					executedLoad: 30
+				}
+			]
+		});
+		expect(await readMcpData(h.db, bob, 'list_workout_sets', {})).toMatchObject({ sets: [] });
 		expect(await readMcpData(h.db, bob, 'get_workout', { id: workout.id })).toEqual({
 			notFound: true
 		});
@@ -673,5 +693,124 @@ describe('MCP imported notebook history', () => {
 		const large = await (await rpc(withNotes.token, 'tools/call', params)).json();
 		expect(large.result.isError).toBe(true);
 		expect(JSON.stringify(large)).not.toContain('OVERSIZE_CANARY');
+	});
+});
+
+describe('MCP bulk app set history', () => {
+	it('pages across workouts without loss, keeps partial/zero/timed values, excludes Trash and foreign accounts, and filters dates', async () => {
+		const [program] = await h.db
+			.insert(s.programs)
+			.values({ userId: alice, name: 'Bulk program' })
+			.returning();
+		const [day] = await h.db
+			.insert(s.days)
+			.values({ programId: program.id, name: 'Day', position: 1 })
+			.returning();
+		const [exercise] = await h.db
+			.insert(s.exercises)
+			.values({ userId: alice, name: 'Bulk exercise', equipmentType: 'dumbbell' })
+			.returning();
+		const sessions = await h.db
+			.insert(s.sessions)
+			.values([
+				{
+					userId: alice,
+					programId: program.id,
+					dayId: day.id,
+					startedAt: new Date('2025-01-01T00:00:00Z'),
+					endedAt: new Date('2025-01-01T01:00:00Z'),
+					notes: 'PRIVATE_WORKOUT_NOTE'
+				},
+				{
+					userId: alice,
+					programId: program.id,
+					dayId: day.id,
+					startedAt: new Date('2025-02-01T00:00:00Z')
+				},
+				{ userId: alice, programId: program.id, dayId: day.id, deletedAt: new Date() },
+				{
+					userId: alice,
+					programId: program.id,
+					dayId: day.id,
+					startedAt: new Date('2025-03-01T00:00:00Z'),
+					endedAt: new Date('2025-03-01T01:00:00Z')
+				}
+			])
+			.returning();
+		const allSets = await h.db
+			.insert(s.sets)
+			.values(
+				sessions.slice(0, 3).flatMap((workout, j) =>
+					Array.from({ length: 31 }, (_, i) => ({
+						userId: alice,
+						sessionId: workout.id,
+						exerciseId: exercise.id,
+						position: i + 1,
+						setRole: 'working' as const,
+						targetMetric: i === 2 ? ('seconds' as const) : ('reps' as const),
+						prescribedLoad: 20 + j,
+						executedLoad: i === 0 ? null : 30 + j,
+						executedReps: i === 0 ? null : i === 1 ? 0 : 10,
+						notes: 'PRIVATE_SET_NOTE',
+						loadConvention: 'per_arm' as const
+					}))
+				)
+			)
+			.returning();
+		const first = (await readMcpData(h.db, alice, 'list_workout_sets', { limit: 50 })) as {
+			sets: Array<{ id: string; workoutId: string; executedReps: number | null }>;
+			nextCursor: string | null;
+		};
+		expect(first.sets).toHaveLength(50);
+		expect(first.nextCursor).toBeTruthy();
+		const second = (await readMcpData(h.db, alice, 'list_workout_sets', {
+			limit: 50,
+			after: first.nextCursor!
+		})) as typeof first;
+		expect(second.sets).toHaveLength(12);
+		expect(second.nextCursor).toBeNull();
+		const combined = [...first.sets, ...second.sets];
+		expect(combined.map((x) => x.id).sort()).toEqual(
+			allSets
+				.filter((x) => x.sessionId !== sessions[2].id)
+				.map((x) => x.id)
+				.sort()
+		);
+		expect(new Set(combined.map((x) => x.workoutId)).size).toBe(2);
+		expect(combined.filter((x) => x.executedReps === null)).toHaveLength(2);
+		expect(combined.filter((x) => x.executedReps === 0)).toHaveLength(2);
+		expect(JSON.stringify(combined)).toContain('seconds');
+		expect(JSON.stringify(combined)).not.toContain('PRIVATE_');
+		expect(await readMcpData(h.db, bob, 'list_workout_sets', {})).toMatchObject({ sets: [] });
+		const filtered = (await readMcpData(h.db, alice, 'list_workout_sets', {
+			limit: 50,
+			from: '2025-01-01T00:00:00Z',
+			to: '2025-02-01T00:00:00Z'
+		})) as typeof first;
+		expect(filtered.sets).toHaveLength(31);
+		expect(filtered.sets.every((x) => x.workoutId === sessions[0].id)).toBe(true);
+		const metadata = (await readMcpData(h.db, alice, 'list_workouts', {})) as {
+			workouts: { id: string }[];
+		};
+		expect(metadata.workouts.map((x) => x.id).sort()).toEqual(
+			[sessions[0].id, sessions[1].id, sessions[3].id].sort()
+		);
+		const grantWithNotes = await grant(alice, 'workouts:read notes:read');
+		const response = await (
+			await rpc(grantWithNotes.token, 'tools/call', {
+				name: 'list_workout_sets',
+				arguments: { limit: 50 }
+			})
+		).json();
+		expect(response.result.isError).not.toBe(true);
+		expect(JSON.stringify(response)).toContain('PRIVATE_WORKOUT_NOTE');
+		expect(JSON.stringify(response)).toContain('PRIVATE_SET_NOTE');
+		const badCursor = await (
+			await rpc(grantWithNotes.token, 'tools/call', {
+				name: 'list_workout_sets',
+				arguments: { after: 'not-a-uuid' }
+			})
+		).json();
+		expect(badCursor.error || badCursor.result?.isError).toBeTruthy();
 	});
 });

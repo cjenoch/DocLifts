@@ -36,6 +36,26 @@ beforeAll(async () => {
 		})
 		.returning();
 	workoutId = session.id;
+	const [exercise] = await h.db
+		.insert(s.exercises)
+		.values({ userId: owner.id, name: 'Bulk fixture press', equipmentType: 'dumbbell' })
+		.returning();
+	await h.db
+		.insert(s.sets)
+		.values({
+			userId: owner.id,
+			sessionId: session.id,
+			exerciseId: exercise.id,
+			position: 1,
+			setRole: 'top',
+			targetMetric: 'reps',
+			prescribedRepsMin: 5,
+			prescribedRepsMax: 5,
+			prescribedLoad: 10,
+			executedLoad: 25,
+			executedReps: 5,
+			notes: 'PRIVATE_SET_NOTE'
+		});
 	const importId = randomUUID();
 	await h.db.insert(s.workoutLogImports).values({
 		id: importId,
@@ -190,10 +210,26 @@ describe('real MCP connection controls', () => {
 					requestInit: { headers: { authorization: 'Bearer ' + tokens.access_token } }
 				})
 			);
-			expect((await client.listTools()).tools).toHaveLength(7);
+			expect((await client.listTools()).tools).toHaveLength(8);
 			const read = await client.callTool({ name: 'get_workout', arguments: { id: workoutId } });
 			expect(JSON.stringify(read)).toContain(workoutId);
 			expect(JSON.stringify(read)).not.toContain('PRIVATE_HEALTH_NOTE');
+			const bulk = await client.callTool({ name: 'list_workout_sets', arguments: { limit: 50 } });
+			expect(bulk.isError).not.toBe(true);
+			expect(bulk.structuredContent).toMatchObject({
+				source: 'app_session',
+				sets: [
+					{
+						workoutId,
+						exercise: 'Bulk fixture press',
+						prescribedLoad: 10,
+						executedLoad: 25,
+						executedReps: 5
+					}
+				],
+				nextCursor: null
+			});
+			expect(JSON.stringify(bulk)).not.toMatch(/PRIVATE_SET_NOTE|PRIVATE_HEALTH_NOTE/);
 			const imported = await client.callTool({
 				name: 'list_imported_workouts',
 				arguments: { limit: 50 }

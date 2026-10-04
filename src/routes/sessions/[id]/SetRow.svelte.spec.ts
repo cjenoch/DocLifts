@@ -36,7 +36,7 @@ function renderSetRow(props: Record<string, unknown>) {
 	// dirtiness contract. Override by passing ondirty in props when asserted.
 	const onDirty = props.ondirty ?? (() => {});
 	return render(SetRow as unknown as never, {
-		props: { ondirty: onDirty, ...props } as never
+		props: { ondirty: onDirty, steppers: true, showNotes: true, ...props } as never
 	});
 }
 
@@ -121,7 +121,7 @@ describe('SetRow component', () => {
 		// Shown numbers are not an edit: the row is Ready, and the check posts them.
 		await expect.element(page.getByText('Ready', { exact: true })).toBeInTheDocument();
 		const save = page.getByRole('button', { name: ui.saveSet(1), exact: true });
-		await expect.element(save).toHaveTextContent('✓');
+		await expect.element(save).toHaveTextContent('Record this set');
 		expect((save.element() as HTMLButtonElement).type).toBe('submit');
 		expect(submitted()).toMatchObject({ executedLoad: '100', executedReps: '3', executedRir: '' });
 	});

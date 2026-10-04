@@ -7,11 +7,14 @@ remains closed. The sign-in leads with **Document your Lifts**.
 
 ## During a workout
 
-The header offers Simple and Advanced views. Simple emphasizes weight, reps and
-Save set, with notes and RIR one tap away. Advanced exposes effort and program
-tools. Switching preserves saved values and unsaved entries; it does not change
-progression. Each account has a separate preference in the current browser, with
-an in-memory fallback when storage is blocked. Devices do not synchronize it.
+The next release, 0.18.0 Alpha (not yet deployed), offers Guided, Set table,
+Notebook and Tap sets during workouts. Customize chooses RIR from the program or
+shows/hides it, notes, previous performance and optional +/- buttons. Switching
+preserves saved values and drafts. Preferences are per account and program in
+this browser, with a storage fallback; devices do not synchronize them. Edit
+workout reveals session controls. The clock opens duration and optional alerts;
+sound starts off, and background/locked-phone alerts are not guaranteed.
+Simple/Advanced remains available elsewhere in the app.
 Fresh accounts can explore starter programs, and the gym/empty-workout screens
 provide a first-set guide. This is the first beginner UI pass, not full onboarding.
 

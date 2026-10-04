@@ -53,6 +53,7 @@ import { resolvePhotoLimits } from '$lib/server/photos/config';
 import { photoStore } from '$lib/server/photos/store';
 import { clientMeasurement, logUpload, type UploadLogLine } from '$lib/server/photos/upload-log';
 import { emptyTimings, msSince } from '$lib/server/photos/timings';
+import { workoutMachinePhotos } from '$lib/server/workout-photos';
 
 const uuidParamSchema = z.string().uuid();
 
@@ -178,6 +179,11 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		// back to, a fixed heading, and the add-exercise control open when empty.
 		quick: systemKind === 'quick',
 		groups,
+		machinePhotos: await workoutMachinePhotos(
+			db,
+			requireUser(locals).id,
+			sessionSets.flatMap((s) => (s.gymEquipmentId ? [s.gymEquipmentId] : []))
+		),
 		allowEndedSessionEdit,
 		programUpdate,
 		// A finished workout can become a program, or a day of one (Part M).

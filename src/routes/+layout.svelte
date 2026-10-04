@@ -35,7 +35,7 @@
 	-->
 	<header class="shell-header mx-auto flex max-w-lg items-center justify-between px-4">
 		<a href="/" class="text-sm font-semibold tracking-wide text-zinc-300">{appShell.appName}</a>
-		<ViewSwitcher />
+		{#if page.route.id !== '/sessions/[id]'}<ViewSwitcher />{/if}
 		<a
 			href="/account"
 			aria-label={appShell.accountLabel}

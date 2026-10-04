@@ -2,9 +2,10 @@
 	import { requestId as newRequestId } from '$lib/request-id';
 	import { enhance } from '$app/forms';
 	import { beforeNavigate, invalidateAll } from '$app/navigation';
-	import { getContext, onMount, tick, untrack } from 'svelte';
-	import { WORKOUT_VIEW, type WorkoutView } from '$lib/workout-view.svelte';
-	const view = getContext<WorkoutView>(WORKOUT_VIEW);
+	import { onMount, tick, untrack } from 'svelte';
+	import { WorkoutLayoutPreferences } from '$lib/workout-layout.svelte';
+	import WorkoutControls from '$lib/WorkoutControls.svelte';
+	import RestTimer from '$lib/RestTimer.svelte';
 	import type { ActionData, PageData } from './$types';
 	import SetRow from './SetRow.svelte';
 	import AddSheet from '$lib/AddSheet.svelte';
@@ -29,45 +30,32 @@
 		equipmentType: string;
 	} | null>(null);
 	const FREE_WEIGHT_UI = new Set(FREE_TYPES as readonly string[]);
-	// The rest timer (SPEC 0.5.0, Part F): started by a saved set, shown in the
-	// workout bar. Only its start time and length are stored, and the display
-	// is computed from the clock, so a reload does not reset it.
-	type Rest = { startedAt: number; seconds: number };
-	const restKey = $derived(`doclifts:rest:${data.session.id}`);
-	let rest = $state<Rest | null>(null);
-	let now = $state(Date.now());
-	function keepRest(next: Rest | null) {
-		rest = next;
-		now = Date.now();
-		try {
-			if (next) localStorage.setItem(restKey, JSON.stringify(next));
-			else localStorage.removeItem(restKey);
-		} catch {
-			/* The timer still runs for this page. */
+	const preferences = new WorkoutLayoutPreferences();
+	let editing = $state(false);
+	let timer: RestTimer | undefined = $state();
+	let guidedGroup = $state<string | null>(null);
+	let guidedSets = $state<Record<string, string>>({});
+	$effect(() => preferences.restore(data.user!.id, data.session.programId, data.quick));
+	const activeGroup = $derived(
+		data.groups.find((g) => g.key === guidedGroup)?.key ??
+			data.groups.find((g) => g.sets.some((s) => s.executedLoad == null || s.executedReps == null))
+				?.key ??
+			data.groups[0]?.key
+	);
+	const currentSet = (g: PageData['groups'][number]) =>
+		guidedSets[g.key] ??
+		g.sets.find((s) => s.executedLoad == null || s.executedReps == null)?.id ??
+		g.sets.at(-1)?.id;
+	function savedSet(id: string) {
+		timer?.start();
+		const group = data.groups.find((g) => g.sets.some((s) => s.id === id));
+		if (group) {
+			const next = group.sets.find(
+				(s) => s.id !== id && (s.executedLoad == null || s.executedReps == null)
+			);
+			if (next) guidedSets[group.key] = next.id;
 		}
 	}
-	function startRest() {
-		if (!workoutUi.restTimerEnabled || data.session.endedAt) return;
-		keepRest({ startedAt: Date.now(), seconds: workoutUi.defaultRestSeconds });
-	}
-	onMount(() => {
-		try {
-			const saved = JSON.parse(localStorage.getItem(restKey) ?? 'null');
-			if (
-				!data.session.endedAt &&
-				typeof saved?.startedAt === 'number' &&
-				typeof saved?.seconds === 'number'
-			)
-				rest = saved;
-		} catch {
-			/* Optional. */
-		}
-		const tick = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(tick);
-	});
-	const restLeft = $derived(rest ? rest.seconds - Math.floor((now - rest.startedAt) / 1000) : 0);
-	const clock = (total: number) =>
-		`${Math.floor(Math.abs(total) / 60)}:${String(Math.abs(total) % 60).padStart(2, '0')}`;
 	// Editing a live workout (editor spec, Part L).
 	let swapOpen = $state(false);
 	let swapTarget = $state<{
@@ -243,7 +231,12 @@
 </script>
 
 <svelte:head><title>{heading} · DocLifts</title></svelte:head>
-<main class="workout">
+<main
+	class="workout"
+	class:modern={!data.session.endedAt}
+	data-layout={preferences.layout}
+	class:editing
+>
 	<a class="back" href={backHref}>{data.quick ? '← Workout' : '← Program'}</a>
 	<header>
 		<div class="eyebrow">DOCLIFTS / {data.session.endedAt ? 'WORKOUT HISTORY' : 'IN SESSION'}</div>
@@ -263,7 +256,30 @@
 		<progress value={completed} max={Math.max(allSets.length, 1)} aria-label="Workout completion"
 		></progress>
 	</header>
-	{#if view.mode === 'simple' && !data.session.endedAt && data.groups.length === 0}
+	<WorkoutControls {preferences} bind:editing ended={data.session.endedAt != null} />
+	{#if editing}<section class="edit-intro">
+			<h2>Edit this workout</h2>
+			<p>
+				Use each exercise’s menu to move, skip, swap or remove it. Set changes apply today; logged
+				sets stay protected.
+			</p>
+			{#if !data.quick}<a href="/programs/{data.session.programId}/edit"
+					>Edit program for future workouts</a
+				>{/if}
+		</section>{/if}
+	{#if preferences.layout === 'guided' && !editing && data.groups.length}
+		<label class="exercise-picker"
+			>Exercise<select
+				aria-label="Current exercise"
+				value={activeGroup}
+				onchange={(event) => (guidedGroup = event.currentTarget.value)}
+				>{#each data.groups as group}<option value={group.key}>{group.exerciseName}</option
+					>{/each}</select
+			></label
+		>
+	{/if}
+
+	{#if !data.session.endedAt && data.groups.length === 0}
 		<section
 			class="mb-5 rounded-xl border border-indigo-800 bg-indigo-950/40 p-5"
 			data-testid="first-machine-guide"
@@ -341,7 +357,24 @@
 	{#if editError}<p role="alert" class="error">{editError}</p>{/if}
 	{#each data.groups.filter((g) => g.occurrenceId !== pendingRemove?.occurrenceId) as group, index (group.key)}
 		{@const loggedCount = group.sets.filter(isLogged).length}
-		<section class="exercise" id="exercise-{group.key}" tabindex="-1">
+		{@const photoId =
+			(group.occurrenceId &&
+				(data.photoBlocks[group.occurrenceId]?.photoId ??
+					data.namedPhotoBlocks[group.occurrenceId]?.photoId)) ||
+			(group.sets[0]?.gymEquipmentId && data.machinePhotos[group.sets[0].gymEquipmentId])}
+		<section
+			class="exercise"
+			id="exercise-{group.key}"
+			tabindex="-1"
+			hidden={preferences.layout === 'guided' && !editing && group.key !== activeGroup}
+		>
+			{#if preferences.layout === 'guided' && !editing}
+				{#if photoId}<img
+						class="machine-photo"
+						src="/photos/{photoId}/image"
+						alt={group.machineLabel ?? group.exerciseName}
+					/>{:else}<div class="no-photo">No machine photo yet</div>{/if}
+			{/if}
 			<div class="exercise-heading">
 				<span class="number">{String(index + 1).padStart(2, '0')}</span>
 				<div class="heading-text">
@@ -359,7 +392,7 @@
 					{@const visible = data.groups.filter(
 						(g) => g.occurrenceId !== pendingRemove?.occurrenceId
 					)}
-					<details class="exercise-menu" data-testid="exercise-menu">
+					<details class="exercise-menu" data-testid="exercise-menu" class:tool-hidden={!editing}>
 						<summary aria-label={workoutUi.exerciseMenu(group.exerciseName)}>⋯</summary>
 						<div class="menu-items">
 							{#each [['up', workoutUi.moveUp, index > 0], ['down', workoutUi.moveDown, index < visible.length - 1]] as const as [direction, label, show] (direction)}
@@ -518,7 +551,20 @@
 					}}>{group.machineLabel ? pickerUi.changeMachine : pickerUi.chooseMachine}</button
 				>
 			{/if}
-			<ul>
+			{#if preferences.layout === 'guided' && !editing}<label class="set-picker"
+					>Set<select
+						aria-label="Current set"
+						value={currentSet(group)}
+						onchange={(event) => (guidedSets[group.key] = event.currentTarget.value)}
+						>{#each group.sets as set}<option value={set.id}
+								>Set {set.position} · {set.setRole}{set.executedLoad != null &&
+								set.executedReps != null
+									? ' · saved'
+									: ''}</option
+							>{/each}</select
+					></label
+				>{/if}
+			<ul class:tap-grid={preferences.layout === 'tap' && !editing}>
 				<!--
 					Keyed by the set's identity, not its id alone (0.6.2): SetRow captures
 					its machine and weight format once, for the stale-tab guard and its
@@ -529,15 +575,22 @@
 				-->
 				{#each group.sets as set (`${set.id}:${set.gymEquipmentId}:${set.loadConvention}`)}<SetRow
 						{set}
-						viewMode={view.mode}
+						layout={editing ? 'table' : preferences.layout}
+						rirChoice={preferences.rir}
+						showNotes={preferences.notes}
+						showHistory={preferences.history}
+						steppers={preferences.steppers}
+						hidden={preferences.layout === 'guided' && !editing && set.id !== currentSet(group)}
+						onstartsave={() => timer?.prepare()}
 						sessionEnded={data.session.endedAt != null}
 						allowEndedSessionEdit={data.allowEndedSessionEdit}
 						{ondirty}
-						onsaved={startRest}
+						onsaved={savedSet}
 					/>{/each}
 			</ul>
 			{#if !data.session.endedAt}<form
 					class="add-set"
+					class:tool-hidden={!editing}
 					method="POST"
 					action="?/appendSet"
 					use:enhance={() => {
@@ -583,6 +636,7 @@
 					<form
 						method="POST"
 						action="?/removeSet"
+						class:tool-hidden={!editing}
 						use:enhance={({ cancel }) => {
 							if (!confirm('Remove the last empty set? Logged sets stay unchanged.')) {
 								cancel();
@@ -616,7 +670,10 @@
 	{#if appendError}<p role="alert" class="error">{appendError}</p>{/if}
 	{#if !data.session.endedAt && data.picker}
 		<!-- The add sheet (0.8.0, machines spec Parts I and J). -->
-		<button class="add-trigger" onclick={() => (pickerOpen = true)}>+ {pickerUi.addExercise}</button
+		<button
+			class="add-trigger"
+			class:tool-hidden={!editing && data.groups.length > 0}
+			onclick={() => (pickerOpen = true)}>+ {pickerUi.addExercise}</button
 		>
 		<AddSheet
 			picker={data.picker}
@@ -671,27 +728,11 @@
 					>
 					{#if photoError}<p role="alert" class="photo-error">{photoError}</p>{/if}
 				</form>{/if}
-			{#if rest}
-				<div class="rest" data-testid="rest-timer">
-					<button
-						type="button"
-						class="rest-time"
-						class:over={restLeft <= 0}
-						aria-label={workoutUi.restDismiss}
-						onclick={() => keepRest(null)}
-						><span>{restLeft > 0 ? workoutUi.restLabel : workoutUi.restOver}</span>
-						<output data-testid="rest-clock"
-							>{restLeft > 0 ? clock(restLeft) : `+${clock(restLeft)}`}</output
-						></button
-					><button
-						type="button"
-						class="rest-add"
-						onclick={() =>
-							rest && keepRest({ ...rest, seconds: rest.seconds + workoutUi.restAddSeconds })}
-						>{workoutUi.restAdd}</button
-					>
-				</div>
-			{/if}
+			{#key data.session.id}<RestTimer
+					bind:this={timer}
+					sessionId={data.session.id}
+					userId={data.user!.id}
+				/>{/key}
 			<p aria-live="polite">
 				{dirtyIds.length
 					? `${dirtyIds.length} unsaved ${dirtyIds.length === 1 ? 'set' : 'sets'} · drafts kept in this tab`
@@ -726,37 +767,113 @@
 	</footer>{/if}
 
 <style>
-	.rest {
-		display: grid;
-		grid-template-columns: 1fr auto;
-		gap: 8px;
-		margin-bottom: 8px;
+	.tool-hidden {
+		display: none !important;
 	}
-	.rest-time {
+	.exercise[hidden] {
+		display: none;
+	}
+	.modern.workout {
+		max-width: 520px;
+		padding-top: 12px;
+	}
+	.modern header {
+		padding: 12px 0 4px;
+	}
+	.modern .eyebrow,
+	.modern progress,
+	.modern .progress-copy,
+	.modern > .back {
+		display: none;
+	}
+	.modern .exercise {
+		background: transparent;
+		border: 0;
+		border-radius: 0;
+		padding: 0 0 14px;
+		margin-bottom: 20px;
+		border-bottom: 1px solid #2e3b32;
+	}
+	.modern .exercise-heading {
+		margin-bottom: 8px;
+		align-items: center;
+	}
+	.modern .number {
+		display: none;
+	}
+	.modern h2 {
+		font-size: 19px;
+	}
+	.modern .muted {
+		color: #a7b8ac;
+		font-size: 12px;
+	}
+	.machine-photo {
+		display: block;
+		width: 100%;
+		max-height: 240px;
+		object-fit: contain;
+		border-radius: 14px;
+		margin-bottom: 18px;
+		background: #18211b;
+	}
+	.no-photo {
+		padding: 28px;
+		text-align: center;
+		background: #152119;
+		border-radius: 14px;
+		color: #a3b6aa;
+		margin-bottom: 18px;
+		font-size: 13px;
+	}
+	.exercise-picker,
+	.set-picker {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		min-height: 48px;
-		padding: 0 14px;
-		border-radius: 12px;
-		background: #1e1b4b;
-		color: #e0e7ff;
-		font-weight: 600;
+		gap: 8px;
+		color: #afc2b5;
+		font-size: 13px;
+		margin: 12px 0 18px;
 	}
-	.rest-time output {
-		font-size: 22px;
-		font-variant-numeric: tabular-nums;
+	.exercise-picker select,
+	.set-picker select {
+		max-width: 80%;
+		min-height: 44px;
+		background: #17261c;
+		color: #eef6ef;
+		border: 1px solid #34513e;
+		border-radius: 10px;
+		padding: 8px;
+		font-size: 16px;
 	}
-	.rest-time.over {
-		background: #064e3b;
-		color: #d1fae5;
+	.tap-grid {
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		gap: 8px;
 	}
-	.rest-add {
-		min-height: 48px;
-		padding: 0 14px;
-		border: 1px solid #4b5870;
-		border-radius: 12px;
-		color: #c7d2fe;
+	.edit-intro {
+		margin: 8px 0 20px;
+		padding: 16px;
+		background: #18241c;
+		border-radius: 14px;
+	}
+	.edit-intro p {
+		font-size: 13px;
+		line-height: 1.5;
+		color: #b2c3b8;
+		margin: 8px 0;
+	}
+	.edit-intro a {
+		display: inline-block;
+		min-height: 44px;
+		padding: 12px 0;
+		text-decoration: underline;
+		color: #b0e8c1;
+		font-size: 14px;
+	}
+	[data-layout='notebook'] .exercise {
+		font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 	}
 	.remove-set {
 		min-height: 44px;

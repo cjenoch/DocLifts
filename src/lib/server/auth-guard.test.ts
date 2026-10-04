@@ -14,6 +14,8 @@ import { isPublicPath, isSafeNext, resolveAuthRedirect } from './request-user';
 describe('isPublicPath', () => {
 	it('allows the auth pages and the auth API', () => {
 		expect(isPublicPath('/login')).toBe(true);
+		expect(isPublicPath('/privacy')).toBe(true);
+		expect(isPublicPath('/privacy/../account')).toBe(false);
 		expect(isPublicPath('/logout')).toBe(true);
 		expect(isPublicPath('/signup')).toBe(true);
 		expect(isPublicPath('/api/auth')).toBe(true);

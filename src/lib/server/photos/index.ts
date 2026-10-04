@@ -1,3 +1,4 @@
+import { requirePhotoNotice } from '../photo-privacy';
 import { scanPhoto } from './safety';
 /**
  * Equipment photos (0.4.0): upload, read-back, and the daily cap.
@@ -75,7 +76,7 @@ export type UploadInput = {
 /**
  * Store one photo for one of this user's gyms and record it as `uploaded`.
  *
- * Order: gym (owner) -> size -> daily cap -> process (orient, resize, strip)
+ * Order: gym (owner) -> current photo notice -> size -> daily cap -> process (orient, resize, strip)
  * -> safety (fail closed, before storage) -> under a per-user advisory lock, recount, `put`, insert. The recount under
  * the lock makes the cap exact when two uploads race. If the insert fails the
  * stored object is deleted, so the store never holds an object no row names.
@@ -97,6 +98,7 @@ export async function uploadPhoto(
 	const gym = await ownGym(db, userId, input.gymId);
 	// An archived gym takes no new photos (0.7.0); its old photos still show.
 	if (!gym || gym.archivedAt) return null;
+	await requirePhotoNotice(db, userId);
 	const { limits, store } = deps;
 	// Size first: processPhoto checks it too, but a refused upload should not
 	// cost a count query, and the cap message must not mask a size message.

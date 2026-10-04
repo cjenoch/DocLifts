@@ -148,6 +148,13 @@
       "when": 1791062278525,
       "tag": "0020_tense_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791153545174,
+      "tag": "0021_photo_notice_acknowledgements",
+      "breakpoints": true
     }
   ]
 }

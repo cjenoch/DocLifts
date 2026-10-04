@@ -1,3 +1,4 @@
+import { acknowledgePhotoNotice } from './photo-privacy';
 /**
  * One way to obtain a session against a served build, shared by
  * `auth-hook-guard.test.ts` and `e2e/csp.e2e.ts`.
@@ -332,13 +333,17 @@ export type TestDb = Awaited<ReturnType<typeof setupTestDb>>['db'];
 export async function seedTestUser(
 	db: TestDb,
 	email = 'guardtest@test.local',
-	name = 'Guard Test'
+	name = 'Guard Test',
+	photoNoticeAccepted = true
 ): Promise<{ id: string; email: string }> {
 	// Returns the user because callers that build fixtures need the owner id:
 	// from T3 on, a program or exercise created without a user_id is invisible
 	// to every scoped query, so a fixture that forgets it produces a page that
 	// correctly 404s.
-	return createUser(auth, db, { email, password: TEST_PASSWORD, name });
+	const user = await createUser(auth, db, { email, password: TEST_PASSWORD, name });
+	// Existing photo scenarios start after acknowledgment; first-use privacy tests pass false.
+	if (photoNoticeAccepted) await acknowledgePhotoNotice(db, user.id);
+	return user;
 }
 
 /**

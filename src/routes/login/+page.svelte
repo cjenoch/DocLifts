@@ -138,4 +138,9 @@
 			Sign in
 		</button>
 	</form>
+	<a
+		href="/privacy"
+		class="mt-4 inline-flex min-h-11 items-center text-sm text-indigo-300 underline"
+		>Privacy and your data</a
+	>
 </main>

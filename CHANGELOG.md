@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.18.4 Alpha — privacy notice and photo acknowledgment — not deployed
+
+- Adds a public privacy page linked from sign-in and Account. It describes
+  photos and AI providers, operator access, sensitive notes and agent sharing,
+  browser storage, backups, retention gaps and support requests without promising
+  provider zero retention, training exclusion or self-service deletion/export.
+- Requires an explicit current-version photo acknowledgment before uploads are
+  processed, screened or stored. It is account-scoped and survives device changes;
+  existing accounts acknowledge before their next new photo. Manual logging and
+  existing photos remain available. Both upload screens work without JavaScript.
+- Adds migration 0021: a per-account notice version and acknowledgment timestamp,
+  with account-deletion cascade. No existing account is marked accepted.
+- Validation and deployment evidence will be recorded after the release gate.
+
 ## 0.18.3 Alpha — dependency security updates — deployed; acceptance pending
 
 - Updates Vitest/provider, Vite and tsx within the existing major versions,

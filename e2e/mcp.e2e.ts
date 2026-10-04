@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import {
@@ -35,6 +36,49 @@ beforeAll(async () => {
 		})
 		.returning();
 	workoutId = session.id;
+	const [exercise] = await h.db
+		.insert(s.exercises)
+		.values({ userId: owner.id, name: 'Bulk fixture press', equipmentType: 'dumbbell' })
+		.returning();
+	await h.db.insert(s.sets).values({
+		userId: owner.id,
+		sessionId: session.id,
+		exerciseId: exercise.id,
+		position: 1,
+		setRole: 'top',
+		targetMetric: 'reps',
+		prescribedRepsMin: 5,
+		prescribedRepsMax: 5,
+		prescribedLoad: 10,
+		executedLoad: 25,
+		executedReps: 5,
+		notes: 'PRIVATE_SET_NOTE'
+	});
+	const importId = randomUUID();
+	await h.db.insert(s.workoutLogImports).values({
+		id: importId,
+		userId: owner.id,
+		sourceSha256: randomUUID(),
+		sourceName: 'Private notebook',
+		sourceText: 'PRIVATE_ARCHIVE_DOCUMENT'
+	});
+	await h.db.insert(s.importedWorkouts).values({
+		id: randomUUID(),
+		importId,
+		sourceLine: 1,
+		title: 'Archive fixture',
+		workoutDate: '2024-05-01',
+		dateNote: 'PRIVATE_DATE_NOTE',
+		lines: [
+			{
+				sourceLine: 2,
+				text: 'PRIVATE_ARCHIVE_LINE',
+				loadConvention: 'total_plates',
+				interpretationNote: null,
+				sets: [{ load: 137, reps: 7, evidence: 'explicit' }]
+			}
+		]
+	});
 	const app = await startTestServer();
 	origin = app.origin;
 	stop = app.stop;
@@ -164,10 +208,42 @@ describe('real MCP connection controls', () => {
 					requestInit: { headers: { authorization: 'Bearer ' + tokens.access_token } }
 				})
 			);
-			expect((await client.listTools()).tools).toHaveLength(6);
+			expect((await client.listTools()).tools).toHaveLength(8);
 			const read = await client.callTool({ name: 'get_workout', arguments: { id: workoutId } });
 			expect(JSON.stringify(read)).toContain(workoutId);
 			expect(JSON.stringify(read)).not.toContain('PRIVATE_HEALTH_NOTE');
+			const bulk = await client.callTool({ name: 'list_workout_sets', arguments: { limit: 50 } });
+			expect(bulk.isError).not.toBe(true);
+			expect(bulk.structuredContent).toMatchObject({
+				source: 'app_session',
+				sets: [
+					{
+						workoutId,
+						exercise: 'Bulk fixture press',
+						prescribedLoad: 10,
+						executedLoad: 25,
+						executedReps: 5
+					}
+				],
+				nextCursor: null
+			});
+			expect(JSON.stringify(bulk)).not.toMatch(/PRIVATE_SET_NOTE|PRIVATE_HEALTH_NOTE/);
+			const imported = await client.callTool({
+				name: 'list_imported_workouts',
+				arguments: { limit: 50 }
+			});
+			expect(imported.isError).not.toBe(true);
+			expect(imported.structuredContent).toMatchObject({
+				source: 'imported_notebook',
+				workouts: [
+					{
+						title: 'Archive fixture',
+						workoutDate: '2024-05-01',
+						lines: [{ sets: [{ load: 137, reps: 7, evidence: 'explicit' }] }]
+					}
+				]
+			});
+			expect(JSON.stringify(imported)).not.toMatch(/PRIVATE_ARCHIVE|PRIVATE_DATE_NOTE/);
 			expect((await rpc(tokens.refresh_token, 'tools/list')).status).toBe(401);
 			await page.goto(origin + '/account');
 			await page.getByRole('link', { name: 'Connected agents', exact: true }).click();

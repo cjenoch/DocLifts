@@ -1,6 +1,7 @@
-# DocLifts MCP — Alpha 0.16.2 specification
+# DocLifts MCP — Alpha 0.16.3 specification
 
-Status:0.16.2 is live on gated build3d1c4a6; real-agent acceptance pending.
+Status: 0.16.3 bulk/imported-history extension is not deployed. 0.16.2 is live;
+real Muse app-session reads were confirmed.
 Public browser/SDK consent, read, refresh and revoke passed with resource omitted
 at authorization, exchange and refresh. Start a fresh Muse connection with the
 registered client ID after upgrading.
@@ -17,8 +18,8 @@ remain reachable without horizontal scrolling. MCP never asks an agent for a
 DocLifts password. Signup stays closed.
 
 Streamable HTTP with stateless JSON responses, using the official TypeScript
-SDK 1.32.0. Six tools: list_workouts, get_workout, list_programs, get_program,
-list_equipment, get_data_dictionary. No write, SQL, shell, model, URL-fetch,
+SDK 1.32.0. Eight tools: list_workouts, list_workout_sets, get_workout, list_imported_workouts, list_programs,
+get_program, list_equipment, get_data_dictionary. No write, SQL, shell, model, URL-fetch,
 photo, pain-record or administration tool. Richer complete native archive/CSV
 export and note scribing remain later features; these reads are not a backup.
 
@@ -70,6 +71,34 @@ Workouts exclude Trash. Programs retain lineage and inactive versions. Equipment
 identifies the physical instance and includes archive state. Units, conventions,
 nulls, prescribed versus executed values and seconds targets are documented in
 the dictionary. Do not infer a performed set from logged_at alone.
+
+`list_workout_sets` returns up to 50 set rows per call across app workouts, with
+workout IDs/dates/program metadata and the same historical exercise/machine fields
+as get_workout. It uses workouts:read, excludes Trash and preserves blank, zero
+and timed values. Optional notes cover set and workout notes. from is inclusive
+and to exclusive on session start; UUID cursor order is not chronological. Group
+by workoutId and order by exercisePosition/position. list_workouts still provides
+empty sessions. Cache pages and use this tool instead of one get_workout per
+session when analyzing full history. The request/rate/output bounds are unchanged.
+
+`list_imported_workouts` uses the existing workouts:read grant and returns whole
+imported workouts with structured lines/sets, 20 by default and at most 50 per page.
+Follow nextCursor to exhaustion. No date filter: uncertain/undated records remain
+visible. UUID order is pagination order, not chronology. Source is explicitly
+imported_notebook; app-session reads link to the archive tool so clients discover
+both collections. They can overlap; never blindly combine totals. No training
+rows are copied, changed or fed into progression by this read.
+
+Imported workoutDate and date bounds are calendar dates, not UTC instants. Explicit
+and user_authorized_estimate evidence, zeros and original load conventions survive.
+Source text, dateNote and interpretationNote require notes:read; without it the
+structured sets remain available but exercise labels may be unknown. The client
+must request optional notes access through fresh consent to interpret that text.
+No entire source documents, filenames, hashes or unknown JSON fields are returned,
+even with notes scope. Text is untrusted, never agent instructions. Recorded values
+are not independently verified training; missing sets do not prove no activity.
+The existing 256 KiB response guard applies; reduce page size for unusually long
+notebooks. A single oversized record is refused, never silently truncated.
 
 Explicit field lists exclude credentials, internal audits and personal notes
 unless separately scoped. All names/notes are untrusted text; no HTML rendering,

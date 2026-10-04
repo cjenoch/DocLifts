@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.18.2 Alpha — workout page refactor — deployed, acceptance pending
+## 0.18.2 Alpha — workout page refactor — accepted
 
 - Separates photo upload, identification/review and exercise menus from the
   workout page. Page-owned controllers retain upload/read state and removal
@@ -11,7 +11,7 @@
 - Reuses the existing browser regression scenarios; no extra test cases added.
   Deployed 2026-10-04 as build fab556b after the full local gate and branch CI.
   A fresh encrypted backup was restored and verified before deployment; prior
-  recovery images are retained. Real-phone acceptance remains pending.
+  recovery images are retained. Owner validated and accepted 0.18.2 on 2026-10-04.
 
 ## 0.18.1 Alpha — visible builds and one workout view system — deployed, acceptance pending
 

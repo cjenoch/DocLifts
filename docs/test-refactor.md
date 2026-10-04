@@ -25,3 +25,14 @@ Record before/after timings on the same host and build; counts alone are not a p
 The workout page falls from 1,275 to 845 lines. Photo upload, photo review and exercise menus now render in route-local components. Page-owned controllers preserve photo request/read state and the removal Undo timer while server data refreshes. Set drafts and the logger remain in place; no server actions or database behavior change.
 
 The existing photo-workout, live-edit and faster-set-entry browser scenarios exercise these boundaries. No test cases were added for the extraction.
+
+## Documentation CI
+
+Root Markdown and docs/ Markdown changes run lint without provisioning Postgres,
+Playwright or a Docker build. The complete PR or push is classified, including
+deletions and both sides of renames. Source Markdown, symlinks, empty or unknown
+diffs, workflow/configuration changes and manual dispatch use the full gate.
+The final test job always checks that the selected jobs actually succeeded.
+
+CI changes themselves still require the full local gate and branch CI. This
+changes validation routing only; the deployed app stays at 0.18.2 Alpha.

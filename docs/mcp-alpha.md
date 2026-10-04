@@ -202,3 +202,13 @@ from generic protocol compatibility.
 - https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization
 - https://ts.sdk.modelcontextprotocol.io/
 - https://better-auth.com/docs/plugins/oauth-provider
+
+### App identity on consent
+
+OAuth app names are self-supplied. DocLifts labels apps **Unverified app** and
+shows the callback destination selected in the signed authorization request.
+Check the complete host, scheme and any port; a familiar app name is not proof
+of identity. This destination is where the connection returns, not a guarantee
+about every service the app might later share data with. No verified-client
+registry is currently maintained. Native app callbacks show their app URI
+without query parameters; web callbacks show their origin.

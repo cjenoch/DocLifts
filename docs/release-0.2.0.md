@@ -3441,3 +3441,11 @@ list_imported_workouts and list_workout_sets calls from the connected Muse accou
 Subsequent consent metadata includes notes:read following owner reauthorization.
 No assistant changed consent or tokens. This verifies real-client access; log
 counts alone do not establish complete pagination or sound training conclusions.
+
+## 0.16.4 Alpha — consent app identity — not deployed
+
+Following external review, the consent screen identifies self-supplied app names
+as unverified and displays the callback destination from the signed request.
+The regression uses a familiar app name with a misleading callback host and tests
+signed-request tampering. No schema or tunnel changes. Full gates and public
+scratch-account verification are required before recording deployment.

@@ -23,7 +23,19 @@ async function consentRequest(url: URL) {
 		.where(eq(oauthClient.clientId, url.searchParams.get('client_id') || ''))
 		.limit(1);
 	if (!client || client.disabled) error(400, 'Connection unavailable.');
-	return { client, scopes, signed };
+	// The provider validates the redirect URI before signing this request. Display
+	// that selected callback, never a client-supplied homepage or another registration.
+	let callback: URL;
+	try {
+		callback = new URL(url.searchParams.get('redirect_uri') || '');
+	} catch {
+		error(400, 'Invalid connection destination.');
+	}
+	const destination =
+		callback.protocol === 'https:' || callback.protocol === 'http:'
+			? callback.origin
+			: `${callback.protocol}${callback.host ? `//${callback.host}` : ''}${callback.pathname}`;
+	return { client, scopes, signed, destination };
 }
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals);
@@ -31,6 +43,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	return {
 		email: user.email,
 		client: data.client,
+		destination: data.destination,
 		scopes: data.scopes.map((s) => ({
 			id: s,
 			label: MCP_SCOPE_LABELS[s] || 'Stay connected for up to 30 days'

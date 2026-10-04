@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 4, 2026. Current application: **0.18.3 Alpha**, runtime `d76b226`.
+Updated October 4, 2026. Current application: **0.18.4 Alpha**, runtime `5b9203d`.
 Deployed and automatically verified; owner phone/agent acceptance pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
@@ -24,24 +24,32 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-Deployed October 4, 2026 on d76b226 (tag 0.18.3) after PR35 and exact-head
-CI37237380524. Full local lint/types/Drizzle/build, 904 server tests (+2 expected
-private-data skips), 42 component tests and 156 browser tests passed.
+Deployed October 4, 2026 on 5b9203d (tag 0.18.4) after PR37 and exact-head
+CI37241672588. Full local lint/types/Drizzle/build, 905 server tests (+2 expected
+private-data skips), 42 component tests and 159 browser tests passed. A final
+assertion cleanup also passed lint/types/build and 35 CSP/privacy scenarios.
 
-The dependency batch updates compatible Vitest, Vite and tsx releases and affected
-transitive packages, with a scoped cookie-parser fix. Both full and production
-pnpm audits fell from 16 findings to one moderate Drizzle-loader/esbuild advisory.
-See the [complete inventory and triage](docs/dependencies.md). No advisory is hidden.
+The [public privacy notice](https://doclifts.runthe.ai/privacy) is linked from
+sign-in and Account. New uploads require account-scoped, versioned acknowledgment
+before processing, screening or storage. Existing users acknowledge before their
+next new photo; manual logging remains available. The notice explicitly covers
+operator/provider access, agent notes, browser storage, backups and unfinished
+retention/deletion/export work. See [privacy controls](docs/privacy.md).
 
-A fresh encrypted backup restored with matching aggregate database counts,
-25 photo hashes, seven SQLite integrity checks and isolated scratch login/history.
-Public automation-account checks verified build identity, four layouts and saving,
+Migration 0021 passed on a fresh production-backup restore with unchanged aggregate
+counts, 25 photo hashes, seven SQLite checks and isolated scratch login/history.
+The production wrapper took and verified an immediate dump, then migrated. Its
+first attempt safely refused the root-owned backup directory; sudo was required.
+All existing accounts remained unacknowledged after migration.
+
+Public automation-account checks verified the new build and notice, direct-upload
+refusal, acknowledgment without losing an unsaved set, normal saving, four layouts,
 hidden fields, set editing, rejected uploads, history, update detection, MCP's
 unauthenticated challenge and logout invalidation of a saved session cookie.
-The running container contains the patched versions; Node remains 24.21.0.
-Previous recovery images are retained. No schema change or host reboot.
+Previous recovery images are retained. No host reboot or provider/settings change.
+The prior dependency batch remains documented in [dependency triage](docs/dependencies.md).
 
-Private evidence: ops/dependencies-2026-10-04 in the VPS-only operations repository.
+Private evidence: ops/privacy-2026-10-04 in the VPS-only operations repository.
 See [release records](docs/release-0.2.0.md). Owner phone/agent acceptance remains
 separate; automated checks do not establish every client's compatibility or the
 correctness of training interpretation.
@@ -64,7 +72,7 @@ advisories. Signup stays closed.
   before changing how database tooling is run; see [dependency triage](docs/dependencies.md).
   Deeper independent OAuth review, measured capacity tests and existing security
   follow-up before widening Alpha access. Screening does not solve prompt injection.
-- Account export/deletion, saved-photo deletion, privacy/upload notices and
+- Account export/deletion, saved-photo deletion and automatic
   retention rules covering logs, backups and provider processing before public signup.
 - Signup/approval gates and fuller beginner onboarding. Four workout layouts and the
   first-set guide are live; owner gym acceptance remains pending.

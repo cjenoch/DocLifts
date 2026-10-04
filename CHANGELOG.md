@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.3 Alpha — imported history for agents — not deployed
+
+- Adds account-scoped `list_imported_workouts`, returning notebook workouts and
+  their structured sets together in bounded pages. Existing app sessions stay separate.
+- Preserves source-line provenance, uncertain dates, load conventions and explicit
+  versus estimated set evidence. Notebook text requires optional `notes:read`;
+  entire source documents and unrecognized JSON fields are never exported.
+- Dictionary and tool descriptions explain both history collections, mixed test
+  data, possible overlap and incomplete entries. No schema, auth or tunnel changes.
+
 ## 0.16.2 Alpha — OAuth resource compatibility — deployed, acceptance pending
 
 - OAuth clients such as Muse can omit the authorization resource parameter.

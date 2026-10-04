@@ -3402,3 +3402,12 @@ revocation, discovery, hostname restriction and CSRF checks. Normal sign-in,
 history and browser build identity also passed. Start a fresh Connect in Muse
 with the existing client ID; old signed requests are not rewritten.
 Real Muse acceptance pending. Signup closed; safety A/B unchanged.
+
+## 50. 0.16.3 Alpha — imported history for agents — NOT DEPLOYED
+
+Owner requested access to the existing imported notebook archive after Muse's
+first analysis saw only app sessions. Adds one account-scoped read tool with
+workout/set pages, evidence and source provenance. Optional notes consent gates
+notebook text. No schema, environment, auth or tunnel changes. Release requires
+full local and exact-head CI gates, restored backup, retained prior images and
+public scratch-account SDK checks. Real Muse imported-history acceptance is owed.

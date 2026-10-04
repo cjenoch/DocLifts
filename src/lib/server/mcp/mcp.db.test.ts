@@ -93,7 +93,10 @@ async function grant(
 	const token = await auth.handler(
 		new Request(origin + '/api/auth/oauth2/token', {
 			method: 'POST',
-			headers: { 'content-type': 'application/x-www-form-urlencoded' },
+			headers: {
+				'content-type': 'application/x-www-form-urlencoded',
+				'x-forwarded-for': `192.0.2.${registrationIp++}`
+			},
 			body: new URLSearchParams({
 				grant_type: 'authorization_code',
 				code,
@@ -139,7 +142,7 @@ describe('MCP OAuth and account boundaries', () => {
 		);
 		expect(response.status).toBe(200);
 		const data = await response.json();
-		expect(data.result.tools).toHaveLength(6);
+		expect(data.result.tools).toHaveLength(7);
 		expect(
 			data.result.tools.every(
 				(t: { annotations: { readOnlyHint: boolean } }) => t.annotations.readOnlyHint
@@ -234,7 +237,7 @@ describe('MCP scoped tools and bounded requests', () => {
 		expect(response.status).toBe(200);
 		expect(
 			(await response.json()).result.tools.map((t: { name: string }) => t.name).sort()
-		).toEqual(['get_data_dictionary', 'get_workout', 'list_workouts']);
+		).toEqual(['get_data_dictionary', 'get_workout', 'list_imported_workouts', 'list_workouts']);
 		const hidden = await (
 			await rpc(g.token, 'tools/call', { name: 'list_programs', arguments: {} })
 		).json();
@@ -547,5 +550,128 @@ describe('MCP overload behavior', () => {
 		expect(limited.status).toBe(429);
 		expect(limited.headers.get('retry-after')).toBeTruthy();
 		expect((await rpc(b.token)).status).toBe(200);
+	});
+});
+
+describe('MCP imported notebook history', () => {
+	async function archive(userId: string, load: number) {
+		const importId = randomUUID();
+		await h.db.insert(s.workoutLogImports).values({
+			id: importId,
+			userId,
+			sourceSha256: randomUUID(),
+			sourceName: 'PRIVATE_SOURCE_FILENAME',
+			sourceText: 'PRIVATE_FULL_DOCUMENT'
+		});
+		const ids = [randomUUID(), randomUUID(), randomUUID()].sort();
+		await h.db.insert(s.importedWorkouts).values(
+			ids.map((id, i) => ({
+				id,
+				importId,
+				sourceLine: i + 1,
+				title: 'Notebook workout',
+				gym: 'Fixture gym',
+				workoutDate: i === 0 ? '2025-01-01' : null,
+				earliestDate: i === 1 ? '2025-02-01' : null,
+				latestDate: i === 1 ? '2025-02-28' : null,
+				dateNote: 'PRIVATE_DATE_NOTE',
+				lines: [
+					{
+						sourceLine: 5,
+						text: 'PRIVATE_LINE: Squat 100 x 5',
+						sets: [
+							{ load, reps: 5, evidence: 'explicit' as const },
+							{ load: 0, reps: 10, evidence: 'user_authorized_estimate' as const }
+						],
+						loadConvention: 'legacy',
+						interpretationNote: 'PRIVATE_INTERPRETATION',
+						unexpected: 'UNEXPECTED_JSON_SECRET'
+					}
+				]
+			}))
+		);
+		return { ids, importId };
+	}
+	it('returns owned archive pages with evidence and uncertainty, excluding foreign data and private text', async () => {
+		const own = await archive(alice, 123);
+		await archive(bob, 987);
+		const all: Record<string, unknown>[] = [];
+		let after: string | undefined;
+		do {
+			const page = await readMcpData(h.db, alice, 'list_imported_workouts', { limit: 1, after });
+			expect(page).toMatchObject({ source: 'imported_notebook', notesIncluded: false });
+			const typed = page as { workouts: Record<string, unknown>[]; nextCursor: string | null };
+			expect(typed.workouts).toHaveLength(1);
+			all.push(...typed.workouts);
+			after = typed.nextCursor ?? undefined;
+		} while (after);
+		expect(all.map((w) => w.id)).toEqual(own.ids);
+		expect(all[0]).toMatchObject({
+			importId: own.importId,
+			workoutDate: '2025-01-01',
+			lines: [
+				{
+					sourceLine: 5,
+					loadConvention: 'legacy',
+					sets: [
+						{ load: 123, reps: 5, evidence: 'explicit' },
+						{ load: 0, reps: 10, evidence: 'user_authorized_estimate' }
+					]
+				}
+			]
+		});
+		expect(all[1]).toMatchObject({
+			workoutDate: null,
+			earliestDate: '2025-02-01',
+			latestDate: '2025-02-28'
+		});
+		expect(all[2]).toMatchObject({ workoutDate: null, earliestDate: null, latestDate: null });
+		expect(JSON.stringify(all)).not.toMatch(/PRIVATE_|UNEXPECTED_|987/);
+		const theirs = await readMcpData(h.db, bob, 'list_imported_workouts', {});
+		expect(JSON.stringify(theirs)).toContain('987');
+		expect(JSON.stringify(theirs)).not.toContain(own.importId);
+		const notes = await readMcpData(h.db, alice, 'list_imported_workouts', {}, true);
+		expect(JSON.stringify(notes)).toContain('PRIVATE_LINE');
+		expect(JSON.stringify(notes)).toContain('PRIVATE_DATE_NOTE');
+		expect(JSON.stringify(notes)).toContain('PRIVATE_INTERPRETATION');
+		expect(JSON.stringify(notes)).not.toMatch(
+			/PRIVATE_FULL_DOCUMENT|PRIVATE_SOURCE_FILENAME|UNEXPECTED_JSON_SECRET/
+		);
+		expect(await readMcpData(h.db, alice, 'list_workouts', {})).toMatchObject({
+			workouts: [],
+			importedHistoryTool: 'list_imported_workouts'
+		});
+		expect(await readMcpData(h.db, alice, 'get_data_dictionary', {})).toHaveProperty(
+			'importedHistory.evidence'
+		);
+	});
+	it('enforces workout and optional note scopes on the wire and bounds archive output', async () => {
+		const own = await archive(alice, 123);
+		const basic = await grant(alice, 'workouts:read');
+		const params = { name: 'list_imported_workouts', arguments: { limit: 1 } };
+		const result = await (await rpc(basic.token, 'tools/call', params)).json();
+		expect(result.result.structuredContent.workouts).toHaveLength(1);
+		expect(JSON.stringify(result)).not.toContain('PRIVATE_LINE');
+		const noWorkouts = await grant(alice, 'programs:read notes:read');
+		expect(JSON.stringify(await (await rpc(noWorkouts.token)).json())).not.toContain(
+			'list_imported_workouts'
+		);
+		const hidden = await (await rpc(noWorkouts.token, 'tools/call', params)).json();
+		expect(hidden.error || hidden.result?.isError).toBeTruthy();
+		const withNotes = await grant(alice, 'workouts:read notes:read');
+		expect(await (await rpc(withNotes.token, 'tools/call', params)).text()).toContain(
+			'PRIVATE_LINE'
+		);
+		const invalid = await (
+			await rpc(basic.token, 'tools/call', { ...params, arguments: { limit: 51 } })
+		).json();
+		expect(invalid.error || invalid.result?.isError).toBeTruthy();
+		await h.db
+			.update(s.importedWorkouts)
+			.set({ dateNote: 'OVERSIZE_CANARY'.repeat(30000) })
+			.where(eq(s.importedWorkouts.id, own.ids[0]));
+		const large = await (await rpc(withNotes.token, 'tools/call', params)).json();
+		expect(large.result.isError).toBe(true);
+		expect(JSON.stringify(large)).not.toContain('OVERSIZE_CANARY');
 	});
 });

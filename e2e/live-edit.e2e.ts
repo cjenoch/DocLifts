@@ -133,6 +133,8 @@ run('editing a live workout (production build)', () => {
 		);
 	const headings = (page: Page) => page.locator('section.exercise h2').allInnerTexts();
 	async function openMenu(page: Page, name: string) {
+		if (await page.getByRole('button', { name: 'Edit workout', exact: true }).isVisible())
+			await page.getByRole('button', { name: 'Edit workout', exact: true }).click();
 		await page.getByLabel(ui.exerciseMenu(name), { exact: true }).click();
 	}
 	const occurrenceNames = async (sessionId: string) =>

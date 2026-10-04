@@ -215,6 +215,9 @@ run('faster set entry (production build)', () => {
 		expect(await page.getByTestId('rest-timer').count()).toBe(0);
 
 		// The pulldown's machine steps by 10 lb a tap, with no keyboard.
+		await page.getByRole('button', { name: 'Customize workout view' }).click();
+		await page.getByLabel('Weight and reps +/− buttons').check();
+		await page.getByRole('button', { name: 'Done customizing' }).click();
 		const pulldown = page.locator('section.exercise').filter({ hasText: 'Lat pulldown' });
 		await pulldown.getByRole('button', { name: ui.moreWeight, exact: true }).first().click();
 		await pulldown.getByRole('button', { name: ui.moreWeight, exact: true }).first().click();
@@ -240,29 +243,48 @@ run('faster set entry (production build)', () => {
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
-	it('switches views without losing drafts, saved RIR or notes, and remembers the choice after reload', async () => {
+	it('four layouts preserve distinct drafts, zero RIR and notes when fields are hidden', async () => {
 		const page = await signedInPage();
 		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
 		const first = page.locator('li[id^="set-"]').first();
 		const rowId = (await first.getAttribute('id'))!.slice(4);
-		expect(
-			await page
-				.getByRole('button', { name: 'Simple view', exact: true })
-				.getAttribute('aria-pressed')
-		).toBe('true');
-		expect(await first.locator('input[name="executedRir"]').isVisible()).toBe(false);
-		await page.getByRole('button', { name: 'Advanced view', exact: true }).click();
+		await page.getByRole('button', { name: 'Customize workout view' }).click();
+		await page.getByLabel('RIR field', { exact: true }).selectOption('show');
+		await page.getByLabel('Set notes', { exact: true }).check();
+		await page.getByRole('button', { name: 'Done customizing' }).click();
 		await first.getByRole('spinbutton', { name: 'Weight', exact: true }).fill('67.5');
 		await first.getByRole('spinbutton', { name: 'Reps', exact: true }).fill('11');
-		await first.locator('input[name="executedRir"]').fill('0');
-		await first.getByRole('button', { name: '+ Note', exact: true }).click();
+		await first.getByRole('spinbutton', { name: 'RIR', exact: true }).fill('0');
 		await first
 			.getByRole('textbox', { name: 'Set note', exact: true })
-			.fill('A draft across both views');
-		await page.getByRole('button', { name: 'Simple view', exact: true }).click();
-		expect(await first.getByRole('spinbutton', { name: 'Weight', exact: true }).inputValue()).toBe(
-			'67.5'
-		);
+			.fill('Distinct draft across four layouts');
+		for (const layout of ['notebook', 'tap', 'guided', 'table']) {
+			await page.getByLabel('Workout layout', { exact: true }).selectOption(layout);
+			if (layout === 'guided')
+				await page
+					.locator('section.exercise')
+					.first()
+					.getByLabel('Current set', { exact: true })
+					.selectOption(rowId);
+			if (process.env.LAYOUT_SCREENSHOTS)
+				await page.screenshot({
+					path: `${process.env.LAYOUT_SCREENSHOTS}/${layout}.png`,
+					fullPage: true
+				});
+			expect(
+				await first.getByRole('spinbutton', { name: 'Weight', exact: true }).inputValue()
+			).toBe('67.5');
+			expect(await first.getByRole('spinbutton', { name: 'Reps', exact: true }).inputValue()).toBe(
+				'11'
+			);
+			expect(await first.getByRole('spinbutton', { name: 'RIR', exact: true }).inputValue()).toBe(
+				'0'
+			);
+		}
+		await page.getByRole('button', { name: 'Customize workout view' }).click();
+		await page.getByLabel('RIR field', { exact: true }).selectOption('hide');
+		await page.getByLabel('Set notes', { exact: true }).uncheck();
+		await page.getByRole('button', { name: 'Done customizing' }).click();
 		expect(await first.locator('input[name="executedRir"]').isVisible()).toBe(false);
 		await first.getByRole('button', { name: ui.saveSet(1), exact: true }).click();
 		await expect
@@ -270,30 +292,63 @@ run('faster set entry (production build)', () => {
 				const [row] = await harness.db.select().from(s.sets).where(eq(s.sets.id, rowId));
 				return [row.executedLoad, row.executedReps, row.executedRir, row.notes];
 			})
-			.toEqual([67.5, 11, 0, 'A draft across both views']);
-		await first.getByRole('button', { name: 'Notes & effort · entered', exact: true }).click();
-		expect(await first.locator('input[name="executedRir"]').inputValue()).toBe('0');
-		expect(await first.getByRole('textbox', { name: 'Set note', exact: true }).inputValue()).toBe(
-			'A draft across both views'
-		);
-		await page.getByRole('button', { name: 'Advanced view', exact: true }).click();
+			.toEqual([67.5, 11, 0, 'Distinct draft across four layouts']);
+		await page.getByLabel('Workout layout', { exact: true }).selectOption('notebook');
 		await page.reload({ waitUntil: 'networkidle' });
-		expect(
-			await page
-				.getByRole('button', { name: 'Advanced view', exact: true })
-				.getAttribute('aria-pressed')
-		).toBe('true');
-		expect(await first.locator('input[name="executedRir"]').isVisible()).toBe(true);
-		expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-			390
+		expect(await page.getByLabel('Workout layout', { exact: true }).inputValue()).toBe('notebook');
+		expect(await first.locator('input[name="executedRir"]').inputValue()).toBe('0');
+		await page.setViewportSize({ width: 320, height: 740 });
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+			true
 		);
 		expect(await violations(page)).toEqual([]);
-		if (process.env.DOCLIFTS_UI_SCREENSHOTS) {
-			await page.evaluate(() => window.scrollTo(0, 0));
-			await page.screenshot({ path: '/tmp/doclifts-view-advanced.png' });
-			await page.getByRole('button', { name: 'Simple view', exact: true }).click();
-			await page.screenshot({ path: '/tmp/doclifts-view-simple.png' });
-		}
+		await page.close();
+	});
+	it('a failed save retains distinct entries and does not start rest', async () => {
+		const page = await signedInPage();
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		const first = page.locator('li[id^="set-"]').first();
+		await first.getByRole('spinbutton', { name: 'Weight', exact: true }).fill('82.5');
+		await first.getByRole('spinbutton', { name: 'Reps', exact: true }).fill('7');
+		await page.route('**/sessions/**', (route) =>
+			route.request().method() === 'POST' ? route.abort('failed') : route.continue()
+		);
+		await first.getByRole('button', { name: ui.saveSet(1), exact: true }).click();
+		await first.getByRole('alert').waitFor();
+		expect(await first.getByRole('spinbutton', { name: 'Weight', exact: true }).inputValue()).toBe(
+			'82.5'
+		);
+		expect(await first.getByRole('spinbutton', { name: 'Reps', exact: true }).inputValue()).toBe(
+			'7'
+		);
+		expect(await page.getByTestId('rest-timer').count()).toBe(0);
+		await page.getByLabel('Workout layout', { exact: true }).selectOption('notebook');
+		expect(await first.getByRole('spinbutton', { name: 'Weight', exact: true }).inputValue()).toBe(
+			'82.5'
+		);
+		await page.close();
+	});
+	it('clock settings are opt-in, survive reload, and countdown expiration leaves editing open', async () => {
+		const page = await signedInPage();
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		await page.getByRole('button', { name: 'Timer settings', exact: true }).click();
+		expect(await page.getByLabel('Play a chime', { exact: true }).isChecked()).toBe(false);
+		await page.getByLabel('Rest duration', { exact: true }).selectOption('5');
+		await page.getByLabel('Visual alert', { exact: true }).selectOption('shake');
+		await page.getByRole('button', { name: 'Close timer settings', exact: true }).click();
+		await page.getByRole('button', { name: 'Start rest', exact: true }).click();
+		await page.getByRole('button', { name: 'Edit workout', exact: true }).click();
+		await expect
+			.poll(() => page.getByTestId('rest-clock').innerText(), { timeout: 8000 })
+			.toBe('0:00');
+		expect(await page.getByRole('button', { name: 'Done editing', exact: true }).isVisible()).toBe(
+			true
+		);
+		await page.reload({ waitUntil: 'networkidle' });
+		await page.getByRole('button', { name: 'Timer settings', exact: true }).click();
+		expect(await page.getByLabel('Rest duration', { exact: true }).inputValue()).toBe('5');
+		expect(await page.getByLabel('Visual alert', { exact: true }).inputValue()).toBe('shake');
+		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
 });

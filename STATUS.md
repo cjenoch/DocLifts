@@ -45,6 +45,12 @@ checks, and no failed system or user units remained. Ubuntu deferred one phased
 audio configuration update. Host updates do not resolve JavaScript dependency
 advisories. Signup stays closed.
 
+## Release in progress
+
+0.18.0 Alpha workout layouts are implemented, not deployed. Four views,
+per-program display choices and optional timer alerts replace the workout
+Simple/Advanced switch. See [scope](docs/plans/workout-layouts.md).
+
 ## Next work, not shipped
 
 - Complete replacement-VPS recovery rehearsal and external host-down monitoring.

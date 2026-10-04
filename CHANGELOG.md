@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.18.0 Alpha — workout layouts — not deployed
+
+- Four workout views: Guided with an available private machine photo, compact
+  Set table, dense Notebook and Tap sets. Quick workouts start Guided; planned
+  workouts start in Set table. Switching preserves unsaved entries.
+- Customize RIR (follow the set prescription, show or hide), notes, previous
+  performance and optional weight/reps buttons. Choices belong to each account
+  and program in the current browser; they do not sync between devices.
+- Edit workout reveals the existing exercise and set controls. Changes apply
+  to this session; the program editor and existing From now on swap remain
+  available for future workouts.
+- The clock opens rest settings: duration, an optional chime (off by default),
+  pulse, small shake or text only. Reduced motion disables animation. Background
+  and locked-phone alerts are not guaranteed.
+- One set-save implementation serves all views. The timer is extracted and
+  superseded set-entry markup is removed. No database migration, auth, MCP,
+  progression or tunnel change. Owner gym acceptance is pending after deployment.
+
 ## 0.17.0 Alpha — Simple and Advanced views — deployed, acceptance pending
 
 - Adds a Simple / Advanced switch on signed-in screens, remembered separately

@@ -30,6 +30,7 @@ import type { Auth } from './auth';
  */
 const ALLOWLIST: readonly string[] = [
 	'/login',
+	'/privacy',
 	'/logout',
 	'/signup',
 	'/api/auth',

@@ -3567,3 +3567,17 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   MCP authentication challenge and logout-session revocation. Actual container
   package versions and Node 24.21.0 were verified. No VPS reboot.
 - Owner phone/agent acceptance remains pending; automated verification is complete.
+
+## 0.18.4 Alpha — privacy notice and photo acknowledgment — not deployed
+
+- Adds a public privacy page linked from sign-in and Account. It describes
+  photos and AI providers, operator access, sensitive notes and agent sharing,
+  browser storage, backups, retention gaps and support requests without promising
+  provider zero retention, training exclusion or self-service deletion/export.
+- Requires an explicit current-version photo acknowledgment before uploads are
+  processed, screened or stored. It is account-scoped and survives device changes;
+  existing accounts acknowledge before their next new photo. Manual logging and
+  existing photos remain available. Both upload screens work without JavaScript.
+- Adds migration 0021: a per-account notice version and acknowledgment timestamp,
+  with account-deletion cascade. No existing account is marked accepted.
+- Validation and deployment evidence will be recorded after the release gate.

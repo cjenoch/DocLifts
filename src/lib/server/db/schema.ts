@@ -1141,3 +1141,12 @@ export {
 	oauthConsent,
 	oauthClientAssertion
 } from './auth-schema';
+
+/** Versioned photo notice acknowledgment, owned directly by the signed-in user. */
+export const photoNoticeAcknowledgements = pgTable('photo_notice_acknowledgements', {
+	userId: text('user_id')
+		.primaryKey()
+		.references(() => authUsers.id, { onDelete: 'cascade' }),
+	version: text('version').notNull(),
+	acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }).notNull().defaultNow()
+});

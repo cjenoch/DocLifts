@@ -1,3 +1,4 @@
+import { acknowledgePhotoNotice } from './photo-privacy';
 /**
  * Integration-test database helper.
  *
@@ -116,7 +117,11 @@ export async function setupTestDb(urlOverride?: string): Promise<{
  * Asserts the test-DB guard before inserting — this must never be reachable
  * with a production URL.
  */
-export async function createTestUser(db: TestDb, label = 'fixture'): Promise<string> {
+export async function createTestUser(
+	db: TestDb,
+	label = 'fixture',
+	photoNoticeAccepted = true
+): Promise<string> {
 	const url = process.env.TEST_DATABASE_URL ?? DEFAULT_TEST_URL;
 	const name = dbNameFromUrl(url);
 	if (!name.endsWith('_test')) {
@@ -139,6 +144,8 @@ export async function createTestUser(db: TestDb, label = 'fixture'): Promise<str
 			emailVerified: true
 		})
 		.returning();
+	// Existing photo scenarios start after acknowledgment; first-use privacy tests pass false.
+	if (photoNoticeAccepted) await acknowledgePhotoNotice(db, row.id);
 	return row.id;
 }
 

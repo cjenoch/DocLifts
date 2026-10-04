@@ -451,7 +451,10 @@
 </main>
 {#if !data.session.endedAt}<footer>
 		<div class="footer-inner">
-			{#if data.photoEnabled}<WorkoutPhotoUpload {photos} />{/if}
+			{#if data.photoEnabled}<WorkoutPhotoUpload
+					{photos}
+					accepted={data.photoNoticeAccepted}
+				/>{/if}
 			{#key data.session.id}<RestTimer
 					bind:this={timer}
 					sessionId={data.session.id}

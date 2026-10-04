@@ -2,7 +2,7 @@
  * uploadPhoto / readOwnPhoto (0.4.0 §3) against the test database and the
  * memory store. No network: the store is a Map.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { setupTestDb, resetTestDbWithUsers, type TestDb } from '../test-db';
@@ -17,6 +17,7 @@ import {
 } from './index';
 import { phonePhoto, smallPng } from './test-fixtures';
 import { emptyTimings } from './timings';
+import { acknowledgePhotoNotice, hasPhotoNotice, PhotoNoticeRequired } from '../photo-privacy';
 
 let db: TestDb;
 let handle: Awaited<ReturnType<typeof setupTestDb>>;
@@ -91,6 +92,51 @@ describe('uploadPhoto', () => {
 		const stored = await bytesOf((await store.get(photo!.storageKey))!.body);
 		expect(stored.byteLength).toBe(photo!.bytes);
 		expect((await sharp(stored).metadata()).exif).toBeUndefined();
+	});
+
+	it('requires this account’s current notice before processing, screening or storage', async () => {
+		const input = { gymId: alicesGym, bytes: await smallPng() };
+		// Positive path first: fixture accounts have acknowledged the current notice.
+		expect(await hasPhotoNotice(db, alice)).toBe(true);
+		expect((await uploadPhoto(db, alice, input, { store, limits }))?.photo.userId).toBe(alice);
+		const keys = store.keys();
+		await db
+			.delete(s.photoNoticeAcknowledgements)
+			.where(eq(s.photoNoticeAcknowledgements.userId, alice));
+		expect(await hasPhotoNotice(db, bob)).toBe(true); // someone else's acknowledgment cannot cover Alice
+		const scan = vi.fn();
+		const timings = emptyTimings();
+		await expect(
+			uploadPhoto(db, alice, input, { store, limits, scan, timings })
+		).rejects.toBeInstanceOf(PhotoNoticeRequired);
+		expect(scan).not.toHaveBeenCalled();
+		expect(timings.processMs).toBeNull();
+		expect(store.keys()).toEqual(keys);
+		expect(await db.select().from(s.equipmentPhotos)).toHaveLength(1);
+		await acknowledgePhotoNotice(db, alice);
+		const [first] = await db
+			.select()
+			.from(s.photoNoticeAcknowledgements)
+			.where(eq(s.photoNoticeAcknowledgements.userId, alice));
+		await acknowledgePhotoNotice(db, alice);
+		expect(
+			(
+				await db
+					.select()
+					.from(s.photoNoticeAcknowledgements)
+					.where(eq(s.photoNoticeAcknowledgements.userId, alice))
+			)[0].acknowledgedAt
+		).toEqual(first.acknowledgedAt);
+		await db
+			.update(s.photoNoticeAcknowledgements)
+			.set({ version: 'old' })
+			.where(eq(s.photoNoticeAcknowledgements.userId, alice));
+		await expect(uploadPhoto(db, alice, input, { store, limits, scan })).rejects.toBeInstanceOf(
+			PhotoNoticeRequired
+		);
+		await acknowledgePhotoNotice(db, alice);
+		expect(await hasPhotoNotice(db, alice)).toBe(true);
+		expect(store.keys()).toEqual(keys);
 	});
 
 	it('returns the processed image exactly as stored, and times processing and the put', async () => {

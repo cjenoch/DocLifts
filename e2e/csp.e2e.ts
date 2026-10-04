@@ -263,7 +263,8 @@ run('production build: CSP and page render', () => {
 		'/account/password',
 		'/account/connections',
 		'/account/connections/consent',
-		'/login'
+		'/login',
+		'/privacy'
 	] as const;
 	type RoutePattern = (typeof ROUTE_PATTERNS)[number];
 	const reached = new Set<string>();
@@ -286,7 +287,9 @@ run('production build: CSP and page render', () => {
 		it(pattern + ' renders cleanly on phone and desktop', async () => {
 			const path = resolvePattern(pattern);
 			const { page, status } =
-				pattern === '/login' ? await visitLoggedOut(path, 390) : await visit(path, 390);
+				pattern === '/login' || pattern === '/privacy'
+					? await visitLoggedOut(path, 390)
+					: await visit(path, 390);
 			try {
 				expect(status, path + ' -> ' + serverLog).toBe(200);
 				// A redirect to a different 200 page must not count as route coverage.

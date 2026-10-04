@@ -1,34 +1,39 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import PhotoNotice from '$lib/PhotoNotice.svelte';
 	import { workoutUi } from '$lib/workout-ui';
 	import type { WorkoutPhotos } from './workout-photos.svelte';
-	let { photos }: { photos: WorkoutPhotos } = $props();
+	let { photos, accepted }: { photos: WorkoutPhotos; accepted: boolean } = $props();
 	let photoForm: HTMLFormElement | undefined = $state();
 </script>
 
-<form
-	method="POST"
-	action="?/photo"
-	enctype="multipart/form-data"
-	class="photo-form"
-	bind:this={photoForm}
-	use:enhance={photos.photoSubmit}
->
-	<input type="hidden" name="requestId" value={photos.photoRequestId} />
-	<!-- No capture attribute: the phone offers camera, library and files (0.4.2). -->
-	<label class="photo-next" class:busy={photos.photoStage !== null}
-		>{photos.photoStage ?? workoutUi.photoNextMachine}<input
-			type="file"
-			name="photo"
-			id="photo-next-input"
-			accept="image/jpeg,image/png,image/webp"
-			class="sr-only"
-			disabled={photos.photoStage !== null}
-			onchange={() => photoForm?.requestSubmit()}
-		/></label
+{#if !accepted}
+	<PhotoNotice collapsed />
+{:else}
+	<form
+		method="POST"
+		action="?/photo"
+		enctype="multipart/form-data"
+		class="photo-form"
+		bind:this={photoForm}
+		use:enhance={photos.photoSubmit}
 	>
-	{#if photos.photoError}<p role="alert" class="photo-error">{photos.photoError}</p>{/if}
-</form>
+		<input type="hidden" name="requestId" value={photos.photoRequestId} />
+		<!-- No capture attribute: the phone offers camera, library and files (0.4.2). -->
+		<label class="photo-next" class:busy={photos.photoStage !== null}
+			>{photos.photoStage ?? workoutUi.photoNextMachine}<input
+				type="file"
+				name="photo"
+				id="photo-next-input"
+				accept="image/jpeg,image/png,image/webp"
+				class="sr-only"
+				disabled={photos.photoStage !== null}
+				onchange={() => photoForm?.requestSubmit()}
+			/></label
+		>
+		{#if photos.photoError}<p role="alert" class="photo-error">{photos.photoError}</p>{/if}
+	</form>
+{/if}
 
 <style>
 	.photo-form {

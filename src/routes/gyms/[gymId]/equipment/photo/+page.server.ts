@@ -1,3 +1,6 @@
+import { hasPhotoNotice } from '$lib/server/photo-privacy';
+import { photoNoticeAction } from '$lib/server/photo-privacy-action';
+import { PHOTO_NOTICE_REQUIRED } from '$lib/photo-privacy';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '$lib/server/db';
@@ -35,14 +38,16 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		)
 		.orderBy(desc(equipmentPhotos.createdAt))
 		.limit(20);
-	return { gym, waiting };
+	return { gym, waiting, photoNoticeAccepted: await hasPhotoNotice(db, userId) };
 };
 
 export const actions: Actions = {
+	acknowledgePhotoNotice: photoNoticeAction,
 	upload: async ({ params, request, locals }) => {
 		// totalMs runs from here to the response being decided (0.5.3).
 		const started = performance.now();
 		const userId = requireUser(locals).id;
+		if (!(await hasPhotoNotice(db, userId))) return fail(400, { message: PHOTO_NOTICE_REQUIRED });
 		const form = await request.formData();
 		const file = form.get('photo');
 		if (!(file instanceof File) || file.size === 0) {

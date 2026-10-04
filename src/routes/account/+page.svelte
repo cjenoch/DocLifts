@@ -46,6 +46,11 @@
 		class="mb-3 flex min-h-11 items-center justify-center rounded border border-zinc-700 px-4"
 		>Connected agents</a
 	>
+	<a
+		href="/privacy"
+		class="mb-3 flex min-h-11 items-center justify-center rounded border border-zinc-700 px-4"
+		>Privacy and your data</a
+	>
 	<!--
 		Sign out. A <form method="POST" action="/logout"> and not an <a href>:
 		the route answers 405 to GET on purpose, so a link, a prefetch, or an

@@ -1,3 +1,6 @@
+import { hasPhotoNotice } from '$lib/server/photo-privacy';
+import { photoNoticeAction } from '$lib/server/photo-privacy-action';
+import { PHOTO_NOTICE_REQUIRED } from '$lib/photo-privacy';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { asc, eq, sql } from 'drizzle-orm';
 import {
@@ -173,6 +176,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 					: null;
 
 	return {
+		photoNoticeAccepted: await hasPhotoNotice(db, requireUser(locals).id),
 		session,
 		day,
 		// A workout started with no program (0.5.1): no program page to go
@@ -224,6 +228,7 @@ const deleteEndedSessionSchema = z.object({
 });
 
 export const actions: Actions = {
+	acknowledgePhotoNotice: photoNoticeAction,
 	removeSet: async ({ request, params, locals }) => {
 		if (!uuidParamSchema.safeParse(params.id).success) {
 			return fail(400, { message: 'Invalid session id' });
@@ -328,6 +333,8 @@ export const actions: Actions = {
 		if (!session || session.endedAt)
 			return fail(404, { message: 'Session not found', setId: null });
 		if (!session.gymId) return fail(400, { message: 'This workout has no gym', setId: null });
+		if (!(await hasPhotoNotice(db, userId)))
+			return fail(400, { message: PHOTO_NOTICE_REQUIRED, setId: null });
 		const form = await request.formData();
 		const file = form.get('photo');
 		if (!(file instanceof File) || file.size === 0) {

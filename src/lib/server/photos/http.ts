@@ -1,3 +1,4 @@
+import { PhotoNoticeRequired } from '../photo-privacy';
 /**
  * How the photo routes answer a refusal. Every refusal the user can act on is
  * a message on the page (a 400 in the action envelope), not a throttle; a
@@ -10,6 +11,7 @@ import { PhotoInputError } from './process';
 import { PhotoLimitError } from './index';
 
 export function photoFailure(e: unknown) {
+	if (e instanceof PhotoNoticeRequired) return fail(400, { message: e.message });
 	if (e instanceof PhotoSafetyError)
 		return fail(e.reason === 'blocked' ? 400 : 503, { message: e.message });
 	if (e instanceof PhotoInputError || e instanceof PhotoLimitError) {

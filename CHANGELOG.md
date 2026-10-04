@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.18.1 Alpha — visible builds and one workout view system — not deployed
+## 0.18.1 Alpha — visible builds and one workout view system — deployed, acceptance pending
 
 - Shows the release and loaded build on the sign-in page and signed-in header.
 - Checks for a newer build when a tab opens or regains focus; an update prompt
@@ -11,6 +11,17 @@
   the four layouts; program controls stay available without a global mode.
 - No database, auth, progression, MCP or tunnel changes. Owner phone verification
   remains pending after deployment.
+
+Deployed October 4, 2026 on `3107bf8` (tag `0.18.1`) after PR25 and exact-head
+CI37222559072. Full local lint/types/Drizzle/build, 902 server tests (+2 expected
+private-data skips), 42 component tests and 177 browser tests passed. The new
+build-label regression failed against the old build before passing the fix.
+Fresh encrypted snapshot eb12bb9f restored with matching totals, 24 photo hashes,
+seven SQLite checks and scratch login/history. Recovery images remain retained.
+Public scratch checks verified the release/build on sign-in and signed-in pages,
+the absent global switch, newer-build prompt/manual refresh, all four workout
+layouts, saving, hidden values, set controls and 320/390px fit. Owner phone
+verification remains pending. No schema, auth, MCP or tunnel changes.
 
 ## 0.18.0 Alpha — workout layouts — deployed, acceptance pending
 

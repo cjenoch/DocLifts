@@ -553,7 +553,14 @@ green on the branch. Any other file in the diff, even one, means the full
 gate above. Instruction-file changes remain reviewable; the active owner-directed
 development override below governs routine approval holds.
 
-**Documentation CI fast path (owner-approved, 2026-10-04).** A non-empty change\ncontaining only regular Markdown files at the repository root or under docs/\nruns lint in CI. Renames from code, symlinks, mixed/config/workflow changes,\nmanual runs and uncertain comparisons take the full CI gate. The final test\ncheck requires the selected jobs to succeed. The local Markdown-only exception\nabove is unchanged. No application deployment is needed for CI-only changes.\n\n**Dependency audit: report only.** Every full CI run and a weekly workflow
+**Documentation CI fast path (owner-approved, 2026-10-04).** A non-empty change
+containing only regular Markdown files at the repository root or under docs/
+runs lint in CI. Renames from code, symlinks, mixed/config/workflow changes,
+manual runs and uncertain comparisons take the full CI gate. The final test
+check requires the selected jobs to succeed. The local Markdown-only exception
+above is unchanged. No application deployment is needed for CI-only changes.
+
+**Dependency audit: report only.** Every full CI run and a weekly workflow
 (`.github/workflows/dependency-audit.yml`, Mondays) write `pnpm audit --prod`
 findings to the job summary with a "would fail at high" line; neither ever
 fails (owner decision, 2026-10-02). GitHub disables a scheduled workflow after

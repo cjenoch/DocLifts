@@ -3377,7 +3377,7 @@ signup closed. Previous38ff199 and the1e52b4c image are retained; future builds
 must retain at least two prior recovery images under the new policy. Owner's
 first actual agent connection is pending, not inferred from SDK tests.
 
-## 49. 0.16.2 Alpha — Muse resource compatibility — NOT DEPLOYED
+## 49. 0.16.2 Alpha — Muse resource compatibility — DEPLOYED, ACCEPTANCE PENDING
 
 Owner reached a400 Invalid connection resource page after Muse login. Muse omitted
 the resource parameter. A new served-build browser regression reproduced the same
@@ -3389,3 +3389,16 @@ Consent and bearer checks stay strict. The targeted regression now passes both
 flows through read, refresh and revoke; explicit wrong targets and signed-request
 tampering remain refused. Full release gates and deployment checks still required.
 No schema, environment or Cloudflare changes. Existing Muse client ID stays valid.
+
+Deployed2026-10-03 on3d1c4a6 after PR14 and full local gate:898server tests,
+2expected skips,40component,171e2e, lint/check/Drizzle/build. Exact-head
+CI37162779780 passed on6d1a366 and was watched to completion. Fresh backup
+restored with11users,58workouts,560logged sets,19programs unchanged. Compose
+dry run passed; pre-0.16.2 and earlier recovery images retained. No migration.
+
+Public test-account flow passed with resource omitted at authorization,
+exchange and refresh: consent, six SDK tools, notes excluded, access/refresh
+revocation, discovery, hostname restriction and CSRF checks. Normal sign-in,
+history and browser build identity also passed. Start a fresh Connect in Muse
+with the existing client ID; old signed requests are not rewritten.
+Real Muse acceptance pending. Signup closed; safety A/B unchanged.

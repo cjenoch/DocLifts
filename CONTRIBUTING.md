@@ -23,7 +23,22 @@ Read `CLAUDE.md` for architectural rules. Run `pnpm check`, `pnpm lint` and `pnp
 
 `pnpm build` needs `DATABASE_URL` set, even though the build never connects: the DB module throws at import time if it is missing. Any syntactically valid URL works for a build-only run (the Dockerfile uses a placeholder for the same reason).
 
-`pnpm test:e2e` runs a browser end-to-end pass against a production build served locally (Content-Security-Policy violations, page rendering). It needs `pnpm build` first, a Chromium that Playwright can find, and the same test database as the server tests. Locally it skips itself when either the build or the browser is missing, printing one `[e2e] skipped` line, and the run still reports green. A green local run therefore does not prove CSP coverage unless the e2e tests actually ran; set `CI=1` to turn a missing prerequisite into a failure. In CI it is always required.
+`pnpm test:e2e` runs a browser end-to-end pass against a production build served locally (Content-Security-Policy violations, page rendering). It needs `pnpm build` first, a Chromium that Playwright can find, and the same test database as the server tests. Locally it skips itself when either the build or the browser is missing, printing one `[e2e] skipped` line, and the run still reports green. A green local run therefore does not prove CSP coverage unless the e2e tests actually ran; set `CI=1` to turn a missing prerequisite into a failure. It is required for application changes and manual CI runs; the documentation-only exception is described below.
+
+## Documentation-only CI
+
+For a change containing only regular Markdown files at the repository root or
+under docs/, run `pnpm lint` locally. CI runs the same formatting gate without
+starting Postgres, Playwright, application builds or Docker builds.
+
+The comparison covers the complete pull request or push, not just the last
+commit. Any code, source Markdown, configuration or workflow change runs the
+full gate. Symlinks, code renamed to Markdown, an empty/unknown comparison and
+manual workflow dispatch also use the full gate.
+
+The final `test` check must pass on either path; skipped or failed required jobs
+cannot count as a successful gate. The production dependency audit runs with the
+full path and on its independent weekly schedule.
 
 ## Focused checks while developing
 

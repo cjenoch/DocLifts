@@ -3595,7 +3595,7 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   recovery, layouts, history, MCP challenge and session revocation. Prior recovery
   images remain retained. Signup is closed; owner phone acceptance remains pending.
 
-## 0.18.5 Alpha — password entry and MCP admission — not deployed
+## 0.18.5 Alpha — password entry and MCP admission — deployed; acceptance pending
 
 - JSON and URL-encoded sign-ins now share the failure-only boundary with the login
   form proxy. Fetch decoding and last duplicate-key values match the auth handler;
@@ -3604,4 +3604,27 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   Email remains delay-only. MCP retains its global bound and adds per-IP token
   lookup admission plus a bounded short-lived denied-token hash cache.
 - No migration or OAuth-scope/consent change. Process-local counters and distributed
-  exhaustion remain documented limitations. Deployment and acceptance pending.
+  exhaustion remain documented limitations. Owner phone/agent acceptance pending.
+- Deployed October 23, 2026 as build 43a8f50 (tag 0.18.5), after PR39 and
+  exact-head CI40032121853 at 3036f8a. CI passed 922 server tests (3 skips),
+  42 component tests and 166 end-to-end tests. Local server coverage passed 923
+  tests (2 skips); two existing 5-second timeouts passed focused retries with
+  unchanged timeouts. The permission test skipped under CI root runs locally.
+  Local e2e initially passed 163 of 166: an immediate image-load assertion raced,
+  an existing 5-second consent wait timed out, and its leftover consent caused the
+  next revoke locator to match twice. The two affected suites passed all 19 tests
+  on one fresh-fixture rerun with unchanged assertions and timeouts. All 166 e2e
+  cases are covered; these test-timing defects remain follow-up work. Components,
+  build, lint, typecheck, migration consistency and CI Docker checks passed.
+- The final review caught the auth library's URL-encoded sign-in support; the
+  boundary and regressions now cover both encodings. Removing the protection
+  reproduced the bypass before the corrected build passed.
+- A fresh encrypted off-host backup was restored in isolation with matching
+  database totals, verified photo hashes and SQLite integrity, and automation
+  sign-in/history. Prior production images remain retained. Only web was
+  recreated; no database migration, tunnel, signup or provider-setting change.
+- Public automation passed existing-cookie browser login, both direct credential
+  encodings, private pages and visible build identity, OAuth consent/PKCE/refresh,
+  MCP SDK discovery and reads, token revocation and browser logout revocation.
+  Owner/human Alpha accounts and workout data were not modified. Owner phone/agent
+  acceptance remains pending; this does not establish every client's compatibility.

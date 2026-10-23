@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 4, 2026. Current application: **0.18.4 Alpha**, runtime `5b9203d`.
+Updated October 23, 2026. Current application: **0.18.5 Alpha**, runtime `43a8f50`.
 Deployed and automatically verified; owner phone/agent acceptance pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
@@ -24,35 +24,41 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-Deployed October 4, 2026 on 5b9203d (tag 0.18.4) after PR37 and exact-head
-CI37241672588. Full local lint/types/Drizzle/build, 905 server tests (+2 expected
-private-data skips), 42 component tests and 159 browser tests passed. A final
-assertion cleanup also passed lint/types/build and 35 CSP/privacy scenarios.
+Deployed October 23, 2026 as 43a8f50 (tag 0.18.5), after PR39 and exact-head
+CI40032121853 at 3036f8a. CI passed 922 server tests (3 skips), 42 component tests,
+166 end-to-end tests, lint, typecheck, Drizzle consistency and build. Local server
+coverage passed 923 tests (2 skips): two existing 5-second timeouts passed focused
+retries without changing timeouts; CI skips a permission test when run as root.
+Local e2e initially passed 163/166. An image-load race, an existing 5-second
+consent wait timeout and its cascading leftover-consent failure recovered in one
+fresh-fixture run of both affected suites (19/19), with unchanged assertions and
+timeouts. All 166 cases are covered; test-timing repairs remain follow-up work.
+Local components/build and CI Docker/runtime/CodeQL checks passed.
 
-The [public privacy notice](https://doclifts.runthe.ai/privacy) is linked from
-sign-in and Account. New uploads require account-scoped, versioned acknowledgment
-before processing, screening or storage. Existing users acknowledge before their
-next new photo; manual logging remains available. The notice explicitly covers
-operator/provider access, agent notes, browser storage, backups and unfinished
-retention/deletion/export work. See [privacy controls](docs/privacy.md).
+JSON and URL-encoded password sign-ins now share the form's failure-only throttle.
+Request bodies and concurrent password work are bounded. Email remains delay-only;
+knowing someone's email cannot trigger an account-wide hard lock. MCP adds bounded
+per-IP authentication work and a short-lived denied-token hash cache; successful
+tokens still revalidate session and consent. See [auth hardening](docs/auth-hardening.md)
+for restart, multi-instance, shared-IP and distributed-traffic limitations.
 
-Migration 0021 passed on a fresh production-backup restore with unchanged aggregate
-counts, 25 photo hashes, seven SQLite checks and isolated scratch login/history.
-The production wrapper took and verified an immediate dump, then migrated. Its
-first attempt safely refused the root-owned backup directory; sudo was required.
-All existing accounts remained unacknowledged after migration.
+A fresh encrypted off-host snapshot restored in isolation with matching database
+counts, photo hashes, seven SQLite integrity checks and automation login/history.
+The previous running image and older recovery images are retained. Only web was
+recreated; no migration, host reboot, tunnel or provider-setting change.
 
-Public automation-account checks verified the new build and notice, direct-upload
-refusal, acknowledgment without losing an unsaved set, normal saving, four layouts,
-hidden fields, set editing, rejected uploads, history, update detection, MCP's
-unauthenticated challenge and logout invalidation of a saved session cookie.
-Previous recovery images are retained. No host reboot or provider/settings change.
-The prior dependency batch remains documented in [dependency triage](docs/dependencies.md).
+Public checks used only the dedicated automation account. Browser and both direct
+sign-in encodings, private pages, visible release/build, OAuth consent/PKCE/refresh,
+MCP SDK tools and reads, token revocation, and logout invalidation passed. Owner and
+human Alpha accounts were not exercised; no workout data was written.
 
-Private evidence: ops/privacy-2026-10-04 in the VPS-only operations repository.
+The [privacy notice](https://doclifts.runthe.ai/privacy) and versioned upload
+acknowledgment from 0.18.4 remain live. Self-service deletion/export and retention
+remain unfinished; see [privacy controls](docs/privacy.md). Signup stays closed.
+
+Private evidence: ops/auth-release-2026-10-23 in the VPS-only operations repository.
 See [release records](docs/release-0.2.0.md). Owner phone/agent acceptance remains
-separate; automated checks do not establish every client's compatibility or the
-correctness of training interpretation.
+pending. Hermes's separate infrastructure hardening is not part of this release.
 
 ## Host maintenance
 

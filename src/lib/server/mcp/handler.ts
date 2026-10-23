@@ -1,3 +1,4 @@
+import { McpAuthGate } from './auth-gate';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { z } from 'zod';
@@ -17,6 +18,7 @@ export const TOOL_SCOPES: Record<string, string> = {
 };
 const counts = new Map<string, { start: number; n: number }>();
 let inFlight = 0;
+const authGate = new McpAuthGate();
 const headers = { 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' };
 function throttle(key: string) {
 	const now = Date.now();
@@ -27,6 +29,15 @@ function throttle(key: string) {
 	counts.set(key, entry);
 	return entry.n <= 60;
 }
+function unauthorized() {
+	return new Response(null, {
+		status: 401,
+		headers: {
+			...headers,
+			'www-authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', mcpResource())}", scope="workouts:read programs:read equipment:read"`
+		}
+	});
+}
 export async function handleMcp(db: Database, request: Request) {
 	const origin = request.headers.get('origin');
 	if (origin && origin !== new URL(mcpResource()).origin && origin !== process.env.PUBLIC_ORIGIN)
@@ -35,17 +46,17 @@ export async function handleMcp(db: Database, request: Request) {
 		return new Response(null, { status: 405, headers: { ...headers, allow: 'POST' } });
 	if (inFlight >= 8)
 		return new Response(null, { status: 503, headers: { ...headers, 'retry-after': '2' } });
+	const admission = authGate.enter(request.headers);
+	if (admission === 'invalid') return unauthorized();
+	if (admission === 'busy')
+		return new Response(null, { status: 429, headers: { ...headers, 'retry-after': '5' } });
 	inFlight++;
 	try {
-		const principal = await authenticateMcp(db, request.headers.get('authorization'));
-		if (!principal)
-			return new Response(null, {
-				status: 401,
-				headers: {
-					...headers,
-					'www-authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', mcpResource())}", scope="workouts:read programs:read equipment:read"`
-				}
-			});
+		const principal = await authenticateMcp(db, request.headers.get('authorization')).finally(
+			admission.release
+		);
+		admission.denied(!principal);
+		if (!principal) return unauthorized();
 		if (!throttle(principal.userId))
 			return new Response(null, { status: 429, headers: { ...headers, 'retry-after': '60' } });
 		if (!request.headers.get('content-type')?.startsWith('application/json'))
@@ -199,6 +210,7 @@ export async function handleMcp(db: Database, request: Request) {
 	} catch {
 		return new Response(null, { status: 400, headers });
 	} finally {
+		admission.release();
 		inFlight--;
 	}
 }

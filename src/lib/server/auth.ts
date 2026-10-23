@@ -21,6 +21,7 @@
 import { building } from '$app/environment';
 import { createAuth, type Auth } from './auth-core';
 import { db } from './db';
+import { passwordEntryHandler } from './password-entry';
 
 /**
  * The secret, with a placeholder during `vite build`.
@@ -119,11 +120,21 @@ function resolveBaseURL(value: string | undefined): string {
 	);
 }
 
-export const auth: Auth = createAuth(db, {
+const coreAuth: Auth = createAuth(db, {
 	secret: building ? 'build-time-placeholder-never-used-at-runtime' : requireSecret(),
 	baseURL: resolveBaseURL(serverEnv('PUBLIC_ORIGIN')),
 	openSignup: serverEnv('DOCLIFTS_OPEN_SIGNUP') === '1',
 	rateLimitStorage: serverEnv('DOCLIFTS_RATE_LIMIT_STORAGE') === 'database' ? 'database' : 'memory'
+});
+
+// Preserve createAuth's lazy Proxy: spreading it loses api/$context, and reading
+// its handler at import time initializes OAuth before test migrations or builds.
+const protectedHandler = passwordEntryHandler((request) => coreAuth.handler(request));
+export const auth: Auth = new Proxy(coreAuth, {
+	get(target, property) {
+		if (property === 'handler' || property === 'fetch') return protectedHandler;
+		return Reflect.get(target, property);
+	}
 });
 
 export type { Auth };

@@ -49,7 +49,11 @@
 	{#if form?.message}<p role="status" class="text-amber-300">{form.message}</p>{/if}
 
 	{#if data.photo.status === 'discarded'}
-		<p data-testid="photo-status">Discarded. The image has been deleted.</p>
+		<p data-testid="photo-status">
+			{data.removalPending
+				? 'Removal pending. The image is hidden while cleanup retries.'
+				: 'Discarded. The image has been deleted.'}
+		</p>
 	{:else}
 		<img
 			src={`/photos/${data.photo.id}/image`}
@@ -68,6 +72,22 @@
 				>{/if}.
 		</p>
 		<a href="/gyms" class="text-indigo-300">Gyms and machines</a>
+	{/if}
+
+	{#if data.deletionEnabled && data.photo.status !== 'discarded'}
+		<form method="POST" action="?/remove" class="space-y-3 rounded border border-red-900 p-4">
+			<p>
+				Remove this saved image and its review details. Your machine and logged workout performance
+				stay unchanged. Backup copies expire separately.
+			</p>
+			<label class="flex min-h-11 items-center gap-3"
+				><input type="checkbox" name="confirmRemoval" value="yes" required />Remove this image
+				permanently</label
+			>
+			<button class="min-h-11 rounded border border-red-700 px-4 text-red-300"
+				>Remove saved photo</button
+			>
+		</form>
 	{/if}
 
 	{#if open}

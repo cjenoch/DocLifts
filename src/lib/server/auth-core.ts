@@ -321,7 +321,8 @@ function configuredAuth(db: Database, opts: CreateAuthOptions) {
 			 * rate that it only fires on genuine volume.
 			 */
 			customRules: {
-				'/sign-in/email': { window: 60, max: 60 }
+				'/sign-in/email': { window: 60, max: 60 },
+				'/verify-password': { window: 60, max: 5 }
 			}
 		},
 

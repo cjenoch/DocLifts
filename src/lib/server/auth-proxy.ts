@@ -242,3 +242,17 @@ export async function signOutViaHandler(incoming: Headers): Promise<Response> {
 		})
 	);
 }
+
+/** Re-authentication uses the same origin and rate-limit boundary as sign-in. */
+export async function verifyPasswordViaHandler(
+	incoming: Headers,
+	password: string
+): Promise<Response> {
+	return auth.handler(
+		new Request(new URL('/api/auth/verify-password', authOrigin()), {
+			method: 'POST',
+			headers: forwardedHeaders(incoming, { contentType: 'application/json' }),
+			body: JSON.stringify({ password })
+		})
+	);
+}

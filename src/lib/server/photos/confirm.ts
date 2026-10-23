@@ -16,7 +16,7 @@
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { RESISTANCE_BASES, equipmentModels, equipmentPhotos } from '../db/schema';
+import { RESISTANCE_BASES, equipmentModels, equipmentPhotos, photoObjects } from '../db/schema';
 import type { Database } from '../progression';
 import { LATERALITIES, LOADING_TYPES, modelVisibleTo } from '../catalog';
 import { createMachine, MachineInputError } from '../machines';
@@ -199,6 +199,10 @@ export async function discardPhoto(
 			.update(equipmentPhotos)
 			.set({ status: 'discarded' })
 			.where(and(eq(equipmentPhotos.id, photo.id), eq(equipmentPhotos.userId, userId)));
+		await tx
+			.update(photoObjects)
+			.set({ state: 'delete_pending' })
+			.where(eq(photoObjects.storageKey, photo.storageKey));
 		return true;
 	});
 }

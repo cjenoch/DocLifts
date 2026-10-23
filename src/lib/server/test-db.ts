@@ -1,3 +1,4 @@
+import { configureStorageLocks, closeStorageLocks } from './privacy/storage-lock';
 import { acknowledgePhotoNotice } from './photo-privacy';
 /**
  * Integration-test database helper.
@@ -102,8 +103,16 @@ export async function setupTestDb(urlOverride?: string): Promise<{
 
 	const client = postgres(testUrl, { max: 8, onnotice: () => {} });
 	const db = drizzle(client, { schema });
+	configureStorageLocks(db, testUrl);
 	await migrate(db, { migrationsFolder: './drizzle' });
-	return { db, client, end: () => client.end() };
+	return {
+		db,
+		client,
+		end: async () => {
+			await closeStorageLocks(db);
+			await client.end();
+		}
+	};
 }
 
 /**
@@ -190,6 +199,7 @@ export async function resetTestDbWithUsers(
 export async function resetTestDb(client: postgres.Sql): Promise<void> {
 	await client`
 		TRUNCATE
+            photo_objects, privacy_deletions,
 			pain_events,
 			session_exercises,
 			exercise_equipment_map,

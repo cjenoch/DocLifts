@@ -1,3 +1,4 @@
+import { withStorageLock } from '../privacy/storage-lock';
 import { requirePhotoNotice } from '../photo-privacy';
 import { scanPhoto } from './safety';
 /**
@@ -10,7 +11,7 @@ import { scanPhoto } from './safety';
  */
 import { randomUUID } from 'node:crypto';
 import { and, count, eq, gt, sql } from 'drizzle-orm';
-import { equipmentPhotos, gyms, type EquipmentPhoto } from '../db/schema';
+import { equipmentPhotos, photoObjects, gyms, type EquipmentPhoto } from '../db/schema';
 import type { Database } from '../progression';
 import type { PhotoLimits } from './config';
 import { processPhoto } from './process';
@@ -126,19 +127,16 @@ export async function uploadPhoto(
 
 	const id = randomUUID();
 	const key = photoKey(userId, id);
-	let stored = false;
-	try {
+	const writeDeadline = new Date(Date.now() + 120000);
+
+	return withStorageLock(db, key, async () => {
+		// Commit the object inventory before PUT. A crash cannot orphan the key.
 		const photo = await db.transaction(async (tx) => {
 			await tx.execute(
 				sql`SELECT pg_advisory_xact_lock(hashtext(${'equipment_photos:' + userId}))`
 			);
-			if ((await uploadsInLastDay(tx, userId)) >= limits.dailyLimit) {
+			if ((await uploadsInLastDay(tx, userId)) >= limits.dailyLimit)
 				throw new PhotoLimitError(uploadLimitMessage(limits.dailyLimit));
-			}
-			await timed(deps.timings, 'storePutMs', () =>
-				store.put(key, processed.body, processed.contentType)
-			);
-			stored = true;
 			const [row] = await tx
 				.insert(equipmentPhotos)
 				.values({
@@ -151,16 +149,44 @@ export async function uploadPhoto(
 					width: processed.width,
 					height: processed.height,
 					sha256: processed.sha256,
-					status: 'uploaded'
+					status: 'discarded'
 				})
 				.returning();
+			await tx
+				.insert(photoObjects)
+				.values({ storageKey: key, userId, photoId: id, state: 'uploading', writeDeadline });
 			return row;
 		});
-		return { photo, image: processed.body };
-	} catch (error) {
-		if (stored) await store.delete(key).catch(() => {});
-		throw error;
-	}
+		try {
+			if (writeDeadline.getTime() - Date.now() < 30000)
+				throw new Error('Upload write window expired');
+			await timed(deps.timings, 'storePutMs', () =>
+				store.put(key, processed.body, processed.contentType)
+			);
+			await db
+				.update(photoObjects)
+				.set({ writeDeadline: null })
+				.where(eq(photoObjects.storageKey, key));
+			await db.transaction(async (tx) => {
+				await tx
+					.update(equipmentPhotos)
+					.set({ status: 'uploaded' })
+					.where(and(eq(equipmentPhotos.id, id), eq(equipmentPhotos.userId, userId)));
+				await tx
+					.update(photoObjects)
+					.set({ state: 'stored' })
+					.where(eq(photoObjects.storageKey, key));
+			});
+			return { photo: { ...photo, status: 'uploaded' as const }, image: processed.body };
+		} catch (error) {
+			// Keep the durable key even if PUT's result was ambiguous or cleanup fails.
+			await db
+				.update(photoObjects)
+				.set({ state: 'delete_pending' })
+				.where(eq(photoObjects.storageKey, key));
+			throw error;
+		}
+	});
 }
 
 /** One of this user's photos, or null. */

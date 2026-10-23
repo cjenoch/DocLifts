@@ -1150,3 +1150,40 @@ export const photoNoticeAcknowledgements = pgTable('photo_notice_acknowledgement
 	version: text('version').notNull(),
 	acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }).notNull().defaultNow()
 });
+
+/** Outlives account rows until every private object is positively removed. */
+export const photoObjects = pgTable(
+	'photo_objects',
+	{
+		storageKey: text('storage_key').primaryKey(),
+		writeDeadline: timestamp('write_deadline', { withTimezone: true }),
+		userId: text('user_id').notNull(),
+		photoId: uuid('photo_id').notNull(),
+		state: text('state').$type<'uploading' | 'stored' | 'delete_pending'>().notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [
+		index('photo_objects_user_idx').on(t.userId),
+		check('photo_objects_state_check', sql`${t.state} IN ('uploading', 'stored', 'delete_pending')`)
+	]
+);
+
+/** Pseudonymous receipts survive account removal; raw owner is cleared on completion. */
+export const privacyDeletions = pgTable(
+	'privacy_deletions',
+	{
+		id: uuid('id').defaultRandom().primaryKey(),
+		kind: text('kind').$type<'account' | 'photo'>().notNull(),
+		subjectHash: text('subject_hash').notNull(),
+		ownerId: text('owner_id'),
+		requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+		completedAt: timestamp('completed_at', { withTimezone: true }),
+		lastError: text('last_error'),
+		attempts: integer('attempts').notNull().default(0)
+	},
+	(t) => [
+		unique('privacy_deletions_subject_unique').on(t.kind, t.subjectHash),
+		index('privacy_deletions_owner_idx').on(t.ownerId),
+		check('privacy_deletions_kind_check', sql`${t.kind} IN ('account', 'photo')`)
+	]
+);

@@ -38,8 +38,10 @@ this new-upload acknowledgment.
   disabled, but structured results and operational records persist.
 - Notes may contain health information and can reach authorized agents with notes
   scope. Revocation stops future connection access; it cannot recall copied data.
-- Self-service account deletion, complete export and confirmed-photo deletion are
-  still outstanding. Support handles requests after verifying account ownership.
+- Account and saved-photo removal have an inactive implementation for review; see
+  [deletion and retention controls](data-lifecycle.md). Operational activation,
+  independent journal preservation and complete export remain outstanding.
+  Support handles requests after verifying account ownership.
   Do not ask a user to email passwords or unnecessary sensitive information.
 - Automatic age-based log/discarded-record cleanup is outstanding. Encrypted backup
   retention is separate from live data. Record deletion requests privately and

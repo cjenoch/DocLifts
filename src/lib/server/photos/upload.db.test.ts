@@ -1,3 +1,4 @@
+import { erasePhotoObject } from '../privacy/lifecycle';
 /**
  * uploadPhoto / readOwnPhoto (0.4.0 §3) against the test database and the
  * memory store. No network: the store is a Map.
@@ -242,7 +243,7 @@ describe('uploadPhoto', () => {
 		expect(store.keys()).toEqual([]);
 	});
 
-	it('deletes the stored object when the insert fails', async () => {
+	it('retains a durable cleanup key when PUT succeeds but its caller fails', async () => {
 		const failing = new MemoryPhotoStore();
 		// A storage key that collides makes the insert fail after the put.
 		const realPut = failing.put.bind(failing);
@@ -258,6 +259,17 @@ describe('uploadPhoto', () => {
 				{ store: failing, limits }
 			)
 		).rejects.toThrow();
+		expect(failing.keys()).toHaveLength(1);
+		const [object] = await db.select().from(s.photoObjects).where(eq(s.photoObjects.userId, alice));
+		expect(object.state).toBe('delete_pending');
+		await expect(erasePhotoObject(db, alice, object.storageKey, failing)).rejects.toThrow(
+			'settlement'
+		);
+		await db
+			.update(s.photoObjects)
+			.set({ writeDeadline: new Date(Date.now() - 1) })
+			.where(eq(s.photoObjects.storageKey, object.storageKey));
+		await erasePhotoObject(db, alice, object.storageKey, failing);
 		expect(failing.keys()).toEqual([]);
 	});
 });

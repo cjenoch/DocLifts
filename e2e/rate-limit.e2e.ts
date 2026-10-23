@@ -124,6 +124,82 @@ function wrongAtOtherAccount(
 }
 
 describe('the backstop exists and both paths reach it', () => {
+	it('URL-encoded sign-in succeeds with Fetch duplicate-key semantics and creates a real session', async () => {
+		const res = await fetch(new URL('/api/auth/sign-in/email', origin), {
+			method: 'POST',
+			headers: { ...FORM_HEADERS(nextIp()), cookie: 'unrelated=test' },
+			body: `email=ignored%40test.local&email=guardtest%40test.local&password=wrong&password=${encodeURIComponent(TEST_PASSWORD)}`
+		});
+		expect(res.status).toBe(200);
+		expect(res.headers.getSetCookie().some((c) => c.includes('session_token='))).toBe(true);
+		expect(await db().select().from(authSessions)).toHaveLength(1);
+	});
+
+	it('URL-encoded failures exhaust both JSON and form endpoint budgets', async () => {
+		const ip = nextIp();
+		for (let n = 0; n < BURST; n++) {
+			const res = await fetch(new URL('/api/auth/sign-in/email', origin), {
+				method: 'POST',
+				headers: FORM_HEADERS(ip),
+				body: 'email=ignored%40test.local&email=guardtest%40test.local&password=wrong-password-here'
+			});
+			expect(res.status).toBe(401);
+		}
+		expect((await wrongAtAuthRoute(ip)).status).toBe(429);
+		expect((await (await wrongAtAction(ip)).json()).status).toBe(429);
+		expect(await db().select().from(authSessions)).toHaveLength(0);
+	});
+
+	it('rejects malformed JSON and unsupported media types without creating sessions', async () => {
+		for (const [contentType, body, expected] of [
+			['application/json', '{', 400],
+			[
+				'text/plain',
+				JSON.stringify({ email: 'guardtest@test.local', password: TEST_PASSWORD }),
+				415
+			],
+			['multipart/form-data; boundary=test', 'email=guardtest%40test.local&password=test', 415],
+			['text/plain; application/json', 'email=guardtest%40test.local&password=test', 415]
+		] as const) {
+			const res = await fetch(new URL('/api/auth/sign-in/email', origin), {
+				method: 'POST',
+				headers: { 'content-type': contentType, origin, 'x-forwarded-for': nextIp() },
+				body
+			});
+			expect(res.status).toBe(expected);
+		}
+		expect(await db().select().from(authSessions)).toHaveLength(0);
+	});
+
+	it('URL and base-path variants cannot create a session around an exhausted IP budget', async () => {
+		const ip = nextIp();
+		for (let n = 0; n < BURST; n++) await wrongAtAuthRoute(ip);
+		for (const path of [
+			'/api/auth/sign-in/email/',
+			'/api/auth/sign-in/%65mail',
+			'/api/auth/sign%2Din/email',
+			'/api/auth/sign-in%2Femail',
+			'/api/auth//sign-in/email',
+			'/api/auth/sign-in/email.json',
+			'/api/auth/SIGN-IN/email',
+			'/api/auth/sign-in/./email',
+			'/api/authx/sign-in/email'
+		]) {
+			const res = await fetch(new URL(path, origin), {
+				method: 'POST',
+				redirect: 'manual',
+				headers: { 'content-type': 'application/json', origin, 'x-forwarded-for': ip },
+				body: JSON.stringify({ email: 'guardtest@test.local', password: TEST_PASSWORD })
+			});
+			expect([303, 307, 308, 400, 404, 405, 429], path).toContain(res.status);
+			expect(
+				res.headers.getSetCookie().some((c) => c.includes('session_token=')),
+				path
+			).toBe(false);
+		}
+		expect(await db().select().from(authSessions)).toHaveLength(0);
+	});
+
 	it('parallel JSON guesses from one IP do not become parallel password checks', async () => {
 		const ip = nextIp();
 		const responses = await Promise.all(Array.from({ length: 10 }, () => wrongAtAuthRoute(ip)));

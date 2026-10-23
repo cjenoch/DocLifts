@@ -41,6 +41,12 @@ export function passwordEntryHandler(
 			return new Response(null, { status: 503, headers: { 'retry-after': '1' } });
 		active.add(lane);
 		try {
+			const mediaType = request.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+			if (mediaType !== 'application/json' && mediaType !== 'application/x-www-form-urlencoded')
+				return Response.json(
+					{ code: 'UNSUPPORTED_MEDIA_TYPE', message: 'Use JSON or URL-encoded form data.' },
+					{ status: 415 }
+				);
 			// Bound the body before parsing it, including slow/chunked requests. Do not
 			// clone a live stream: its unread branch would buffer outside this bound.
 			const reader = request.body?.getReader();
@@ -81,12 +87,23 @@ export function passwordEntryHandler(
 			});
 			let body: unknown;
 			try {
-				body = JSON.parse(raw);
+				// Use Fetch's own decoding, exactly as Better Call does. Its URL-encoded
+				// parser keeps the LAST duplicate key; JSON decoding also strips a UTF-8 BOM.
+				body =
+					mediaType === 'application/json'
+						? await request.clone().json()
+						: Object.fromEntries(await request.clone().formData());
 			} catch {
-				return handler(request);
+				return Response.json(
+					{ code: 'BAD_REQUEST', message: 'Invalid sign-in body.' },
+					{ status: 400 }
+				);
 			}
 			if (!body || typeof body !== 'object' || !('email' in body) || typeof body.email !== 'string')
-				return handler(request);
+				return Response.json(
+					{ code: 'BAD_REQUEST', message: 'An email is required.' },
+					{ status: 400 }
+				);
 			const keys = { ip: lane, email: body.email };
 			const decision = await checkLoginThrottle(throttle, keys);
 			if (decision.kind === 'refuse') {

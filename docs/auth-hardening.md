@@ -2,7 +2,7 @@
 
 The SvelteKit auth singleton wraps Better Auth's HTTP handler with
 `passwordEntryHandler`. Both the public `/api/auth/sign-in/email` JSON endpoint
-and `/login`'s server-side proxy call that same boundary. There is no privileged
+and `/login`'s server-side proxy call that same boundary. JSON and URL-encoded forms use Fetch decoding, including the last duplicate-key value; malformed and unsupported bodies are rejected before verification. There is no privileged
 request header or public bypass. Cookies, origin checks and Better Auth's volume
 backstop still pass through its handler. Only a 401 credential refusal records a
 failure; successful sign-ins clear their counters. The form keeps its delay notice

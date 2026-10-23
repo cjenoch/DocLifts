@@ -3594,3 +3594,14 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   acknowledgment with unsaved-set preservation, normal saving, invalid-image
   recovery, layouts, history, MCP challenge and session revocation. Prior recovery
   images remain retained. Signup is closed; owner phone acceptance remains pending.
+
+## 0.18.5 Alpha — password entry and MCP admission — not deployed
+
+- JSON and URL-encoded sign-ins now share the failure-only boundary with the login
+  form proxy. Fetch decoding and last duplicate-key values match the auth handler;
+  malformed or unsupported bodies cannot fall through to credential verification.
+- Bounded bodies and IP concurrency cover reading, delay and password verification.
+  Email remains delay-only. MCP retains its global bound and adds per-IP token
+  lookup admission plus a bounded short-lived denied-token hash cache.
+- No migration or OAuth-scope/consent change. Process-local counters and distributed
+  exhaustion remain documented limitations. Deployment and acceptance pending.

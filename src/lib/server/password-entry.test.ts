@@ -23,6 +23,72 @@ const throttle = () =>
 afterEach(() => vi.useRealTimers());
 
 describe('shared password entry', () => {
+	it('shares form-encoded failures with JSON and uses Fetch decoding and last duplicate keys', async () => {
+		const limit = throttle();
+		const backend = vi.fn(async (r: Request) => {
+			const parsed = Object.fromEntries(await r.formData());
+			expect(parsed.email).toBe(' Scratch+Test@doclifts.invalid ');
+			expect(parsed.password).toBe('last value+');
+			return new Response(null, { status: 401 });
+		});
+		const handle = passwordEntryHandler(backend, limit);
+		for (let n = 0; n < 2; n++) {
+			expect(
+				(
+					await handle(
+						new Request('http://localhost/api/auth/sign-in/email', {
+							method: 'POST',
+							headers: {
+								'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+								'x-forwarded-for': '203.0.113.1'
+							},
+							body: 'email=ignored%40doclifts.invalid&email=+Scratch%2BTest%40doclifts.invalid+&password=first&password=last+value%2B'
+						})
+					)
+				).status
+			).toBe(401);
+		}
+		expect(limit.check([{ type: 'email', value: 'scratch+test@doclifts.invalid' }]).kind).toBe(
+			'delay'
+		);
+		expect((await handle(request())).status).toBe(429);
+		expect(backend).toHaveBeenCalledTimes(2);
+	});
+
+	it('never delegates malformed JSON or unsupported and misleading media types', async () => {
+		const backend = vi.fn(async () => new Response('unexpected password verification'));
+		const handle = passwordEntryHandler(backend, throttle());
+		for (const contentType of [
+			'text/plain',
+			'multipart/form-data; boundary=test',
+			'text/plain; application/json',
+			'application/x-www-form-urlencoded-application/json'
+		]) {
+			const result = await handle(
+				new Request('http://localhost/api/auth/sign-in/email', {
+					method: 'POST',
+					headers: { 'content-type': contentType },
+					body: 'email=test&password=test'
+				})
+			);
+			expect(result.status).toBe(415);
+		}
+		for (const body of ['{', 'null', '[]', '{"password":"test"}']) {
+			expect(
+				(
+					await handle(
+						new Request('http://localhost/api/auth/sign-in/email', {
+							method: 'POST',
+							headers: { 'content-type': 'application/json' },
+							body
+						})
+					)
+				).status
+			).toBe(400);
+		}
+		expect(backend).not.toHaveBeenCalled();
+	});
+
 	it('bounds active clients globally without a queue and releases capacity', async () => {
 		let finish!: () => void;
 		const blocked = new Promise<void>((resolve) => {
@@ -44,7 +110,7 @@ describe('shared password entry', () => {
 		const handle = passwordEntryHandler(backend, throttle());
 		const oversized = new Request('http://localhost/api/auth/sign-in/email', {
 			method: 'POST',
-			headers: { 'x-forwarded-for': '203.0.113.1' },
+			headers: { 'x-forwarded-for': '203.0.113.1', 'content-type': 'application/json' },
 			body: 'x'.repeat(32769)
 		});
 		expect((await handle(oversized)).status).toBe(413);
@@ -58,7 +124,7 @@ describe('shared password entry', () => {
 		const handle = passwordEntryHandler(backend, throttle());
 		const stalled = new Request('http://localhost/api/auth/sign-in/email', {
 			method: 'POST',
-			headers: { 'x-forwarded-for': '203.0.113.1' },
+			headers: { 'x-forwarded-for': '203.0.113.1', 'content-type': 'application/json' },
 			body: new ReadableStream<Uint8Array>(),
 			duplex: 'half'
 		} as RequestInit);

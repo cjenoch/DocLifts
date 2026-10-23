@@ -526,12 +526,13 @@ describe('MCP overload behavior', () => {
 	it('refuses excess in-flight work and recovers when requests finish', async () => {
 		const g = await grant();
 		const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
-		const pending = Array.from({ length: 8 }, () =>
+		const pending = Array.from({ length: 8 }, (_, index) =>
 			handleMcp(
 				h.db,
 				new Request(mcpResource(), {
 					method: 'POST',
 					headers: {
+						'x-forwarded-for': `203.0.113.${index + 1}`,
 						authorization: 'Bearer ' + g.token,
 						'content-type': 'application/json',
 						accept: 'application/json, text/event-stream'

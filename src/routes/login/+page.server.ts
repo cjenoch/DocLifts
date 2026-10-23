@@ -1,15 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
 import { auth } from '$lib/server/auth';
-import { clientIpFrom, signInViaHandler, SIGN_IN_WINDOW_SECONDS } from '$lib/server/auth-proxy';
-import {
-	checkLoginThrottle,
-	clearLoginFailures,
-	loginThrottle,
-	nextLoginDelayMs,
-	recordLoginFailure,
-	type ThrottleKeys
-} from '$lib/server/login-throttle';
+import { signInViaHandler, SIGN_IN_WINDOW_SECONDS } from '$lib/server/auth-proxy';
+import { loginWaitFor } from '$lib/server/password-entry';
 import { isSafeNext } from '$lib/server/request-user';
 import { errorCodeFrom, logLoginAttempt } from '$lib/server/login-attempt-log';
 import type { Actions, PageServerLoad } from './$types';
@@ -62,76 +55,12 @@ export const actions: Actions = {
 			});
 		}
 
-		// Failure-only throttle, BEFORE the proxy call. See login-throttle.ts for
-		// why Better Auth's own limiter cannot be the control: it charges
-		// successes, so a person signing out and back in with a correct
-		// password used to lock themselves out.
-		//
-		// The password is not checked on the refuse path, so a refusal leaks
-		// nothing about whether the account exists or the password is right.
-		const throttleKeys: ThrottleKeys = { ip: clientIpFrom(request.headers), email };
-		const decision = await checkLoginThrottle(loginThrottle, throttleKeys);
-		// How long THIS attempt was held, and — read after the outcome is known —
-		// how long the next will be. Every failure below reports both, whatever
-		// its own reason, so the page can say why the submit hung and that the
-		// next one will too. Keyed on the same IP and email hashes as the
-		// throttle itself, so an address with no account gets exactly the same
-		// numbers as one with: the notice is no enumeration oracle.
-		const heldMs = decision.kind === 'delay' ? decision.delayMs : 0;
-		const waits = () => ({
-			heldSeconds: toSeconds(heldMs),
-			nextDelaySeconds: toSeconds(nextLoginDelayMs(loginThrottle, throttleKeys))
-		});
-		if (decision.kind === 'refuse') {
-			logLoginAttempt(request, {
-				ok: false,
-				status: 429,
-				reason: 'throttled',
-				email,
-				password,
-				retryAfterS: decision.retryAfterSeconds,
-				keyType: decision.keyType
-			});
-			return fail(429, {
-				email,
-				error: `Too many failed sign-in attempts. Try again in about ${decision.retryAfterSeconds} seconds.`,
-				retryAfter: String(decision.retryAfterSeconds),
-				...NO_WAIT
-			});
-		}
-
-		if (decision.kind === 'delay') {
-			// Logged BEFORE the sleep, so a slow response has an explanation
-			// sitting in the log for the duration of the delay rather than
-			// after it.
-			logLoginAttempt(request, {
-				ok: false,
-				status: 0,
-				reason: 'throttled',
-				email,
-				password,
-				delayMs: decision.delayMs,
-				keyType: decision.keyType
-			});
-		}
-
-		// Sign-in goes through Better Auth's own HTTP handler, NOT
-		// auth.api.signInEmail({ body }).
-		//
-		// The reason is the rate limiter. onRequestRateLimit runs inside
-		// auth.handler (better-auth 1.7.6 dist/api/index.mjs:172), and
-		// server-side API calls are documented as NOT rate limited. Calling
-		// auth.api directly therefore bypassed the control entirely: measured
-		// against this build, 6 consecutive wrong-password POSTs to /login all
-		// returned 200 at a configured 3-per-10s limit, with no 429 and no
-		// Retry-After. Unlimited password guessing.
-		//
-		// auth-proxy.ts builds a real Request for /api/auth/sign-in/email and
-		// hands it to the handler, carrying x-forwarded-for through — the
-		// limiter keys on the client IP and that header is where it reads it
-		// from. See that file for why the header is reduced to a single value;
-		// a multi-value chain resolves to no IP and silently disables the limit.
 		const result = await signInViaHandler(request.headers, { email, password });
+		const wait = loginWaitFor(result);
+		const waits = () => ({
+			heldSeconds: toSeconds(wait.heldMs),
+			nextDelaySeconds: toSeconds(wait.nextDelayMs)
+		});
 
 		// 429: over the limit. Rendered on /login with the wait, NOT
 		// redirected — a redirect would discard the message and bounce the user
@@ -185,14 +114,28 @@ export const actions: Actions = {
 			});
 		}
 
-		// Any other failure keeps the existing deliberately-vague message:
+		if (!result.ok && result.status !== 401) {
+			logLoginAttempt(request, {
+				ok: false,
+				status: result.status,
+				reason: 'error',
+				email,
+				password
+			});
+			return fail(result.status, {
+				email,
+				error: 'Sign-in could not be completed. Try again shortly.',
+				retryAfter: result.headers.get('retry-after'),
+				...waits()
+			});
+		}
+
+		// A credential failure keeps the existing deliberately-vague message:
 		// which of email or password was wrong is information an attacker can
 		// use, and the user has to fix both anyway.
 		if (!result.ok) {
-			// The one place a failure is recorded. A successful sign-in below
-			// clears both keys, so neither success nor the merely act of trying
-			// can accumulate toward a refusal.
-			recordLoginFailure(loginThrottle, throttleKeys);
+			// The shared password-entry boundary records only 401 as a failure.
+
 			logLoginAttempt(request, {
 				ok: false,
 				status: result.status,
@@ -223,7 +166,7 @@ export const actions: Actions = {
 		//
 		// getSetCookie() rather than get(), because several Set-Cookie headers
 		// can be emitted.
-		clearLoginFailures(loginThrottle, throttleKeys);
+
 		// Logged LAST, after the cookies are forwarded, so `ok: true` means a
 		// session actually exists rather than "the password was right". That
 		// distinction is the whole value of the line.

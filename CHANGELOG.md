@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.18.5 Alpha — password entry and MCP admission — not deployed
+
+- Applies one failure-only throttle to JSON and URL-encoded password sign-ins,
+  including the login form proxy. Bounded request bodies and IP concurrency cover
+  reading, progressive delay and verification without queuing excess attempts.
+- Preserves email delay-only policy, cookies, origin checks and successful sessions.
+  MCP keeps its global work bound and adds per-IP token-lookup admission plus a
+  bounded short-lived cache of denied token hashes; successful tokens revalidate.
+- No database migration, OAuth-scope or consent change. Distributed attacks and
+  process-local state remain documented limitations. Deployment and acceptance pending.
+
 ## 0.18.4 Alpha — privacy notice and photo acknowledgment — deployed; acceptance pending
 
 - Adds a public privacy page linked from sign-in and Account. It describes

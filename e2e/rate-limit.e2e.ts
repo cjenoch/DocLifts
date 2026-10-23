@@ -29,6 +29,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { resetTestDb, setupTestDb, type TestDb } from '$lib/server/test-db';
 import { seedTestUser, startTestServer, TEST_PASSWORD } from '$lib/server/test-auth-helpers';
+import { authSessions } from '$lib/server/db/auth-schema';
 
 let stopServer = async () => {};
 let origin: string;
@@ -108,8 +109,7 @@ function wrongAtAction(ip: string): Promise<Response> {
  *
  * Two keys gate a sign-in — client IP and normalized email — so isolating the
  * IP control means varying both. Attacking the same account from a new address
- * is refused by the EMAIL key, which is correct and is a different test
- * (see login-throttle.e2e.ts, 'counts the email, not just the address').
+ * can be delayed by the EMAIL key, but never hard refused; see login-throttle.e2e.ts.
  */
 let otherCounter = 0;
 function wrongAtOtherAccount(
@@ -124,6 +124,112 @@ function wrongAtOtherAccount(
 }
 
 describe('the backstop exists and both paths reach it', () => {
+	it('URL-encoded sign-in succeeds with Fetch duplicate-key semantics and creates a real session', async () => {
+		const res = await fetch(new URL('/api/auth/sign-in/email', origin), {
+			method: 'POST',
+			headers: { ...FORM_HEADERS(nextIp()), cookie: 'unrelated=test' },
+			body: `email=ignored%40test.local&email=guardtest%40test.local&password=wrong&password=${encodeURIComponent(TEST_PASSWORD)}`
+		});
+		expect(res.status).toBe(200);
+		expect(res.headers.getSetCookie().some((c) => c.includes('session_token='))).toBe(true);
+		expect(await db().select().from(authSessions)).toHaveLength(1);
+	});
+
+	it('URL-encoded failures exhaust both JSON and form endpoint budgets', async () => {
+		const ip = nextIp();
+		for (let n = 0; n < BURST; n++) {
+			const res = await fetch(new URL('/api/auth/sign-in/email', origin), {
+				method: 'POST',
+				headers: FORM_HEADERS(ip),
+				body: 'email=ignored%40test.local&email=guardtest%40test.local&password=wrong-password-here'
+			});
+			expect(res.status).toBe(401);
+		}
+		expect((await wrongAtAuthRoute(ip)).status).toBe(429);
+		expect((await (await wrongAtAction(ip)).json()).status).toBe(429);
+		expect(await db().select().from(authSessions)).toHaveLength(0);
+	});
+
+	it('rejects malformed JSON and unsupported media types without creating sessions', async () => {
+		for (const [contentType, body, expected] of [
+			['application/json', '{', 400],
+			[
+				'text/plain',
+				JSON.stringify({ email: 'guardtest@test.local', password: TEST_PASSWORD }),
+				415
+			],
+			['multipart/form-data; boundary=test', 'email=guardtest%40test.local&password=test', 415],
+			['text/plain; application/json', 'email=guardtest%40test.local&password=test', 415]
+		] as const) {
+			const res = await fetch(new URL('/api/auth/sign-in/email', origin), {
+				method: 'POST',
+				headers: { 'content-type': contentType, origin, 'x-forwarded-for': nextIp() },
+				body
+			});
+			expect(res.status).toBe(expected);
+		}
+		expect(await db().select().from(authSessions)).toHaveLength(0);
+	});
+
+	it('URL and base-path variants cannot create a session around an exhausted IP budget', async () => {
+		const ip = nextIp();
+		for (let n = 0; n < BURST; n++) await wrongAtAuthRoute(ip);
+		for (const path of [
+			'/api/auth/sign-in/email/',
+			'/api/auth/sign-in/%65mail',
+			'/api/auth/sign%2Din/email',
+			'/api/auth/sign-in%2Femail',
+			'/api/auth//sign-in/email',
+			'/api/auth/sign-in/email.json',
+			'/api/auth/SIGN-IN/email',
+			'/api/auth/sign-in/./email',
+			'/api/authx/sign-in/email'
+		]) {
+			const res = await fetch(new URL(path, origin), {
+				method: 'POST',
+				redirect: 'manual',
+				headers: { 'content-type': 'application/json', origin, 'x-forwarded-for': ip },
+				body: JSON.stringify({ email: 'guardtest@test.local', password: TEST_PASSWORD })
+			});
+			expect([303, 307, 308, 400, 404, 405, 429], path).toContain(res.status);
+			expect(
+				res.headers.getSetCookie().some((c) => c.includes('session_token=')),
+				path
+			).toBe(false);
+		}
+		expect(await db().select().from(authSessions)).toHaveLength(0);
+	});
+
+	it('parallel JSON guesses from one IP do not become parallel password checks', async () => {
+		const ip = nextIp();
+		const responses = await Promise.all(Array.from({ length: 10 }, () => wrongAtAuthRoute(ip)));
+		expect(responses.filter((r) => r.status === 401)).toHaveLength(1);
+		expect(responses.filter((r) => r.status === 429)).toHaveLength(9);
+		// Backpressure did not charge the nine refused requests as failures.
+		expect((await wrongAtAuthRoute(ip)).status).toBe(401);
+	});
+
+	it('simultaneous correct sign-ins behind one NAT can retry and obtain real sessions', async () => {
+		const ip = nextIp();
+		const correct = () =>
+			fetch(new URL('/api/auth/sign-in/email', origin), {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					origin,
+					'x-forwarded-for': ip,
+					cookie: 'unrelated=test'
+				},
+				body: JSON.stringify({ email: 'guardtest@test.local', password: TEST_PASSWORD })
+			});
+		const responses = await Promise.all([correct(), correct()]);
+		expect(responses.map((r) => r.status).sort()).toEqual([200, 429]);
+		const retry = await correct();
+		expect(retry.status).toBe(200);
+		expect(retry.headers.getSetCookie().some((c) => c.includes('session_token='))).toBe(true);
+		expect(await db().select().from(authSessions)).toHaveLength(2);
+	});
+
 	it('is enabled, so the other auth endpoints keep their defaults', async () => {
 		// Not a tautology: if someone drops `rateLimit` entirely to make a test
 		// quiet, this is the assertion that notices. The stock rule is gone, but
@@ -133,10 +239,8 @@ describe('the backstop exists and both paths reach it', () => {
 	});
 
 	it('the form action refuses a burst of wrong passwords', async () => {
-		// THE control. `/login` is the only sign-in path a browser can reach, so
-		// this is where refusing has to happen — and it is the T6 bug in its
-		// original form if it ever stops: `rateLimit: { enabled: true }` in the
-		// config, and six wrong passwords all answered 401.
+		// Both the browser form and direct JSON endpoint must reach the same
+		// failure-only control; the opposite direction is exercised below.
 		const ip = nextIp();
 		let last = 0;
 		for (let i = 0; i <= BURST; i++) {
@@ -166,22 +270,21 @@ describe('the backstop exists and both paths reach it', () => {
 		expect(body.status).toBe(429);
 	}, 60_000);
 
-	it('the auth route is NOT where the control lives, and says so', async () => {
-		// Verified behaviour, stated so a future change to it is deliberate.
-		//
-		// The failure-only throttle is in the /login ACTION. A direct POST to
-		// /api/auth/sign-in/email bypasses it — by design: it is not a path a
-		// browser can reach, and Better Auth's own backstop (60 per 60s) still
-		// guards it.
-		//
-		// The T6 wiring bug was the opposite failure and remains the thing to
-		// watch: the action once called `auth.api.signInEmail` and bypassed
-		// Better Auth's limiter, so the only user-facing path was unlimited.
-		// That is why the action tests above exist at all.
-		const res = await wrongAtAuthRoute(nextIp());
-		expect(res.status, 'the raw route is guarded by the backstop, not the action').toBe(401);
-	}, 30_000);
+	it('direct JSON failures exhaust the same IP budget used by the form', async () => {
+		const ip = nextIp();
+		for (let i = 0; i < BURST; i++) expect((await wrongAtAuthRoute(ip)).status).toBe(401);
+		const direct = await wrongAtAuthRoute(ip);
+		expect(direct.status).toBe(429);
+		expect(Number(direct.headers.get('retry-after'))).toBeGreaterThan(0);
+		const form = await wrongAtAction(ip);
+		expect((await form.json()).status).toBe(429);
+	}, 60_000);
 
+	it('form failures also exhaust the JSON endpoint budget', async () => {
+		const ip = nextIp();
+		for (let i = 0; i < BURST; i++) await wrongAtAction(ip);
+		expect((await wrongAtAuthRoute(ip)).status).toBe(429);
+	}, 60_000);
 	it('keys on the client IP, so one address cannot exhaust another', async () => {
 		// Burn one address completely, then check a different one is unaffected.
 		const noisy = nextIp();

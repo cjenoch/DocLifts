@@ -5,10 +5,11 @@ import {
 	loginThrottle,
 	nextLoginDelayMs,
 	recordLoginFailure,
-	type LoginThrottle
+	type LoginThrottle,
+	type ThrottleKeyType
 } from './login-throttle';
 
-export type LoginWait = { heldMs: number; nextDelayMs: number };
+export type LoginWait = { heldMs: number; nextDelayMs: number; keyType?: ThrottleKeyType };
 const waits = new WeakMap<Response, LoginWait>();
 export const loginWaitFor = (response: Response): LoginWait =>
 	waits.get(response) ?? { heldMs: 0, nextDelayMs: 0 };
@@ -88,17 +89,21 @@ export function passwordEntryHandler(
 				return handler(request);
 			const keys = { ip: lane, email: body.email };
 			const decision = await checkLoginThrottle(throttle, keys);
-			if (decision.kind === 'refuse')
-				return new Response(null, {
+			if (decision.kind === 'refuse') {
+				const response = new Response(null, {
 					status: 429,
 					headers: { 'retry-after': String(decision.retryAfterSeconds) }
 				});
+				waits.set(response, { heldMs: 0, nextDelayMs: 0, keyType: decision.keyType });
+				return response;
+			}
 			const response = await handler(request);
 			if (response.status === 401) recordLoginFailure(throttle, keys);
 			else if (response.ok) clearLoginFailures(throttle, keys);
 			waits.set(response, {
 				heldMs: decision.kind === 'delay' ? decision.delayMs : 0,
-				nextDelayMs: nextLoginDelayMs(throttle, keys)
+				nextDelayMs: nextLoginDelayMs(throttle, keys),
+				keyType: decision.kind === 'delay' ? decision.keyType : undefined
 			});
 			return response;
 		} finally {

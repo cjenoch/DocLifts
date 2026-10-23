@@ -96,6 +96,7 @@ describe('shared password entry', () => {
 			const result = await handle(request('203.0.113.1', undefined, path));
 			expect(result.status).toBe(429);
 			expect(Number(result.headers.get('retry-after'))).toBeGreaterThan(0);
+			expect(loginWaitFor(result).keyType).toBe('ip');
 		}
 		expect(backend).toHaveBeenCalledTimes(2);
 	});

@@ -72,7 +72,8 @@ export const actions: Actions = {
 				reason: 'throttled',
 				email,
 				password,
-				retryAfterS: SIGN_IN_WINDOW_SECONDS
+				retryAfterS: Number(result.headers.get('retry-after') ?? SIGN_IN_WINDOW_SECONDS),
+				keyType: wait.keyType
 			});
 			return fail(429, {
 				email,

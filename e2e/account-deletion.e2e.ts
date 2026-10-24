@@ -47,7 +47,7 @@ run('account removal from its visible phone controls', () => {
 		const post = (fields: Record<string, string>, csrfOrigin = origin) =>
 			fetch(origin + '/account?/deleteAccount', {
 				method: 'POST',
-				headers: { cookie: cookieA, origin: csrfOrigin },
+				headers: { cookie: cookieA, origin: csrfOrigin, accept: 'text/html' },
 				body: new URLSearchParams(fields),
 				redirect: 'manual'
 			});

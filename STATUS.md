@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 24, 2026 UTC. Current application: **0.19.0 Alpha**, runtime `72b3d538`.
+Updated October 24, 2026 UTC. Current application: **0.19.1 Alpha**, runtime `b41d397f`.
 Deployed and automatically verified; owner phone/agent acceptance pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
@@ -27,7 +27,22 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-Runtime `72b3d538` deployed and deletion controls activated October 24, 2026 UTC after PR44.
+Runtime `b41d397f` deployed October 24, 2026 UTC after PR46. Web and the
+separately pinned deletion worker now use Node 24.22.1, including its Brotli
+security fix. Login throttle memory/expiry is bounded; OAuth refresh requires
+its original live browser session; catalog dumps are private from creation;
+account maintenance passes an explicit environment allowlist.
+Exact-head CI40087215914 and the independent laptop gate at `486daa1` passed
+993 server tests (3 expected skips), 42 components, 169 browser tests, lint,
+typecheck, Drizzle and build; Docker and CodeQL passed. Public automation verified
+sign-in, phone layout/build, OAuth/PKCE/refresh, MCP reads and revocation, including
+refusing a fresh grant after browser logout. Fresh encrypted off-host backup and
+repository checks passed; recovery images are retained; all seven production
+aggregate counts stayed unchanged. The worker's dry run, normal bounded run and
+privacy health check passed. No schema or privacy-policy change.
+Ubuntu's separate host Brotli package remains a vendor-advisory follow-up.
+
+The previous runtime `72b3d538` activated deletion controls October 24, 2026 UTC after PR44.
 Migrations 0022/0023 had already deployed at `5b6f9e3` with controls disabled;
 the activation follow-up has no new migration. Exact-head CI40061488884 passed
 974 server tests (3 expected skips), 42 components, 169 browser tests, lint,
@@ -96,11 +111,6 @@ audio configuration update. Host updates do not resolve JavaScript dependency
 advisories. Signup stays closed.
 
 ## Next work, not shipped
-
-- 0.19.1 Alpha audit follow-ups are in validation: bounded throttle retention,
-  session-bound refresh issuance, private catalog dumps and a restricted
-  account-maintenance environment, plus Node 24.22.1 security fixes. Production remains
-  0.19.0 until release checks pass.
 
 - Complete replacement-VPS recovery rehearsal and external host-down monitoring.
   Encrypted off-host backup automation and an isolated data/app restore drill are

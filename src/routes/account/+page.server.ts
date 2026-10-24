@@ -4,7 +4,7 @@ import { requireUser } from '$lib/server/request-user';
 import { db } from '$lib/server/db';
 import { auth } from '$lib/server/auth';
 import { verifyPasswordViaHandler } from '$lib/server/auth-proxy';
-import { deletionEnabled, fileLedger } from '$lib/server/privacy/ledger';
+import { deletionEnabled, durableLedger } from '$lib/server/privacy/ledger';
 import { requestAccountDeletion } from '$lib/server/privacy/lifecycle';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -44,7 +44,7 @@ export const actions: Actions = {
 			return fail(401, { error: 'Your session ended. Sign in again.' });
 		let job;
 		try {
-			job = await requestAccountDeletion(db, user.id, session.session.id, fileLedger());
+			job = await requestAccountDeletion(db, user.id, session.session.id, durableLedger());
 		} catch {
 			return fail(503, {
 				error:

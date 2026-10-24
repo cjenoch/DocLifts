@@ -1,6 +1,7 @@
 import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
+import type { Ledger } from './ledger';
 import { erasePhotoObject } from './lifecycle';
 import type { PhotoStore } from '../photos/store';
 
@@ -31,6 +32,7 @@ export async function sweepRetention(
 		limit?: number;
 		policy?: RetentionPolicy;
 		store?: PhotoStore;
+		ledger?: Ledger;
 	} = {}
 ) {
 	const now = options.now ?? new Date();
@@ -185,7 +187,7 @@ export async function sweepRetention(
 		for (const row of discarded) {
 			try {
 				if (!options.store) throw new Error('Object store required');
-				await erasePhotoObject(db, userId, row.storageKey, options.store);
+				await erasePhotoObject(db, userId, row.storageKey, options.store, false, options.ledger);
 			} catch {
 				counts.failed++;
 			}

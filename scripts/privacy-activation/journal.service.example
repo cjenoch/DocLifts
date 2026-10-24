@@ -1,0 +1,31 @@
+[Unit]
+Description=DocLifts durable deletion journal
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=1000
+UMask=0077
+RuntimeDirectory=doclifts-privacy-journal
+RuntimeDirectoryMode=0750
+# Preserve the directory inode mounted into a running web container.
+RuntimeDirectoryPreserve=yes
+StateDirectory=doclifts-privacy-journal
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /usr/local/lib/doclifts/privacy/REVIEWED_COMMIT/journal.py serve --backup-config /etc/doclifts-backup/config.json --state-dir /var/lib/doclifts-privacy-journal --socket /run/doclifts-privacy-journal/journal.sock --allowed-uid 1000 --socket-gid 1000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/cache/doclifts-backup
+CapabilityBoundingSet=CAP_CHOWN
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=768M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

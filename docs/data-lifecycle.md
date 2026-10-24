@@ -1,8 +1,10 @@
 # Account deletion and retention controls
 
-Implementation for review; **not activated in the hosted Alpha**. No deletion
-worker, retention timer, production migration or backup-policy change is installed
-by this branch. Signup remains closed. Full data export is separate work.
+Lifecycle schema and application were deployed as build `5b6f9e3`, with controls
+disabled. This follow-up adds durable off-host acceptance and reviewed operator
+templates; installation does not happen merely by merging it. See
+[activation and recovery](privacy-activation.md) and STATUS.md for actual rollout
+state. Signup remains closed. Full data export is separate work.
 
 ## What the controls do
 
@@ -13,9 +15,11 @@ rate-limited handler (five password checks per minute). The server derives the
 account from the authenticated session and rechecks that session in the deletion
 transaction. A posted user ID never selects the account.
 
-Acceptance appends a pseudonymous deletion journal record, creates a durable job,
-revokes sessions, OAuth access/refresh tokens, consent and associated authorization
-codes, then fences the account. Database triggers reject later inserts or updates
+A short transaction records the authorized deletion intent, revokes sessions,
+OAuth access/refresh tokens, consent and associated authorization codes, then
+fences the account. After committing, the request obtains verified off-host
+journal acknowledgment before reporting acceptance. No database transaction is
+held during this remote operation. Database triggers reject later inserts or updates
 in owned records, including indirect program, exercise, gym and import children.
 An already-running model call cannot repopulate the account. This cannot recall a
 request or data already sent to a provider or agent.
@@ -111,7 +115,7 @@ pnpm privacy --mode retention --all --limit 25
 pnpm privacy --mode retention --owner ACCOUNT_ID --details-days 30 --records-days 90 --expired-auth-days 7 --discarded-days 30
 pnpm privacy --mode retention --all --apply --limit 25
 pnpm privacy --mode deletions --all --limit 25
-pnpm privacy --mode deletions --all --apply --limit 25 --ledger /private/current-deletions.jsonl
+pnpm privacy --mode deletions --all --apply --limit 25
 ```
 
 Use `nextAfter` with `--after` to continue the account scan. Repeat bounded deletion
@@ -120,8 +124,10 @@ only the failing stage (`ledger`, `storage`, `database`). Expired authentication
 parents remain while any child token references them; each pass removes only its
 selected owner’s eligible rows, without cascades into live or foreign tokens. Alert on pending age,
 retry failures and missing worker runs when scheduling is separately approved.
-Do not run the CLI with production credentials for tests. There is deliberately
-no production wrapper or scheduler in this change.
+Use fictional fixtures for tests. The pinned deletion worker and optional
+service templates are described in the activation runbook; no timer is installed
+automatically. Live apply requires `DELETION_LEDGER_SOCKET`, with no local-file
+fallback. `--ledger` is an input to offline reconciliation only.
 
 Ambiguous uploads require a separate, deliberately explicit reconciliation. Stop
 old writers and verify that the provider has settled requests before the selected
@@ -138,13 +144,18 @@ pnpm privacy --mode settle-uploads --owner ACCOUNT_ID --settled-before UTC_TIMES
 ## Backups, journal and restore gate
 
 An ordinary restored database or VPS file is **not** an independent deletion
-ledger. `DELETION_LEDGER_PATH` is an append-only JSONL journal, fsynced before request
-acceptance, containing only a version, kind, hash of a random account/photo ID,
-and request time. It excludes email, raw IDs, object keys and workout information.
-The application cannot verify an operator's off-host journal durability from a
-local path. **Activation is blocked until an independently preserved newest copy
-and a recovery procedure are configured and rehearsed.** This is an explicit
-integration prerequisite, not an already implemented backup guarantee.
+ledger. The web app sends a strict version/kind/random-ID hash/request-time record
+to a private Unix-socket broker. The broker writes a separate encrypted restic
+snapshot and reads that exact entry back before acknowledging it. Backup
+credentials never enter the web container. No emails, raw IDs, object keys or
+workout information enter these journal entries.
+
+The dedicated `doclifts-deletion-ledger-v1` snapshots never carry the ordinary
+`complete` backup tag. Recovery unions **all** dedicated snapshots, not whichever
+snapshot has the newest timestamp. Normal backup pruning must stay scoped to its
+ordinary host and `complete` tag; inspect that filter after any backup change.
+Journal pruning is intentionally not automated. See the activation runbook for
+the protected broker, recovery command and retention limits.
 
 Before any restored copy is returned to service:
 
@@ -169,34 +180,31 @@ Before any restored copy is returned to service:
    then waiting the reviewed recovery margin. This branch does not alter backup
    schedules or automatically prune that journal.
 
-Ledger failure prevents normal acceptance. If the journal succeeds but the DB
-commit fails, the UI reports ambiguity; reconciliation completes the authorized
-request. Do not tell the user that nothing changed in this case.
+Ledger failure prevents normal acceptance and erasure. The authorized local
+intent may already be committed, with access fenced or a photo hidden. The UI
+reports ambiguity; the worker retries off-host durability before cleanup. A
+timeout may also have persisted the remote entry, so recovery includes it. Never
+tell the user that nothing changed after such a failure.
 
 ## Activation review
 
-Keep `PRIVACY_DELETION_ENABLED` unset/`0`. Before setting it to `1`, review migration
-and exact-head tests, quiesce old writers, verify S3 version-list/delete permissions
-and actual bucket behavior with disposable objects, provision a writable private
-ledger path and its independent recovery copy, rehearse restore reconciliation,
-and arrange monitored worker retries. Compose explicitly forwards
-`PRIVACY_DELETION_ENABLED` with default `0` and `DELETION_LEDGER_PATH` with an empty
-default. It does **not** provision a writable journal mount: the non-root web
-runtime has a read-only filesystem, so a reviewed private mount with appropriate
-permissions is still required. Only enable the UI after these prerequisites pass.
+Keep `PRIVACY_DELETION_ENABLED` unset/`0` until the activation runbook passes:
+reviewed migrations and exact-head tests, actual object-store permissions,
+protected broker socket, independently recoverable journal, pinned worker,
+monitored retries, and an isolated recovery rehearsal. Compose forwards
+`DELETION_LEDGER_SOCKET` but does not silently mount a host directory. The
+read-only web runtime only needs a read-only mount of the broker socket directory;
+it does not receive a writable journal or backup credentials.
 
-The production web image contains the compiled application and production
-dependencies, not the repository's TypeScript CLI or its `tsx` development runtime.
-Run these operator commands from an explicitly pinned, reviewed checkout with
-the repository's pinned pnpm/Node runtime and installed development dependencies,
-or provide a separately reviewed worker artifact. Do not assume `pnpm privacy`
-exists inside the web container. Supply its database, storage and journal
-configuration securely; the web container's environment is not automatically
-available to that worker. Rehearse the chosen worker runtime and journal recovery
-before scheduling it.
+The production web image lacks the TypeScript CLI/tsx runtime. The worker uses an
+immutable builder-image ID stamped with the full reviewed commit, runs direct
+Node/tsx as uid 1000, drops capabilities, and receives only DB/storage/socket
+configuration. Its default is dry-run. Recovery requires an explicit offline
+attestation and a separately recovered journal file.
 
-Retention scheduling and operational-log retention require their own reviewed
-activation. Do not widen signup based solely on these controls passing tests.
+Retention remains a manual dry-run/apply control with explicit durations; the
+deletion timer does not schedule retention or operational-log cleanup. Do not
+widen signup based solely on these controls passing tests.
 
 ## Migration rehearsal
 

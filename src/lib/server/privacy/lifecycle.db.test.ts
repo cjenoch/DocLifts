@@ -320,21 +320,9 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			lastError: null
 		});
 	});
-	it('keeps journal failure honest and resumes bounded batches including a pre-migration orphan', async () => {
+	it('resumes bounded batches including a pre-migration orphan', async () => {
 		const store = new MemoryPhotoStore();
 		const a = await fixture(alice, store);
-		await expect(
-			requestAccountDeletion(h.db, alice, a.authSession, {
-				append: async () => {
-					throw new Error('unavailable');
-				}
-			})
-		).rejects.toThrow('unavailable');
-		expect(
-			(await h.db.select().from(s.authUsers).where(eq(s.authUsers.id, alice)))[0]
-				.deletionRequestedAt
-		).toBeNull();
-		expect(await h.db.select().from(s.authSessions)).toHaveLength(1);
 		const orphan = photoKey(alice, crypto.randomUUID());
 		await store.put(orphan, Buffer.from('orphan'), 'image/jpeg');
 		const job = await requestAccountDeletion(h.db, alice, a.authSession, ledger);
@@ -418,6 +406,79 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 		expect((await runDeletion(h.db, alice, job!.id, store, ledger)).state).toBe('completed');
 		expect(store.keys()).toEqual([]);
 	});
+	it.each(['account', 'photo'] as const)(
+		'commits the %s intent before remote acknowledgment and never erases on durability failure',
+		async (kind) => {
+			const store = new MemoryPhotoStore();
+			const own = await fixture(alice, store);
+			let entered!: () => void, release!: () => void;
+			const arrived = new Promise<void>((resolve) => (entered = resolve));
+			const held = new Promise<void>((resolve) => (release = resolve));
+			const unavailable = {
+				append: async () => {
+					entered();
+					await held;
+					throw new Error('synthetic outage');
+				}
+			};
+			const pending =
+				kind === 'account'
+					? requestAccountDeletion(h.db, alice, own.authSession, unavailable)
+					: requestPhotoDeletion(h.db, alice, own.id, unavailable);
+			const rejected = expect(pending).rejects.toThrow('durable journal');
+			await arrived;
+			try {
+				const [job] = await h.db
+					.select()
+					.from(s.privacyDeletions)
+					.where(eq(s.privacyDeletions.ownerId, alice));
+				expect(job.kind).toBe(kind);
+				expect(
+					(
+						await h.db.execute(
+							sql`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND state='idle in transaction'`
+						)
+					)[0].n
+				).toBe(0);
+				if (kind === 'account') {
+					expect(
+						await h.db.select().from(s.authSessions).where(eq(s.authSessions.id, own.authSession))
+					).toEqual([]);
+				} else {
+					expect(
+						(await h.db.select().from(s.equipmentPhotos).where(eq(s.equipmentPhotos.id, own.id)))[0]
+							.status
+					).toBe('discarded');
+				}
+				expect(store.keys()).toHaveLength(1);
+			} finally {
+				release();
+				await rejected;
+			}
+			const [job] = await h.db
+				.select()
+				.from(s.privacyDeletions)
+				.where(eq(s.privacyDeletions.ownerId, alice));
+			expect(job.lastError).toBe('ledger');
+			expect((await runDeletion(h.db, alice, job.id, store, unavailable)).state).toBe('failed');
+			expect(store.keys()).toHaveLength(1);
+			if (kind === 'photo') {
+				await h.db
+					.update(s.photoObjects)
+					.set({ createdAt: new Date(Date.now() - 31 * 86400000) })
+					.where(eq(s.photoObjects.userId, alice));
+				expect((await sweepRetention(h.db, alice, { apply: true, store })).failed).toBe(1);
+				expect(
+					(await sweepRetention(h.db, alice, { apply: true, store, ledger: unavailable })).failed
+				).toBe(1);
+				expect(store.keys()).toHaveLength(1);
+			}
+			expect((await runDeletion(h.db, alice, job.id, store, ledger)).state).toBe('completed');
+			expect(store.keys()).toEqual([]);
+			expect(await h.db.select().from(s.authUsers).where(eq(s.authUsers.id, bob))).toHaveLength(1);
+		}
+	);
+
 	it('reconciles the newest independent journal after an older restore, before serving data', async () => {
 		const store = new MemoryPhotoStore();
 		await fixture(alice, store);

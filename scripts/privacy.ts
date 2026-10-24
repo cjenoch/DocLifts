@@ -4,7 +4,7 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import * as schema from '../src/lib/server/db/schema';
-import { fileLedger, readLedger } from '../src/lib/server/privacy/ledger';
+import { durableLedger, readLedger } from '../src/lib/server/privacy/ledger';
 import {
 	reconcileDeletions,
 	runDeletion,
@@ -43,6 +43,8 @@ if (!['retention', 'deletions', 'reconcile', 'settle-uploads'].includes(values.m
 	throw new Error('Unknown privacy mode');
 if (!values.owner && !values.all) throw new Error('Choose --owner or --all explicitly');
 if (values.owner && values.all) throw new Error('Choose exactly one scope');
+if (values.ledger && values.mode !== 'reconcile')
+	throw new Error('--ledger is only an offline reconciliation input');
 const client = postgres(process.env.DATABASE_URL, { max: 3, onnotice: () => {} });
 const db = drizzle(client, { schema });
 configureStorageLocks(db, process.env.DATABASE_URL);
@@ -87,7 +89,7 @@ try {
 		if (!values.apply)
 			console.log(JSON.stringify({ mode: 'dry-run', pendingJobs: jobs.length, limit }));
 		else {
-			const ledger = fileLedger(values.ledger);
+			const ledger = durableLedger();
 			const store = createPhotoStore();
 			const counts = { completed: 0, pending: 0, failed: 0, not_found: 0, removed: 0 };
 			for (const job of jobs) {
@@ -120,9 +122,17 @@ try {
 		const results = [];
 		const now = new Date();
 		const store = values.apply ? createPhotoStore() : undefined;
+		const ledger = values.apply ? durableLedger() : undefined;
 		for (const user of users)
 			results.push(
-				await sweepRetention(db, user.id, { apply: values.apply, limit, policy, now, store })
+				await sweepRetention(db, user.id, {
+					apply: values.apply,
+					limit,
+					policy,
+					now,
+					store,
+					ledger
+				})
 			);
 		const totals = results.reduce(
 			(a, r) => {

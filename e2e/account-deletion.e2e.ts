@@ -13,6 +13,7 @@ import {
 	TEST_PASSWORD
 } from '$lib/server/test-auth-helpers';
 import * as s from '$lib/server/db/schema';
+import { startTestLedger } from '$lib/server/privacy/test-ledger';
 import { readLedger } from '$lib/server/privacy/ledger';
 
 const { run, executablePath } = browserSuite();
@@ -21,15 +22,18 @@ run('account removal from its visible phone controls', () => {
 	let browser: Browser;
 	let origin: string;
 	let stop = async () => {};
+	let stopJournal = async () => {};
 	let alice: string, bob: string, cookieA: string, cookieB: string, dir: string;
 	beforeAll(async () => {
 		h = await freshTestDb();
 		dir = await mkdtemp(join(tmpdir(), 'doclifts-deletion-'));
 		alice = (await seedTestUser(h.db, 'delete-a@test.local', 'Delete A')).id;
 		bob = (await seedTestUser(h.db, 'delete-b@test.local', 'Delete B')).id;
+		const journal = await startTestLedger(dir);
+		stopJournal = journal.stop;
 		const server = await startTestServer({
 			PRIVACY_DELETION_ENABLED: '1',
-			DELETION_LEDGER_PATH: join(dir, 'ledger.jsonl')
+			DELETION_LEDGER_SOCKET: journal.socketPath
 		});
 		origin = server.origin;
 		stop = server.stop;
@@ -40,6 +44,7 @@ run('account removal from its visible phone controls', () => {
 	afterAll(async () => {
 		await browser?.close();
 		await stop();
+		await stopJournal();
 		await h?.end();
 		if (dir) await rm(dir, { recursive: true, force: true });
 	});

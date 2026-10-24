@@ -37,6 +37,7 @@ const PRODUCTION_KEYS = [
 	'PASSWORD_MIN_LENGTH',
 	'PRIVACY_DELETION_ENABLED',
 	'DELETION_LEDGER_PATH',
+	'DELETION_LEDGER_SOCKET',
 	// M1 (2026-10-23): the trusted-edge declaration and the header it agrees
 	// with. Both are read by docker-compose.yml, so both belong in this list.
 	'DOCLIFTS_TRUSTED_EDGE',
@@ -128,9 +129,10 @@ describe('privacy lifecycle variables in docker-compose.yml', () => {
 		const compose = readFileSync('docker-compose.yml', 'utf8');
 		expect(compose).toContain('PRIVACY_DELETION_ENABLED: ${PRIVACY_DELETION_ENABLED:-0}');
 		expect(compose).toContain('DELETION_LEDGER_PATH: ${DELETION_LEDGER_PATH:-}');
+		expect(compose).toContain('DELETION_LEDGER_SOCKET: ${DELETION_LEDGER_SOCKET:-}');
 		const env = envFile(
 			'privacy.env',
-			'PRIVACY_DELETION_ENABLED=1\nDELETION_LEDGER_PATH=/private/fictional-deletions.jsonl\n'
+			'PRIVACY_DELETION_ENABLED=1\nDELETION_LEDGER_SOCKET=/run/fictional-journal/journal.sock\n'
 		);
 		const result = check(env);
 		expect(result.status, result.stderr).toBe(0);

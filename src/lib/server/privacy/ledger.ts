@@ -1,3 +1,4 @@
+import { request as httpRequest } from 'node:http';
 import { createHash } from 'node:crypto';
 import { open, readFile } from 'node:fs/promises';
 import { isAbsolute, dirname } from 'node:path';
@@ -50,4 +51,61 @@ export async function readLedger(path: string): Promise<LedgerEntry[]> {
 }
 export function deletionEnabled() {
 	return process.env.PRIVACY_DELETION_ENABLED === '1';
+}
+
+// Production deletion paths require the broker. A local file is useful for
+// offline recovery/tests, but is never an acknowledgment of off-host durability.
+export function durableLedger(socketPath = process.env.DELETION_LEDGER_SOCKET): Ledger {
+	if (!socketPath || !isAbsolute(socketPath))
+		throw new Error('Deletion journal requires an absolute broker socket path');
+	return {
+		async append(entry) {
+			const record = ledgerEntry.parse(entry);
+			const body = JSON.stringify(record);
+			await new Promise<void>((resolve, reject) => {
+				const request = httpRequest(
+					{
+						socketPath,
+						path: '/append',
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'Content-Length': Buffer.byteLength(body)
+						},
+						signal: AbortSignal.timeout(25000)
+					},
+					(response) => {
+						let size = 0;
+						const chunks: Buffer[] = [];
+						response.on('data', (chunk: Buffer) => {
+							size += chunk.length;
+							if (size > 2048) response.destroy(new Error('Journal response exceeded bound'));
+							else chunks.push(chunk);
+						});
+						response.on('error', reject);
+						response.on('end', () => {
+							try {
+								const result = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+								const echoed = ledgerEntry.parse(result.entry);
+								if (
+									response.statusCode !== 200 ||
+									result.durable !== true ||
+									!/^([a-f0-9]{64})$/.test(result.snapshot) ||
+									Object.entries(record).some(
+										([key, value]) => echoed[key as keyof LedgerEntry] !== value
+									)
+								)
+									throw new Error('Invalid durability acknowledgment');
+								resolve();
+							} catch {
+								reject(new Error('Journal durability unverified'));
+							}
+						});
+					}
+				);
+				request.on('error', () => reject(new Error('Journal durability unavailable')));
+				request.end(body);
+			});
+		}
+	};
 }

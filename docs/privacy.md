@@ -58,7 +58,7 @@ database. See [deletion and retention controls](data-lifecycle.md).
   disabled, but structured results and operational records persist.
 - Notes may contain health information and can reach authorized agents with notes
   scope. Revocation stops future connection access; it cannot recall copied data.
-- Full account export is not shipped. Support handles additional requests after
+- Password-confirmed JSON and CSV-table exports include account/training records, notes and pain records. Photo metadata is included, but image files are not. Experimental Strong-style CSV exports completed app sets with documented losses. See [data exports](data-exports.md). Support handles additional requests after
   verifying account ownership. Do not ask a user to email passwords or unnecessary
   sensitive information.
 - Retention controls remain manual dry-run/apply; no retention timer is enabled.

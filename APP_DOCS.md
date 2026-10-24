@@ -93,7 +93,7 @@ collections. Other clients require individual verification.
 
 See [MCP setup, permissions and semantics](docs/mcp-alpha.md). These reads are not
 a complete database backup or a portable restore format. Self-service notebook
-uploads, full import/export, custom fields and agent writes remain future work.
+uploads, restoring exports, custom fields and agent writes remain future work. Account → Export your data now offers JSON, CSV tables in a ZIP, and experimental Strong-style CSV; see [export formats](docs/data-exports.md). Photo image files are not included.
 
 ## Runtime and release workflow
 

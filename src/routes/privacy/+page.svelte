@@ -138,8 +138,9 @@
 				photos can be removed from their review page, including confirmed photos, while keeping
 				logged workout performance.{:else}Self-service account and saved-photo removal are awaiting
 				operational activation. Contact support to request deletion.{/if}
-			Full data export remains unfinished. Workout Trash affects workouts, not the whole account or every
-			associated photo.
+			Account offers password-confirmed JSON and spreadsheet exports, plus experimental Strong-style CSV.
+			Native downloads include notes and pain records, but photo image files are not included. Workout
+			Trash affects workouts, not the whole account or every associated photo.
 		</p>
 		<p class="mt-2">
 			Account and training data are kept while the service holds your account. Logs, screening and

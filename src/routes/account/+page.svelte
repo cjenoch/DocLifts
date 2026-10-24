@@ -40,6 +40,11 @@
 		>Exercises</a
 	>
 	<a
+		href="/account/export"
+		class="mb-3 flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-4 font-semibold text-zinc-200"
+		>Export your data</a
+	>
+	<a
 		href="/account/password"
 		class="mb-3 flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-4 font-semibold text-zinc-200 active:bg-zinc-800"
 		>Change password</a
@@ -67,8 +72,9 @@
 		</p>
 		<p class="text-sm text-zinc-400">
 			Removal may remain pending while private objects are cleaned up. Backup copies expire
-			separately. Provider copies and data already copied by agents cannot be recalled. Complete
-			data export is not yet available.
+			separately. Provider copies and data already copied by agents cannot be recalled. Download
+			your training data from Export your data before deleting your account. Photo image files are
+			not included in that export.
 		</p>
 		{#if form?.error}<p role="alert" class="text-amber-300">{form.error}</p>{/if}
 		{#if data.deletionEnabled}

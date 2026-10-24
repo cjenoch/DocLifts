@@ -268,6 +268,7 @@ run('production build: CSP and page render', () => {
 		'/sessions/{id}',
 		'/workout/start',
 		'/account',
+		'/account/export',
 		'/account/password',
 		'/account/connections',
 		'/account/connections/consent',

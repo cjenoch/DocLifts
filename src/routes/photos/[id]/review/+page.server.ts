@@ -1,6 +1,6 @@
 import { deletionEnabled, fileLedger } from '$lib/server/privacy/ledger';
 import { requestPhotoDeletion, runDeletion } from '$lib/server/privacy/lifecycle';
-import { privacyDeletions } from '$lib/server/db';
+import { privacyDeletions, photoObjects } from '$lib/server/db';
 import { subjectHash } from '$lib/server/privacy/ledger';
 import { and, eq } from 'drizzle-orm';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -49,9 +49,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				eq(privacyDeletions.subjectHash, subjectHash('photo', photo.id))
 			)
 		);
+	const [object] = await db
+		.select({ state: photoObjects.state })
+		.from(photoObjects)
+		.where(and(eq(photoObjects.photoId, photo.id), eq(photoObjects.userId, userId)));
 	return {
 		deletionEnabled: deletionEnabled(),
-		removalPending: !!removal && !removal.completedAt,
+		removalPending: (!!removal && !removal.completedAt) || (!!object && object.state !== 'stored'),
 		block,
 		userId,
 		photo: { id: photo.id, status: photo.status, width: photo.width, height: photo.height },

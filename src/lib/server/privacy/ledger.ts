@@ -31,6 +31,7 @@ export function fileLedger(path = process.env.DELETION_LEDGER_PATH): Ledger {
 			} finally {
 				await handle.close();
 			}
+			if (process.platform === 'win32') return; // FlushFileBuffers above; Windows cannot open directories this way.
 			const directory = await open(dirname(path), 'r');
 			try {
 				await directory.sync();

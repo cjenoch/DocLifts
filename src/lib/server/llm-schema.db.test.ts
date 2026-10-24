@@ -118,6 +118,6 @@ describe('0013 llm_calls schema', () => {
 		).rejects.toMatchObject({ cause: { constraint_name: 'llm_calls_status_check' } });
 		await expect(
 			db.insert(s.llmCalls).values(row({ userId: 'no-such-user' }))
-		).rejects.toMatchObject({ cause: { constraint_name: 'llm_calls_user_id_fk' } });
+		).rejects.toMatchObject({ cause: { code: '23514', message: 'Account unavailable' } });
 	});
 });

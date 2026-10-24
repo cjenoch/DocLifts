@@ -108,31 +108,44 @@ export async function sweepRetention(
 					)
 				);
 	}
-	// Child-first so deleting an expired parent cannot revive or preserve its token.
+	// Never let a parent cascade into another owner's token or an unexpired child.
+	// Lock the parent before rechecking references: a concurrent FK insert then
+	// waits and fails if we delete, rather than escaping the reference check.
 	for (const [name, table] of [
 		['accessTokens', s.oauthAccessToken],
 		['refreshTokens', s.oauthRefreshToken],
 		['sessions', s.authSessions]
 	] as const) {
+		const noChildren =
+			name === 'refreshTokens'
+				? sql`NOT EXISTS(SELECT 1 FROM auth.oauth_access_token WHERE refresh_id=${table.id})`
+				: name === 'sessions'
+					? sql`NOT EXISTS(SELECT 1 FROM auth.oauth_access_token WHERE session_id=${table.id}) AND NOT EXISTS(SELECT 1 FROM auth.oauth_refresh_token WHERE session_id=${table.id})`
+					: sql`true`;
+		const eligible = and(
+			eq(table.userId, userId),
+			lt(table.expiresAt, before(policy.expiredAuthDays)),
+			noChildren
+		);
 		const rows = await db
 			.select({ id: table.id })
 			.from(table)
-			.where(and(eq(table.userId, userId), lt(table.expiresAt, before(policy.expiredAuthDays))))
+			.where(eligible)
 			.orderBy(table.expiresAt, table.id)
 			.limit(limit);
 		counts[name] = rows.length;
 		if (options.apply)
 			for (const row of rows)
-				await db
-					.delete(table)
-					.where(
-						and(
-							eq(table.id, row.id),
-							eq(table.userId, userId),
-							lt(table.expiresAt, before(policy.expiredAuthDays))
-						)
-					);
+				await db.transaction(async (tx) => {
+					await tx
+						.select({ id: table.id })
+						.from(table)
+						.where(and(eq(table.id, row.id), eq(table.userId, userId)))
+						.for('update');
+					await tx.delete(table).where(and(eq(table.id, row.id), eligible));
+				});
 	}
+
 	const verifications = await db
 		.select({ id: s.authVerifications.id })
 		.from(s.authVerifications)
@@ -151,6 +164,7 @@ export async function sweepRetention(
 				.where(
 					and(
 						eq(s.authVerifications.id, row.id),
+						lt(s.authVerifications.expiresAt, before(policy.expiredAuthDays)),
 						sql`privacy_verification_owner(${s.authVerifications.value})=${userId}`
 					)
 				);

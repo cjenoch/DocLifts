@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { PageData, ActionData } from './$types';
+	import PasswordInput from '$lib/PasswordInput.svelte';
 	import { pageTitle } from '$lib/app-shell';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -72,16 +73,14 @@
 		{#if form?.error}<p role="alert" class="text-amber-300">{form.error}</p>{/if}
 		{#if data.deletionEnabled}
 			<form method="POST" action="?/deleteAccount" class="space-y-3">
-				<label class="block"
-					>Current password<input
-						name="password"
-						type="password"
-						autocomplete="current-password"
-						required
-						maxlength="128"
-						class="mt-1 min-h-11 w-full rounded border border-zinc-600 bg-zinc-900 px-3"
-					/></label
-				>
+				<PasswordInput
+					id="deletion-password"
+					label="Current password"
+					name="password"
+					autocomplete="current-password"
+					required
+					maxlength={128}
+				/>
 				<label class="block"
 					>Type DELETE to confirm<input
 						name="confirmation"

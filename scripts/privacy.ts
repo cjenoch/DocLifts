@@ -127,6 +127,15 @@ try {
 		);
 		if (totals.failed) process.exitCode = 1;
 	}
+} catch {
+	// Database/provider errors can embed identifiers, SQL values or signed URLs.
+	console.error(
+		JSON.stringify({
+			mode: values.mode,
+			error: 'Privacy operation failed; verify configuration and retry the same scope.'
+		})
+	);
+	process.exitCode = 1;
 } finally {
 	await closeStorageLocks(db);
 	await client.end({ timeout: 5 });

@@ -78,9 +78,10 @@ export type UploadInput = {
  * Store one photo for one of this user's gyms and record it as `uploaded`.
  *
  * Order: gym (owner) -> current photo notice -> size -> daily cap -> process (orient, resize, strip)
- * -> safety (fail closed, before storage) -> under a per-user advisory lock, recount, `put`, insert. The recount under
- * the lock makes the cap exact when two uploads race. If the insert fails the
- * stored object is deleted, so the store never holds an object no row names.
+ * -> safety (fail closed, before storage) -> commit the hidden row and object
+ * inventory under a per-user transaction lock -> bounded PUT outside the
+ * transaction -> publish. The locked recount makes concurrent caps exact. Any
+ * failed or ambiguous write leaves a durable cleanup key and settlement deadline.
  *
  * Returns the row and `image`, the processed JPEG exactly as stored, so the
  * upload action can hand it to `analyzePhoto` without reading it back from the

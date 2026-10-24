@@ -51,8 +51,8 @@
 	{#if data.photo.status === 'discarded'}
 		<p data-testid="photo-status">
 			{data.removalPending
-				? 'Removal pending. The image is hidden while cleanup retries.'
-				: 'Discarded. The image has been deleted.'}
+				? 'Discarded from view. Object removal is pending while cleanup retries.'
+				: 'Discarded. The image is hidden. Backup copies expire separately.'}
 		</p>
 	{:else}
 		<img

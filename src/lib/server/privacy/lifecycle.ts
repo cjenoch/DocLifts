@@ -171,6 +171,8 @@ export async function erasePhotoObject(
 			.from(s.photoObjects)
 			.where(and(eq(s.photoObjects.storageKey, key), eq(s.photoObjects.userId, userId)));
 		if (!object) return true;
+		if (key !== `users/${userId}/equipment-photos/${object.photoId}.jpg`)
+			throw new Error('Object inventory owner mismatch');
 		if (object.writeDeadline && object.writeDeadline.getTime() > Date.now())
 			throw new Error('Upload settlement pending');
 		if (!accountDeletion && object.state === 'stored') return false;

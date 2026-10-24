@@ -9,6 +9,7 @@ import {
 	requestAccountDeletion,
 	requestPhotoDeletion,
 	runDeletion,
+	erasePhotoObject,
 	reconcileDeletions
 } from './lifecycle';
 import { subjectHash, type LedgerEntry } from './ledger';
@@ -117,6 +118,85 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 		const store = new MemoryPhotoStore();
 		const a = await fixture(alice, store);
 		const b = await fixture(bob, store);
+		// Exercise the complete FK tree, including template history and notebook imports.
+		const [oldProgram] = await h.db
+			.insert(s.programs)
+			.values({ userId: alice, name: 'Earlier fictional version', isActive: false })
+			.returning();
+		await h.db
+			.update(s.programs)
+			.set({ sourceProgramId: oldProgram.id })
+			.where(eq(s.programs.id, a.program.id));
+		const [de] = await h.db
+			.insert(s.dayExercises)
+			.values({ dayId: a.day.id, exerciseId: a.exercise.id, position: 1, tier: 'main' })
+			.returning();
+		const [ps] = await h.db
+			.insert(s.prescribedSets)
+			.values({ dayExerciseId: de.id, position: 1, setRole: 'working' })
+			.returning();
+		const [se] = await h.db
+			.insert(s.sessionExercises)
+			.values({
+				sessionId: a.session.id,
+				exerciseId: a.exercise.id,
+				gymEquipmentId: a.machine.id,
+				position: 1,
+				exerciseName: 'Fixture lift',
+				equipmentType: 'machine-stack',
+				loadConvention: 'displayed',
+				tier: 'main',
+				progressionPolicy: 'standard'
+			})
+			.returning();
+		await h.db
+			.update(s.sets)
+			.set({ prescribedSetId: ps.id, sessionExerciseId: se.id })
+			.where(eq(s.sets.id, a.set.id));
+		await h.db
+			.update(s.equipmentPhotos)
+			.set({ sessionExerciseId: se.id })
+			.where(eq(s.equipmentPhotos.id, a.id));
+		await h.db.insert(s.painEvents).values({
+			userId: alice,
+			setId: a.set.id,
+			sessionId: a.session.id,
+			exerciseId: a.exercise.id,
+			location: 'Fictional shoulder',
+			severity: 1
+		});
+		await h.db.insert(s.programDraftRequests).values({
+			requestId: crypto.randomUUID(),
+			userId: alice,
+			programId: a.program.id,
+			fingerprint: '0'.repeat(64)
+		});
+		await h.db
+			.insert(s.exerciseEquipmentMap)
+			.values({ exerciseId: a.exercise.id, equipmentModelId: a.model.id });
+		const importId = crypto.randomUUID();
+		await h.db.insert(s.workoutLogImports).values({
+			id: importId,
+			userId: alice,
+			sourceSha256: 'fixture',
+			sourceName: 'Fictional notebook',
+			sourceText: 'Fictional notes'
+		});
+		await h.db.insert(s.importedWorkouts).values({
+			id: crypto.randomUUID(),
+			importId,
+			sourceLine: 1,
+			title: 'Fictional workout',
+			dateNote: 'Unknown date',
+			lines: []
+		});
+		await h.db.insert(s.authAccounts).values({
+			id: crypto.randomUUID(),
+			accountId: alice,
+			providerId: 'credential',
+			userId: alice,
+			password: 'fictional-unused-hash'
+		});
 		const [global] = await h.db
 			.insert(s.equipmentModels)
 			.values({ manufacturer: 'Shared fixture', name: 'Catalog', loadingType: 'machine-stack' })
@@ -172,8 +252,11 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			expiresAt: new Date(Date.now() + 60000)
 		});
 		expect((await authenticateMcp(h.db, 'Bearer ' + bearer))?.userId).toBe(alice);
+		expect(await requestAccountDeletion(h.db, alice, b.authSession, ledger)).toBeNull();
 		const job = await requestAccountDeletion(h.db, alice, a.authSession, ledger);
 		expect(job).not.toBeNull();
+		expect(await requestAccountDeletion(h.db, alice, a.authSession, ledger)).toBeNull();
+		expect(journal).toHaveLength(1);
 		expect(await authenticateMcp(h.db, 'Bearer ' + bearer)).toBeNull();
 		expect(await h.db.select().from(s.oauthRefreshToken)).toEqual([]);
 		expect(await h.db.select().from(s.oauthConsent)).toEqual([]);
@@ -263,6 +346,18 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 		expect((await h.db.select().from(s.sets))[0]).toEqual(a.set);
 		expect((await h.db.select().from(s.gymEquipment))[0]).toEqual(a.machine);
 	});
+	it('refuses a corrupt object inventory pointing at another tenant prefix', async () => {
+		const store = new MemoryPhotoStore();
+		const b = await fixture(bob, store);
+		await h.db
+			.insert(s.photoObjects)
+			.values({ storageKey: b.key, userId: alice, photoId: b.id, state: 'delete_pending' });
+		await expect(erasePhotoObject(h.db, alice, b.key, store)).rejects.toThrow(
+			'Object inventory owner mismatch'
+		);
+		expect(await store.get(b.key)).not.toBeNull();
+		expect(await h.db.select().from(s.photoObjects)).toHaveLength(1);
+	});
 	it('orders a live upload before cleanup without holding a database transaction or web-pool connection', async () => {
 		const store = new MemoryPhotoStore();
 		const [gym] = await h.db
@@ -349,6 +444,61 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			photos: 0,
 			applied: true
 		});
+	});
+	it('retention never cascades into live or foreign tokens and drains expired children in bounded batches', async () => {
+		const expired = new Date(Date.now() - 8 * 86400000),
+			future = new Date(Date.now() + 86400000);
+		const sessionId = crypto.randomUUID(),
+			refreshId = crypto.randomUUID(),
+			clientId = crypto.randomUUID();
+		await h.db
+			.insert(s.authSessions)
+			.values({ id: sessionId, userId: alice, token: crypto.randomUUID(), expiresAt: expired });
+		await h.db
+			.insert(s.oauthClient)
+			.values({ id: clientId, clientId, redirectUris: ['https://fixture.invalid/cb'] });
+		await h.db
+			.insert(s.oauthRefreshToken)
+			.values({
+				id: refreshId,
+				clientId,
+				userId: alice,
+				sessionId,
+				token: crypto.randomUUID(),
+				scopes: [],
+				createdAt: new Date(),
+				expiresAt: expired
+			});
+		const [foreign] = await h.db
+			.insert(s.oauthAccessToken)
+			.values({
+				id: crypto.randomUUID(),
+				clientId,
+				userId: bob,
+				sessionId,
+				refreshId,
+				token: crypto.randomUUID(),
+				scopes: [],
+				createdAt: new Date(),
+				expiresAt: future
+			})
+			.returning();
+		const first = await sweepRetention(h.db, alice, { apply: true, limit: 1 });
+		expect(first.sessions).toBe(0);
+		expect(first.refreshTokens).toBe(0);
+		expect((await h.db.select().from(s.oauthAccessToken))[0]).toEqual(foreign);
+		await h.db
+			.update(s.oauthAccessToken)
+			.set({ expiresAt: expired })
+			.where(eq(s.oauthAccessToken.id, foreign.id));
+		await sweepRetention(h.db, alice, { apply: true, limit: 1 });
+		expect(await h.db.select().from(s.oauthAccessToken)).toHaveLength(1);
+		await sweepRetention(h.db, bob, { apply: true, limit: 1 });
+		expect(await h.db.select().from(s.oauthAccessToken)).toHaveLength(0);
+		const last = await sweepRetention(h.db, alice, { apply: true, limit: 1 });
+		expect(last.refreshTokens).toBe(1);
+		expect(last.sessions).toBe(1);
+		expect(await h.db.select().from(s.authSessions)).toHaveLength(0);
 	});
 	it('uses a strict clock boundary, bounded dry-run, owner scope and keeps history and saved photos', async () => {
 		const store = new MemoryPhotoStore();

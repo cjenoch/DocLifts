@@ -41,7 +41,8 @@ it; earlier model-call diagnostics follow the retention policy below.
 
 Migration `0022_open_johnny_blaze.sql` adds the account fence, deletion receipts,
 object inventory and write-fencing triggers, and backfills every known photo key.
-Existing migrations are unchanged. Global equipment catalog rows are untouched.
+Migration `0023_salty_darkstar.sql` adds the durable upload settlement deadline.
+Earlier migrations are unchanged. Global equipment catalog rows are untouched.
 
 Uploads commit their object inventory **before** PUT. A separate PostgreSQL
 connection pool (maximum two per process, not the web query pool) holds a session
@@ -112,7 +113,9 @@ pnpm privacy --mode deletions --all --apply --limit 25 --ledger /private/current
 
 Use `nextAfter` with `--after` to continue the account scan. Repeat bounded deletion
 passes until no jobs remain; a failed batch exits nonzero, and `last_error` records
-only the failing stage (`ledger`, `storage`, `database`). Alert on pending age,
+only the failing stage (`ledger`, `storage`, `database`). Expired authentication
+parents remain while any child token references them; each pass removes only its
+selected owner’s eligible rows, without cascades into live or foreign tokens. Alert on pending age,
 retry failures and missing worker runs when scheduling is separately approved.
 Do not run the CLI with production credentials for tests. There is deliberately
 no production wrapper or scheduler in this change.

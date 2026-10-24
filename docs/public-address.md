@@ -1,16 +1,17 @@
-# Public-address preparation
+# Public address and tunnel
 
-Production is live at https://doclifts.runthe.ai as of 2026-10-03 (0.14.1).
-Assistant cutover checks passed; owner approved both releases on 2026-10-03.
+Production has used https://doclifts.runthe.ai since the October 3, 2026 cutover
+(0.14.1). Assistant cutover checks passed; the owner approved those releases that
+day. Current application: **0.20.0 Alpha**; see [status](../STATUS.md) for runtime
+identity and the separate acceptance checks for later releases.
 
 `PUBLIC_ORIGIN` is the sole browser origin. Compose also passes it as adapter-node's
 `ORIGIN`. Change it and restart to move the same build. Adapter-node 5.5.4 builds
 the request URL from `origin || get_origin(req.headers)`; forwarded host and
-protocol settings have been removed. In the deployed 0.15.x release, SvelteKit's same-origin CSRF protection
-stays enabled with no trusted-origin exceptions. The proposed 0.16.0 MCP
-release replaces that framework-global check with an explicit same-origin
-form boundary and one cookie-free native token-exchange exception; see
-[MCP authorization](mcp-alpha.md). That change requires owner review. Cookies are host-only; HTTPS
+protocol settings have been removed. The deployed MCP release replaced the
+framework-global CSRF check with an explicit same-origin form boundary and one
+cookie-free native token-exchange exception; see [MCP authorization](mcp-alpha.md).
+Cookies are host-only; HTTPS
 selects Secure cookies. The served-build tests verify these attributes.
 
 At tunnel cutover set `CLIENT_IP_HEADER=cf-connecting-ip` **and**
@@ -44,6 +45,14 @@ deploy checks and a human.
 Two probes are worth keeping distinct: this one, and the login page's own
 reachability. A 503 here does not mean sign-in is broken, and a healthy
 container does not mean the migration chain has run.
+
+External UptimeRobot checks cover readiness, sign-in and MCP discovery, alongside
+the enoch.ai and runthe.ai websites. Cloudflare's tunnel health alert is enabled
+for all health transitions, including recovery. Its test-email receipt and an
+actual outage/recovery drill remain unverified. Discovery monitoring does not
+exercise OAuth or authenticated MCP tools. See [monitoring status](../STATUS.md#external-availability-monitoring)
+for the recorded configuration and remaining checks. The local privacy-worker
+health monitor remains a separate service-state/cleanup check with no outbound alerts.
 
 The IP failure ceiling defaults to ten per fifteen minutes. Email failures
 only delay a sign-in, capped at the configured delay (30 seconds by default).

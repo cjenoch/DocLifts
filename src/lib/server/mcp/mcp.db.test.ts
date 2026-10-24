@@ -852,8 +852,7 @@ describe('MCP overload behavior', () => {
 });
 
 describe('MCP imported notebook history', () => {
-	async function archive(userId: string, load: number) {
-		const importId = randomUUID();
+	async function archive(userId: string, load: number, importId = randomUUID()) {
 		await h.db.insert(s.workoutLogImports).values({
 			id: importId,
 			userId,
@@ -891,7 +890,8 @@ describe('MCP imported notebook history', () => {
 		return { ids, importId };
 	}
 	it('returns owned archive pages with evidence and uncertainty, excluding foreign data and private text', async () => {
-		const own = await archive(alice, 123);
+		// The foreign load's digits may legitimately occur in an owned UUID.
+		const own = await archive(alice, 123, '00000000-0000-4000-8000-000000000987');
 		await archive(bob, 987);
 		const all: Record<string, unknown>[] = [];
 		let after: string | undefined;
@@ -924,9 +924,16 @@ describe('MCP imported notebook history', () => {
 			latestDate: '2025-02-28'
 		});
 		expect(all[2]).toMatchObject({ workoutDate: null, earliestDate: null, latestDate: null });
-		expect(JSON.stringify(all)).not.toMatch(/PRIVATE_|UNEXPECTED_|987/);
+		expect(JSON.stringify(all)).not.toMatch(/PRIVATE_|UNEXPECTED_/);
+		for (const workout of all) {
+			expect(workout).toMatchObject({ lines: [{ sets: [{ load: 123 }, { load: 0 }] }] });
+		}
 		const theirs = await readMcpData(h.db, bob, 'list_imported_workouts', {});
-		expect(JSON.stringify(theirs)).toContain('987');
+		expect(theirs).toMatchObject({
+			workouts: Array.from({ length: 3 }, () => ({
+				lines: [{ sets: [{ load: 987 }, { load: 0 }] }]
+			}))
+		});
 		expect(JSON.stringify(theirs)).not.toContain(own.importId);
 		const notes = await readMcpData(h.db, alice, 'list_imported_workouts', {}, true);
 		expect(JSON.stringify(notes)).toContain('PRIVATE_LINE');

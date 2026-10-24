@@ -43,6 +43,7 @@ describe('isPublicPath', () => {
 			'/sessions/1',
 			'/workout/start',
 			'/account',
+			'/account/export',
 			'/account/connections',
 			'/account/connections/consent',
 			'/account/password'

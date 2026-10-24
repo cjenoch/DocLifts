@@ -99,7 +99,8 @@ advisories. Signup stays closed.
 
 - 0.19.1 Alpha audit follow-ups are in validation: bounded throttle retention,
   session-bound refresh issuance, private catalog dumps and a restricted
-  account-maintenance environment. Production remains 0.19.0 until release checks pass.
+  account-maintenance environment, plus Node 24.22.1 security fixes. Production remains
+  0.19.0 until release checks pass.
 
 - Complete replacement-VPS recovery rehearsal and external host-down monitoring.
   Encrypted off-host backup automation and an isolated data/app restore drill are

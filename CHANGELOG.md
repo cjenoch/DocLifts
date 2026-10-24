@@ -15,8 +15,12 @@
   names and published only on success. Account maintenance containers receive
   explicit required credentials and policy settings rather than the entire
   production environment file.
-- No dependency, schema, signup, photo-provider or retention-policy change.
-  Local full-gate, branch CI and public release checks are pending.
+- Node is pinned to 24.22.1 across development, CI and both image stages for
+  the October security fixes, including CVE-2026-111497 in the Brotli decoder.
+  Application dependency resolutions are unchanged. Brotli's reported version
+  remains 1.2.0 because Node backports the fix.
+- No schema, signup, photo-provider or retention-policy change. The integrated
+  full gate is repeated on the patched runtime before deployment.
 
 ## 0.19.0 Alpha — account and saved-photo deletion — deployed; acceptance pending
 

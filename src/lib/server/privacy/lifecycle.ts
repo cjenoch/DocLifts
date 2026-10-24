@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lte, sql } from 'drizzle-orm';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
 import type { PhotoStore } from '../photos/store';
@@ -173,8 +173,7 @@ export async function erasePhotoObject(
 		if (!object) return true;
 		if (key !== `users/${userId}/equipment-photos/${object.photoId}.jpg`)
 			throw new Error('Object inventory owner mismatch');
-		if (object.writeDeadline && object.writeDeadline.getTime() > Date.now())
-			throw new Error('Upload settlement pending');
+		if (object.writeDeadline) throw new Error('Upload settlement requires operator reconciliation');
 		if (!accountDeletion && object.state === 'stored') return false;
 		if (!store.erase) throw new Error('Version-aware object erasure is unavailable');
 		await store.erase(key);
@@ -200,6 +199,54 @@ export async function erasePhotoObject(
 		});
 		return true;
 	});
+}
+
+/** Explicit operator attestation, never a timer-based assumption. Before apply,
+ * stop old writers and verify with the provider that earlier PUTs have settled.
+ * The timestamp selects only already-expired write windows; keys stay inventoried. */
+export async function acknowledgeUploadSettlement(
+	db: Database,
+	userId: string,
+	before: Date,
+	apply = false,
+	limit = 25
+) {
+	if (
+		!Number.isFinite(before.getTime()) ||
+		before.getTime() > Date.now() ||
+		!Number.isInteger(limit) ||
+		limit < 1 ||
+		limit > 100
+	)
+		throw new Error('Invalid settlement boundary');
+	const eligible = and(
+		eq(s.photoObjects.userId, userId),
+		lte(s.photoObjects.writeDeadline, before)
+	);
+	const objects = await db
+		.select({ key: s.photoObjects.storageKey })
+		.from(s.photoObjects)
+		.where(eligible)
+		.orderBy(s.photoObjects.writeDeadline, s.photoObjects.storageKey)
+		.limit(limit);
+	let acknowledged = 0,
+		failed = 0;
+	if (apply)
+		for (const object of objects) {
+			try {
+				await withStorageLock(db, object.key, async () => {
+					const rows = await db
+						.update(s.photoObjects)
+						.set({ writeDeadline: null })
+						.where(and(eq(s.photoObjects.storageKey, object.key), eligible))
+						.returning({ key: s.photoObjects.storageKey });
+					acknowledged += rows.length;
+				});
+			} catch {
+				failed++;
+			}
+		}
+	return { eligible: objects.length, acknowledged, failed, applied: apply };
 }
 
 /** Explicit, owner-scoped order. Global catalog rows never enter any predicate.

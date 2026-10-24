@@ -50,10 +50,13 @@ advisory lock for the key while storing it. Cleanup uses the same try-lock and
 reports contention as a retry. No database transaction spans object-store I/O.
 S3 PUT and the complete version-erasure operation have 30-second abort deadlines.
 A crashed process releases its session lock; its committed key remains discoverable.
-An interrupted or ambiguous upload has a durable two-minute settlement deadline,
-longer than its 30-second PUT deadline; cleanup waits through that window even
-if a DB connection loss released the lock. A successful PUT clears the deadline.
-A failed or ambiguous PUT stays in the inventory for later cleanup.
+An interrupted or ambiguous upload has a durable two-minute write window, longer
+than its 30-second PUT deadline. A successful PUT clears the marker. For an
+ambiguous PUT, **elapsed time alone never permits completion**: client cancellation
+cannot prove that a remote provider has finished processing a write. The key stays
+inventoried and deletion remains pending until an operator stops old writers,
+verifies provider settlement, and explicitly acknowledges that bounded owner's
+expired windows. DB connection loss cannot bypass this durable marker.
 
 Account cleanup also lists the exact owner's storage prefix, including old
 versions and delete markers, to find pre-migration orphan objects. Each pass is
@@ -120,6 +123,18 @@ retry failures and missing worker runs when scheduling is separately approved.
 Do not run the CLI with production credentials for tests. There is deliberately
 no production wrapper or scheduler in this change.
 
+Ambiguous uploads require a separate, deliberately explicit reconciliation. Stop
+old writers and verify that the provider has settled requests before the selected
+UTC timestamp. Dry-run first; apply requires an additional attestation and one
+owner (never `--all`). This clears uncertainty markers, not objects or photo rows;
+rerun normal deletion afterward. If provider settlement cannot be established,
+leave the job pending.
+
+```sh
+pnpm privacy --mode settle-uploads --owner ACCOUNT_ID --settled-before UTC_TIMESTAMP
+pnpm privacy --mode settle-uploads --owner ACCOUNT_ID --settled-before UTC_TIMESTAMP --confirm-provider-settled --apply
+```
+
 ## Backups, journal and restore gate
 
 An ordinary restored database or VPS file is **not** an independent deletion
@@ -169,3 +184,12 @@ passthrough and a writable ledger mount in the separately owned Compose change;
 the runtime otherwise has a read-only filesystem. Only then enable the UI.
 Retention scheduling and operational-log retention require their own reviewed
 activation. Do not widen signup based solely on these controls passing tests.
+
+## Migration rehearsal
+
+With an isolated loopback `TEST_DATABASE_URL` ending in `_test`, run
+`pnpm exec node scripts/rehearse-privacy-migrations.mjs`. The test role needs
+CREATEDB. The rehearsal creates its own random scratch database, migrates through
+0021, seeds fictional saved/discarded photos, upgrades through 0023 and checks the
+backfill and write/code fences. It drops only that scratch database in cleanup;
+it never modifies the database named in the URL. No object-store calls occur.

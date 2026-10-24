@@ -5,7 +5,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import * as schema from '../src/lib/server/db/schema';
 import { fileLedger, readLedger } from '../src/lib/server/privacy/ledger';
-import { reconcileDeletions, runDeletion } from '../src/lib/server/privacy/lifecycle';
+import {
+	reconcileDeletions,
+	runDeletion,
+	acknowledgeUploadSettlement
+} from '../src/lib/server/privacy/lifecycle';
 import {
 	RETENTION_DEFAULTS,
 	sweepRetention,
@@ -23,6 +27,8 @@ const { values } = parseArgs({
 		after: { type: 'string' },
 		limit: { type: 'string', default: '25' },
 		ledger: { type: 'string' },
+		'settled-before': { type: 'string' },
+		'confirm-provider-settled': { type: 'boolean', default: false },
 		'details-days': { type: 'string' },
 		'records-days': { type: 'string' },
 		'expired-auth-days': { type: 'string' },
@@ -33,7 +39,7 @@ const { values } = parseArgs({
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL must be supplied explicitly');
 const limit = Number(values.limit);
 if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('limit must be 1..100');
-if (!['retention', 'deletions', 'reconcile'].includes(values.mode!))
+if (!['retention', 'deletions', 'reconcile', 'settle-uploads'].includes(values.mode!))
 	throw new Error('Unknown privacy mode');
 if (!values.owner && !values.all) throw new Error('Choose --owner or --all explicitly');
 if (values.owner && values.all) throw new Error('Choose exactly one scope');
@@ -41,7 +47,26 @@ const client = postgres(process.env.DATABASE_URL, { max: 3, onnotice: () => {} }
 const db = drizzle(client, { schema });
 configureStorageLocks(db, process.env.DATABASE_URL);
 try {
-	if (values.mode === 'reconcile') {
+	if (values.mode === 'settle-uploads') {
+		if (
+			!values.owner ||
+			values.all ||
+			!values['settled-before'] ||
+			(values.apply && !values['confirm-provider-settled'])
+		)
+			throw new Error(
+				'Settlement requires one owner, a boundary and explicit provider confirmation for apply'
+			);
+		const result = await acknowledgeUploadSettlement(
+			db,
+			values.owner,
+			new Date(values['settled-before']),
+			values.apply,
+			limit
+		);
+		console.log(JSON.stringify(result));
+		if (result.failed) process.exitCode = 1;
+	} else if (values.mode === 'reconcile') {
 		if (!values.ledger || !values.all)
 			throw new Error('Reconciliation requires --all --ledger newest-independent-journal');
 		console.log(

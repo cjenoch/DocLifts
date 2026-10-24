@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 24, 2026 UTC. Current application: **0.18.5 Alpha**, runtime `cceb608`.
+Updated October 24, 2026 UTC. Current application: **0.19.0 Alpha**, runtime `72b3d538`.
 Deployed and automatically verified; owner phone/agent acceptance pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
@@ -15,6 +15,9 @@ Markdown merge does not require rebuilding the application.
   successful reads of both history collections; its notes permission is approved.
 - Image screening runs before persistent storage and vision identification, with
   controlled local/OpenRouter A/B testing. Failed screening refuses the upload.
+- Account deletion and saved-photo removal with durable
+  off-host journal acknowledgment and bounded retries. Photo removal preserves
+  recorded workout performance; account deletion removes the chosen account data.
 - Android and iPhone sign-in were owner-tested. Signup remains closed; Alpha
   accounts are operator-managed. The old disposable demo is retired.
 
@@ -24,14 +27,17 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-Operations build `cceb608` deployed October 24, 2026 UTC after PR42. The app
-label stays 0.18.5 Alpha, with the distinct runtime build visible in the GUI.
-Exact-head CI40042604239 passed 958 server tests (3 expected skips), 42 components,
-167 browser tests, lint, typecheck, Drizzle consistency, build, Docker and CodeQL.
-The VPS server suite passed 961/961. Its initial browser run passed 162/167;
-unchanged focused retries and independent laptop/CI runs passed affected cases.
-The laptop full browser pass was 167/167. Timing failures remain follow-up work;
-a cross-host pass alone does not isolate their cause.
+Runtime `72b3d538` deployed and deletion controls activated October 24, 2026 UTC after PR44.
+Migrations 0022/0023 had already deployed at `5b6f9e3` with controls disabled;
+the activation follow-up has no new migration. Exact-head CI40061488884 passed
+974 server tests (3 expected skips), 42 components, 169 browser tests, lint,
+typecheck, Drizzle consistency, build, Docker and CodeQL. All 11 Python/restic
+checks passed, including ordinary-prune protection and union recovery.
+The independent laptop full application gate passed 974 server tests, 42
+components and 169 browser tests at `f8f03ff`; final `72b3d538` changes only
+the disposable Python fixture file.
+The final test-only fixture clarification also passed Python checks and lint;
+its optional real-restic check passed on the VPS.
 
 Web now runs as uid 1000 with all capabilities dropped and no-new-privileges,
 plus its existing read-only filesystem. `/health` runs a database readiness
@@ -47,27 +53,38 @@ per-IP authentication work and a short-lived denied-token hash cache; successful
 tokens still revalidate session and consent. See [auth hardening](docs/auth-hardening.md)
 for restart, multi-instance, shared-IP and distributed-traffic limitations.
 
-The October 23 encrypted snapshot passed an isolated restore with matching
-database counts, photo hashes, seven SQLite checks and automation login/history.
-A fresh pre-operations-deploy snapshot and full repository integrity check passed;
-a second restore drill was not repeated for this schema-unchanged deployment.
-The previous running image and older recovery images are retained. Only web was
-recreated; no migration, host reboot, tunnel or provider-setting change.
+Before the lifecycle schema deployment, a fresh encrypted backup was retrieved
+and its restored database migrated through 0023. Repeating migrations was a
+no-op and aggregate counts were unchanged. A separate isolated deletion rehearsal
+used real encrypted off-host journal records, restored the pre-deletion fixture
+database, reconciled twice and preserved the unrelated account and photo. The
+fixture photo store was in memory, with no live S3 credentials.
 
-Public checks used only the dedicated automation account. Browser and both direct
-sign-in encodings, private pages, visible release/build, OAuth consent/PKCE/refresh,
-MCP SDK tools and reads, token revocation, and logout invalidation passed. Owner and
-human Alpha accounts were not exercised; no workout data was written.
+Public automation passed sign-in, OAuth/PKCE/refresh, MCP reads, revocation,
+logout, visible build and 390px checks. A new disposable account removed a saved
+photo through the UI while its logged set remained unchanged, then deleted the
+account using the current password. Its old session was denied, cleanup completed,
+both S3 fixture objects and owned account data were absent, and the public receipt
+showed completion. All seven aggregate totals returned to their pre-fixture
+baseline. The bucket has never had versioning enabled; actual S3
+checks covered null versions. Historical versions/delete markers are fixture
+coverage. Owner and human Alpha accounts were not destructive test fixtures.
+Previous recovery images remain retained.
+
+The private journal broker and pinned deletion worker keep backup credentials
+outside web. A local-only five-minute health monitor checks aggregate failures,
+pending age and service state; it writes a private status file and sends no
+email/webhook. The final check was healthy with zero pending/failed jobs and a successful
+worker result. This is not external host-down alerting.
 
 The [privacy notice](https://doclifts.runthe.ai/privacy) and versioned upload
-acknowledgment from 0.18.4 remain live. Self-service deletion/export and retention
-remain unfinished; see [privacy controls](docs/privacy.md). Signup stays closed.
+acknowledgment remain live. Retention is a manual dry-run/apply control, with no
+retention timer. Full account export is not shipped. Signup stays closed.
+See [privacy controls](docs/privacy.md) and [activation/recovery](docs/privacy-activation.md).
 
-Private evidence: ops/ops-hardening-release-2026-10-24 and the earlier
-ops/auth-release-2026-10-23 in the VPS-only operations repository. See
-[release records](docs/release-0.2.0.md). Owner phone/agent acceptance remains
-pending. Account/photo deletion and retention are being validated in draft PR41;
-they are not deployed or activated.
+Private release evidence remains in the VPS-only operations repository.
+See [release records](docs/release-0.2.0.md). Owner phone/agent acceptance remains
+pending.
 
 ## Host maintenance
 
@@ -87,8 +104,8 @@ advisories. Signup stays closed.
   before changing how database tooling is run; see [dependency triage](docs/dependencies.md).
   Deeper independent OAuth review, measured capacity tests and existing security
   follow-up before widening Alpha access. Screening does not solve prompt injection.
-- Account export/deletion, saved-photo deletion and automatic
-  retention rules covering logs, backups and provider processing before public signup.
+- Full account export and separately reviewed retention scheduling/log policy
+  before public signup; provider processing and external copies retain their own limits.
 - Signup/approval gates and fuller beginner onboarding. Four workout layouts and the
   first-set guide are live; owner gym acceptance remains pending.
 - Explicit test/training labels; richer import/export and reviewed notebook

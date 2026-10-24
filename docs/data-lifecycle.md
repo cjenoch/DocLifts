@@ -1,10 +1,15 @@
 # Account deletion and retention controls
 
-Lifecycle schema and application were deployed as build `5b6f9e3`, with controls
-disabled. This follow-up adds durable off-host acceptance and reviewed operator
-templates; installation does not happen merely by merging it. See
-[activation and recovery](privacy-activation.md) and STATUS.md for actual rollout
-state. Signup remains closed. Full data export is separate work.
+Activated in **0.19.0 Alpha**, runtime `72b3d538`, October 24,
+2026 UTC. Migrations 0022/0023 had already deployed with controls disabled at
+`5b6f9e3`; PR44 adds durable off-host acceptance and recovery tooling without a
+new migration. See [activation and recovery](privacy-activation.md), STATUS.md
+and the release record for evidence and pending owner acceptance.
+
+The deletion worker handles explicit requests. Retention remains manual
+dry-run/apply, with no retention timer. Local health monitoring checks service
+state and aggregate failures/pending age without email/webhooks; it is not
+external host-down alerting. Signup stays closed. Full account export is not shipped.
 
 ## What the controls do
 

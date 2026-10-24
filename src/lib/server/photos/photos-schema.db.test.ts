@@ -155,7 +155,7 @@ describe('0016 equipment_photos schema (with 0018)', () => {
 			cause: { constraint_name: 'equipment_photos_size_check' }
 		});
 		await expect(refused({ userId: 'no-such-user' })).rejects.toMatchObject({
-			cause: { constraint_name: 'equipment_photos_user_id_fk' }
+			cause: { code: '23514', message: 'Account unavailable' }
 		});
 		await expect(refused({ gymId: crypto.randomUUID() })).rejects.toMatchObject({
 			cause: { constraint_name: 'equipment_photos_gym_id_fk' }

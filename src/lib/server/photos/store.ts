@@ -16,6 +16,8 @@
 import { Readable } from 'node:stream';
 import {
 	DeleteObjectCommand,
+	ListObjectVersionsCommand,
+	HeadObjectCommand,
 	GetObjectCommand,
 	NoSuchKey,
 	PutObjectCommand,
@@ -27,6 +29,9 @@ export interface PhotoStore {
 	put(key: string, body: Buffer, contentType: string): Promise<void>;
 	get(key: string): Promise<{ body: Readable; contentType: string } | null>;
 	delete(key: string): Promise<void>;
+	/** Remove all versions; failures must remain pending. */
+	erase?(key: string): Promise<void>;
+	listOwned?(userId: string, limit: number): Promise<string[]>;
 }
 
 /** The object key for a photo. Everything a user uploads sits under their own prefix. */
@@ -49,6 +54,15 @@ export class MemoryPhotoStore implements PhotoStore {
 
 	async delete(key: string): Promise<void> {
 		this.objects.delete(key);
+	}
+
+	async erase(key: string): Promise<void> {
+		await this.delete(key);
+	}
+	async listOwned(userId: string, limit: number) {
+		return this.keys()
+			.filter((key) => key.startsWith(`users/${userId}/equipment-photos/`))
+			.slice(0, limit);
 	}
 
 	/** Test helper: the keys currently stored. */
@@ -81,7 +95,8 @@ export class S3PhotoStore implements PhotoStore {
 
 	async put(key: string, body: Buffer, contentType: string): Promise<void> {
 		await this.client.send(
-			new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType })
+			new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }),
+			{ abortSignal: AbortSignal.timeout(30000) }
 		);
 	}
 
@@ -102,6 +117,66 @@ export class S3PhotoStore implements PhotoStore {
 	async delete(key: string): Promise<void> {
 		// S3 answers a delete of a missing key with success, so discard is idempotent.
 		await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+	}
+	async listOwned(userId: string, limit: number): Promise<string[]> {
+		const prefix = `users/${userId}/equipment-photos/`;
+		const page = await this.client.send(
+			new ListObjectVersionsCommand({ Bucket: this.bucket, Prefix: prefix, MaxKeys: limit }),
+			{ abortSignal: AbortSignal.timeout(30000) }
+		);
+		return [
+			...new Set(
+				[...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])]
+					.map((v) => v.Key)
+					.filter((key): key is string => !!key && key.startsWith(prefix))
+			)
+		];
+	}
+	async erase(key: string): Promise<void> {
+		const signal = AbortSignal.timeout(30000);
+		// Exact-key filtering protects similarly prefixed objects. Every invocation is
+		// bounded; a heavily versioned key remains pending for the next worker pass.
+		const versions = await this.client.send(
+			new ListObjectVersionsCommand({
+				Bucket: this.bucket,
+				Prefix: key,
+				MaxKeys: 200
+			}),
+			{ abortSignal: signal }
+		);
+		for (const version of [...(versions.Versions ?? []), ...(versions.DeleteMarkers ?? [])]) {
+			if (version.Key !== key) continue;
+			if (!version.VersionId) throw new Error('Object store omitted version identity');
+			await this.client.send(
+				new DeleteObjectCommand({ Bucket: this.bucket, Key: key, VersionId: version.VersionId }),
+				{ abortSignal: signal }
+			);
+		}
+		if (versions.IsTruncated) throw new Error('Object versions remain; retry cleanup');
+		const check = await this.client.send(
+			new ListObjectVersionsCommand({ Bucket: this.bucket, Prefix: key, MaxKeys: 200 }),
+			{ abortSignal: signal }
+		);
+		if (
+			check.IsTruncated ||
+			[...(check.Versions ?? []), ...(check.DeleteMarkers ?? [])].some((v) => v.Key === key)
+		)
+			throw new Error('Object versions remain; retry cleanup');
+		// A successful version listing plus absence of a live object is required.
+		// Unsupported APIs, permissions, legal holds and replicas never become success.
+		try {
+			await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }), {
+				abortSignal: signal
+			});
+		} catch (error) {
+			if (
+				(error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode === 404 ||
+				['NotFound', 'NoSuchKey'].includes((error as { name?: string })?.name ?? '')
+			)
+				return;
+			throw error;
+		}
+		throw new Error('Object still present');
 	}
 }
 

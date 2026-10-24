@@ -1,3 +1,4 @@
+import { configureStorageLocks, closeStorageLocks } from '../privacy/storage-lock';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { env } from '$env/dynamic/private';
@@ -79,11 +80,12 @@ const client = postgres(env.DATABASE_URL, { max: 10 });
 // terminate. e2e/graceful-shutdown.e2e.ts sends SIGTERM to a served build
 // that has queried the database and asserts it exits.
 process.once('sveltekit:shutdown', () => {
-	client.end({ timeout: 5 }).catch((cause: unknown) => {
+	Promise.all([client.end({ timeout: 5 }), closeStorageLocks(db)]).catch((cause: unknown) => {
 		console.error('[shutdown] closing the database pool failed:', cause);
 	});
 });
 
 export const db = drizzle(client, { schema });
+configureStorageLocks(db, env.DATABASE_URL);
 
 export * from './schema';

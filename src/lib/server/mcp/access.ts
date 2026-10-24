@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import type { Database } from '../progression';
 import {
 	authSessions,
+	authUsers,
 	oauthAccessToken,
 	oauthClient,
 	oauthConsent,
@@ -20,10 +21,12 @@ export async function authenticateMcp(
 		.select({ token: oauthAccessToken, session: authSessions, client: oauthClient })
 		.from(oauthAccessToken)
 		.innerJoin(authSessions, eq(authSessions.id, oauthAccessToken.sessionId))
+		.innerJoin(authUsers, eq(authUsers.id, authSessions.userId))
 		.innerJoin(oauthClient, eq(oauthClient.clientId, oauthAccessToken.clientId))
 		.where(
 			and(
 				eq(oauthAccessToken.token, tokenHash(match[1])),
+				isNull(authUsers.deletionRequestedAt),
 				gt(oauthAccessToken.expiresAt, new Date()),
 				isNull(oauthAccessToken.revoked),
 				gt(authSessions.expiresAt, new Date()),

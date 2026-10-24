@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { Readable } from 'node:stream';
 import {
 	DeleteObjectCommand,
+	ListObjectVersionsCommand,
+	HeadObjectCommand,
 	GetObjectCommand,
 	NoSuchKey,
 	PutObjectCommand
@@ -154,6 +156,58 @@ describe('store selection (lazy, names not values)', () => {
 		});
 		expect(() => resolvePhotoLimits({ PHOTO_DAILY_LIMIT: 'lots' })).toThrow(
 			'PHOTO_DAILY_LIMIT must be a whole number >= 0'
+		);
+	});
+});
+
+describe('version-aware permanent object erasure', () => {
+	it('deletes exact-key old versions and markers, preserves neighbors and retries a partial failure', async () => {
+		const versions = new Map([
+			['old', 'key'],
+			['current', 'key'],
+			['neighbor', 'key-other']
+		]);
+		const markers = new Map([['marker', 'key']]);
+		let fail = true;
+		const { client } = fakeClient((command) => {
+			if (command instanceof ListObjectVersionsCommand)
+				return {
+					Versions: [...versions].map(([VersionId, Key]) => ({ VersionId, Key })),
+					DeleteMarkers: [...markers].map(([VersionId, Key]) => ({ VersionId, Key }))
+				};
+			if (command instanceof DeleteObjectCommand) {
+				if (command.input.VersionId === 'current' && fail) {
+					fail = false;
+					throw new Error('retry');
+				}
+				versions.delete(command.input.VersionId!);
+				markers.delete(command.input.VersionId!);
+				return {};
+			}
+			if (command instanceof HeadObjectCommand) {
+				if ([...versions.values()].includes(command.input.Key!)) return {};
+				throw Object.assign(new Error('missing'), { name: 'NotFound' });
+			}
+			throw new Error('Unexpected request');
+		});
+		const store = new S3PhotoStore('fixture', client);
+		await expect(store.erase('key')).rejects.toThrow('retry');
+		expect(versions.has('current')).toBe(true);
+		await store.erase('key');
+		await store.erase('key');
+		expect([...versions]).toEqual([['neighbor', 'key-other']]);
+		expect(markers.size).toBe(0);
+	});
+	it('does not report completion for truncated inventory or unsupported version APIs', async () => {
+		const truncated = fakeClient(() => ({ IsTruncated: true }));
+		await expect(new S3PhotoStore('fixture', truncated.client).erase('key')).rejects.toThrow(
+			'retry'
+		);
+		const unsupported = fakeClient(() => {
+			throw new Error('AccessDenied');
+		});
+		await expect(new S3PhotoStore('fixture', unsupported.client).erase('key')).rejects.toThrow(
+			'AccessDenied'
 		);
 	});
 });

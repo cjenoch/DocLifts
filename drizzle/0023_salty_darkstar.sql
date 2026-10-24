@@ -1,0 +1,1 @@
+ALTER TABLE "photo_objects" ADD COLUMN "write_deadline" timestamp with time zone;

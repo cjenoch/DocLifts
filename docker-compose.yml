@@ -122,6 +122,10 @@ services:
       LOGIN_DELAY_MAX_MS: ${LOGIN_DELAY_MAX_MS:-30000}
       SESSION_EXPIRES_DAYS: ${SESSION_EXPIRES_DAYS:-30}
       PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
+      # Reviewed but inactive lifecycle controls. Enabling also requires a private
+      # writable journal mount, independent recovery copy and monitored worker.
+      PRIVACY_DELETION_ENABLED: ${PRIVACY_DELETION_ENABLED:-0}
+      DELETION_LEDGER_PATH: ${DELETION_LEDGER_PATH:-}
       # LLM adapter (0.3.1). All optional: the app boots and serves with none
       # set, and complete() throws LlmNotConfigured until OPENROUTER_API_KEY and
       # LLM_MODEL are present. They still need lines here, for the same reason

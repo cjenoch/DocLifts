@@ -1,3 +1,8 @@
+import { deletionEnabled, fileLedger } from '$lib/server/privacy/ledger';
+import { requestPhotoDeletion, runDeletion } from '$lib/server/privacy/lifecycle';
+import { privacyDeletions, photoObjects } from '$lib/server/db';
+import { subjectHash } from '$lib/server/privacy/ledger';
+import { and, eq } from 'drizzle-orm';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { ZodError } from 'zod';
 import { db } from '$lib/server/db';
@@ -35,7 +40,22 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const analysis = url.searchParams.get('analysis');
 	// A photo that opened a workout block (0.6.0): linking names that block.
 	const block = await unidentifiedBlockOfPhoto(db, userId, photo.id);
+	const [removal] = await db
+		.select({ completedAt: privacyDeletions.completedAt })
+		.from(privacyDeletions)
+		.where(
+			and(
+				eq(privacyDeletions.kind, 'photo'),
+				eq(privacyDeletions.subjectHash, subjectHash('photo', photo.id))
+			)
+		);
+	const [object] = await db
+		.select({ state: photoObjects.state })
+		.from(photoObjects)
+		.where(and(eq(photoObjects.photoId, photo.id), eq(photoObjects.userId, userId)));
 	return {
+		deletionEnabled: deletionEnabled(),
+		removalPending: (!!removal && !removal.completedAt) || (!!object && object.state !== 'stored'),
 		block,
 		userId,
 		photo: { id: photo.id, status: photo.status, width: photo.width, height: photo.height },
@@ -61,6 +81,26 @@ function inputFailure(e: unknown) {
 const review = (id: string) => `/photos/${id}/review`;
 
 export const actions: Actions = {
+	remove: async ({ params, locals, request }) => {
+		const userId = requireUser(locals).id;
+		if (!deletionEnabled()) return fail(503, { message: 'Photo removal is not enabled yet.' });
+		if ((await request.formData()).get('confirmRemoval') !== 'yes')
+			return fail(400, { message: 'Confirm that you want to remove this image.' });
+		let ledger;
+		try {
+			ledger = fileLedger();
+		} catch {
+			return fail(503, { message: 'Removal is temporarily unavailable. Contact support.' });
+		}
+		const job = await requestPhotoDeletion(db, userId, params.id, ledger);
+		if (!job) error(404, 'Photo not found');
+		const result = await runDeletion(db, userId, job.id, photoStore(), ledger, 1);
+		if (result.state !== 'completed')
+			return fail(503, {
+				message: 'Photo hidden. Object removal is pending an operator retry; it has not finished.'
+			});
+		redirect(303, '/account?photoRemoved=1');
+	},
 	analyze: async ({ params, request, locals }) => {
 		const userId = requireUser(locals).id;
 		const form = await request.formData();
@@ -126,6 +166,17 @@ export const actions: Actions = {
 	},
 	discard: async ({ params, locals }) => {
 		const userId = requireUser(locals).id;
+		if (deletionEnabled()) {
+			const photo = await loadOwnPhoto(db, userId, params.id);
+			if (!photo || !['uploaded', 'analyzed'].includes(photo.status)) error(404, 'Photo not found');
+			const ledger = fileLedger();
+			const job = await requestPhotoDeletion(db, userId, params.id, ledger);
+			if (!job) error(404, 'Photo not found');
+			const result = await runDeletion(db, userId, job.id, photoStore(), ledger, 1);
+			if (result.state !== 'completed')
+				return fail(503, { message: 'Photo hidden. Object cleanup is pending an operator retry.' });
+			redirect(303, '/account?photoRemoved=1');
+		}
 		try {
 			if (!(await discardPhoto(db, userId, params.id, photoStore()))) error(404, 'Photo not found');
 		} catch (e) {

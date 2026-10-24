@@ -39,7 +39,8 @@ import { redirect, type Handle, type ServerInit } from '@sveltejs/kit';
 import { loginThrottle, throttleConfigLogLine } from '$lib/server/login-throttle';
 import { auth } from '$lib/server/auth';
 import { csrfBoundary } from '$lib/server/csrf-boundary';
-import { db } from '$lib/server/db';
+import { db, authUsers } from '$lib/server/db';
+import { eq, isNull, and } from 'drizzle-orm';
 import { isAssetPath, isPublicPath, resolveAuthRedirect } from '$lib/server/request-user';
 import { redirectWithNoStore } from '$lib/server/redirect-no-store';
 import { warnIfNoLoginCapableAccount } from '$lib/server/startup-account-check';
@@ -141,10 +142,18 @@ const guard: Handle = async ({ event, resolve }) => {
 		returnHeaders: false
 	});
 
+	const active = session?.user
+		? await db
+				.select({ id: authUsers.id })
+				.from(authUsers)
+				.where(and(eq(authUsers.id, session.user.id), isNull(authUsers.deletionRequestedAt)))
+				.limit(1)
+		: [];
 	event.locals.auth = auth;
-	event.locals.user = session?.user
-		? { id: session.user.id, email: session.user.email, name: session.user.name }
-		: null;
+	event.locals.user =
+		session?.user && active.length
+			? { id: session.user.id, email: session.user.email, name: session.user.name }
+			: null;
 
 	if (!event.locals.user) {
 		// 303 so the browser re-issues a GET: a redirected POST must not

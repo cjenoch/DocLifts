@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { PHOTO_NOTICE_VERSION } from '$lib/photo-privacy';
+	import type { PageData } from './$types';
+	let { data }: { data: PageData } = $props();
 </script>
 
 <svelte:head
@@ -14,6 +16,20 @@
 		<h1 class="text-3xl font-semibold text-zinc-100">Privacy and your data</h1>
 		<p class="mt-2 text-sm text-zinc-400">Alpha notice · Updated {PHOTO_NOTICE_VERSION}</p>
 	</header>
+	{#if data.deletionState}
+		<section aria-labelledby="deletion-status" class="rounded border border-amber-700 p-4">
+			<h2 id="deletion-status" class="font-semibold">
+				Account deletion {data.deletionState === 'completed' ? 'completed' : 'pending'}
+			</h2>
+			<p>
+				{data.deletionState === 'completed'
+					? 'Your live account data and private photo objects have been removed. Backup and provider copies have separate limits.'
+					: data.deletionState === 'needs_retry'
+						? 'Your account is blocked from access. Cleanup needs an operator retry; it has not finished. Contact support@runthe.ai if you need help.'
+						: 'Your account is blocked from access. Removal is queued and has not finished. This page shows the status on this browser for 30 days.'}
+			</p>
+		</section>
+	{/if}
 	<p>
 		DocLifts is operated by Enoch AI LLC. We use your information to run your account, document your
 		lifts, identify equipment when you upload a photo, and provide the agent access you authorize.
@@ -118,9 +134,12 @@
 			Retention, removal and export requests
 		</h2>
 		<p class="mt-2">
-			The Alpha does not yet provide self-service account deletion, full data export or deletion of
-			confirmed photos. Discard is available for photos waiting for confirmation. Workout Trash and
-			its permanent-delete control affect workouts, not the whole account or every associated photo.
+			{#if data.deletionEnabled}Account has an explicit, password-confirmed deletion control. Saved
+				photos can be removed from their review page, including confirmed photos, while keeping
+				logged workout performance.{:else}Self-service account and saved-photo removal are awaiting
+				operational activation. Contact support to request deletion.{/if}
+			Full data export remains unfinished. Workout Trash affects workouts, not the whole account or every
+			associated photo.
 		</p>
 		<p class="mt-2">
 			Account and training data are kept while the service holds your account. Logs, screening and

@@ -5,8 +5,8 @@
  * ----------------------------------------
  * The wrapper used to hand the helper container the WHOLE production env file
  * with `--env-file`, so the S3 keys, the OpenRouter key, the Resend key, the
- * session secret and every other production credential entered a container
- * that reads none of them. It now forwards an explicit allowlist.
+ * other unrelated credentials entered a container that does not need them.
+ * It now forwards an explicit allowlist; the auth secret remains required.
  *
  * The allowlist is the non-trivial part. The CLI builds its own auth instance
  * from process.env outside SvelteKit (scripts/user-cli-context.ts ->
@@ -90,19 +90,13 @@ function run(envFile: string, extra: Record<string, string> = {}) {
 	};
 	delete env.BETTER_AUTH_SECRET;
 	delete env.POSTGRES_PASSWORD;
+	for (const key of ALLOWED) delete env[key];
 	return {
 		dir,
 		result: spawnSync(
 			'bash',
-			[
-				WRAPPER,
-				'create',
-				'--email',
-				'operator@doclifts.invalid',
-				'--password',
-				'correct-horse-battery'
-			],
-			{ encoding: 'utf8', input: '', env }
+			[WRAPPER, 'create', '--email', 'operator@doclifts.invalid', '--password-stdin'],
+			{ encoding: 'utf8', input: 'correct-horse-battery\n', env }
 		)
 	};
 }
@@ -150,7 +144,7 @@ describe('scripts/user-prod.sh', () => {
 		}
 	});
 
-	it('forwards an optional config key only when the env file sets it', () => {
+	it('leaves absent optional settings to the CLI defaults', () => {
 		// With no PUBLIC_ORIGIN etc. the CLI keeps its own defaults, so the
 		// wrapper must not inject an empty value that would override them.
 		const { dir, result } = run(join(root, 'minimal.env'));

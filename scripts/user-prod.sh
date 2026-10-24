@@ -96,8 +96,8 @@ docker build --target builder -t doclifts-migrations:local .
 
 # ONLY the variables the helper actually reads reach its container (2026-10-24).
 # This used to pass the WHOLE production env file with `--env-file`, so the S3
-# keys, the OpenRouter key, the Resend key, the session secret and every other
-# production credential entered a container that reads none of them.
+# keys, the OpenRouter key, the Resend key and other unrelated credentials
+# entered a container that does not need them. The auth secret remains required.
 #
 # An ALLOWLIST, and specifically NOT the "pass the two secrets" shortcut: the
 # CLI builds its own auth instance from process.env outside SvelteKit
@@ -110,9 +110,10 @@ docker build --target builder -t doclifts-migrations:local .
 # Adding a key here is a change to argue for, with the import that reads it.
 #
 # Bare `-e NAME` passes the value through from this shell's environment (the
-# env file was sourced above), so no value appears in argv, in `docker
-# inspect` output or in the process list. Each optional key is passed only when
-# the env file actually sets it, so an unset key keeps the CLI's own default.
+# env file was sourced above), so values do not appear in the Docker command
+# arguments. Docker administrators can still inspect the container environment.
+# Optional keys are passed only when nonempty in the sourced shell environment;
+# otherwise the CLI keeps its own default.
 RUNNER_ENV_ARGS=(-e DATABASE_URL -e BETTER_AUTH_SECRET)
 for key in \
 	PUBLIC_ORIGIN \

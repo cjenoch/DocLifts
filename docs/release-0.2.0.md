@@ -3707,7 +3707,7 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   Provider copies and exported agent data cannot be recalled by account deletion.
 - Signup remains closed. Owner phone/agent acceptance remains pending.
 
-## 0.19.1 Alpha — audit follow-ups — not deployed
+## 0.19.1 Alpha — audit follow-ups — deployed; acceptance pending
 
 - Login failure tracking has separate bounded IP/email stores, compact hashed
   keys and incremental expiry. Live IP penalties are never evicted to admit new
@@ -3726,5 +3726,24 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   the October security fixes, including CVE-2026-111497 in the Brotli decoder.
   Application dependency resolutions are unchanged. Brotli's reported version
   remains 1.2.0 because Node backports the fix.
-- No schema, signup, photo-provider or retention-policy change. The integrated
-  full gate is repeated on the patched runtime before deployment.
+- No schema, signup, photo-provider or retention-policy change.
+- Deployed October 24, 2026 UTC at `b41d397f` after PR46. Web and
+  the separately pinned privacy worker both run Node 24.22.1. The broker code,
+  database, tunnel and photo-safety service were not restarted or changed.
+- Exact-head CI40087215914 and the independent laptop gate at `486daa1` passed
+  lint, typecheck, Drizzle, 993 server tests (3 expected skips), 42 component
+  tests, production build and 169 browser tests under `CI=1`. Docker and CodeQL
+  passed. Focused review included eight independent OAuth lifecycle cases and
+  script behavior fixtures. One pre-existing test was corrected to compare
+  foreign load values as numbers rather than matching digits inside random UUIDs.
+- A fresh encrypted off-host backup and repository check succeeded before
+  deployment. Recovery images remain retained. All seven production aggregate
+  totals remained unchanged. The worker passed a dry run, a bounded normal run
+  and privacy health checks after its immutable image pin changed.
+- Public automation verified the visible release/build at phone width, browser
+  and direct JSON/form sign-in, OAuth/PKCE/refresh, account-scoped MCP reads and
+  revocation. A fresh usable grant was denied after browser logout, including
+  `400 invalid_grant` on refresh. Only the dedicated automation account was used;
+  no workout data was written. Owner phone/agent acceptance remains pending.
+- Ubuntu's separate host Brotli package remains a vendor-advisory follow-up;
+  the Node patch is not a claim that every Brotli installation is patched.

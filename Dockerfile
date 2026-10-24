@@ -50,7 +50,15 @@ ENV PORT=3000
 WORKDIR /app
 
 # Install ONLY production deps (frozen lockfile) for the runtime layer.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+#
+# --chown=node:node on the COPYs into this stage, not only the USER below: the
+# runtime user must be able to READ these files. A build context whose umask is
+# restrictive (0600) otherwise produces an image only root can read, and the app
+# exits before opening its listener with:
+#   Error: Cannot read package config /app/package.json: permission denied
+# Found by building from a checkout created under `umask 077` and running it as
+# `node`; the file mode comes from the build context, not from this Dockerfile.
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN corepack enable && corepack prepare pnpm@11.3.0 --activate \
     && pnpm install --prod --frozen-lockfile
 
@@ -61,7 +69,22 @@ RUN corepack enable && corepack prepare pnpm@11.3.0 --activate \
 RUN node -e "const s = require('sharp'); console.log('sharp', s.versions.sharp, 'libvips', s.versions.vips)"
 
 # Adapter-node output (build/) next to node_modules so imports resolve.
-COPY --from=builder /app/build ./build
+COPY --chown=node:node --from=builder /app/build ./build
 WORKDIR /app/build
+
+# M3 (2026-10-23): run as the unprivileged `node` user that the base image
+# already provides (uid 1000), not as root. Everything above was created by
+# root; the files are world-readable (0644/0755) and nothing at runtime writes
+# under /app — the server reads ./build and node_modules, and its only writable
+# path is the /tmp tmpfs Compose mounts. Verified by running an isolated build
+# of this image against a throwaway test database (see the ops-hardening
+# handoff: non-root uid, read-only rootfs, cap_drop ALL, no-new-privileges,
+# /health 200 and 503, sharp resize under /tmp). The builder/migrator stage
+# stays root: it only builds an image.
+#
+# A new runtime write outside /tmp is a decision to make here (chown a path, or
+# mount something writable), not a reason to remove this line.
+USER node
+
 EXPOSE 3000
 CMD ["node", "."]

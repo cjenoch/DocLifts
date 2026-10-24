@@ -241,6 +241,14 @@ run('production build: CSP and page render', () => {
 	// and `reached` below fails the suite by name if a pattern is ever added to
 	// this table without being visited. Patterns resolve against the fixture's
 	// programId/sessionId; a pattern with no value resolves to itself.
+	/**
+	 * Every PAGE route, at phone width and resized. `/health` is deliberately
+	 * absent: it is a `+server.ts` JSON route with no layout, no nav and nothing
+	 * to scroll, so a crawl asserting tabs and sideways-scroll would fail on a
+	 * correct response. It is covered instead by the public-route assertions in
+	 * e2e/auth-hook-guard.e2e.ts, which fetches it from the served build
+	 * unauthenticated and pins the status, content type and body.
+	 */
 	const ROUTE_PATTERNS = [
 		'/',
 		'/history',

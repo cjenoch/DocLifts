@@ -33,6 +33,33 @@ Two consequences worth remembering:
   each file's timestamp. A renumbered or back-dated file is silently skipped
   rather than rejected. This is why applied migrations are append-only.
 
+## What the migrator reads from the environment
+
+`scripts/migrate-prod.sh` passes **only `DATABASE_URL`** into the migration
+container (`docker run --rm --network doclifts_default -e DATABASE_URL … pnpm
+db:migrate`). It used to pass the whole production env file with `--env-file`
+plus an explicit `BETTER_AUTH_SECRET`, which handed the container the S3 keys,
+the OpenRouter key and the auth secret — none of which any part of a migration
+reads:
+
+- `drizzle.config.ts` reads `DATABASE_URL` and loads `dotenv/config`, which is a
+  no-op in the container (`.env` is dockerignored).
+- `src/lib/server/db/schema.ts` is table definitions; it reads no environment.
+
+Adding a second variable is a change to argue for with the import that reads it,
+and `src/lib/server/migrate-prod.test.ts` asserts the argv: one `-e`,
+`DATABASE_URL`, no `--env-file`, and none of those secret names present.
+
+The wrapper reads the env file itself for `POSTGRES_PASSWORD` and builds the
+URL; the value stays in the shell, never in a command line, so it does not
+appear in `ps` or in the recorded argv.
+
+The pre-migrate dump is written to a hidden temp file (mode 0600, `umask 077`),
+verified with `pg_restore --list` under that temp name, and only then renamed to
+`predeploy-<stamp>.dump`. A refused run — dump failure, failed verification, or
+a failed migration — keeps every earlier dump and prunes nothing; the prune runs
+only after a successful migration.
+
 ## Known constraint-name mismatches
 
 The Drizzle snapshot records constraint names it _believes_ Postgres has. When

@@ -13,13 +13,37 @@ form boundary and one cookie-free native token-exchange exception; see
 [MCP authorization](mcp-alpha.md). That change requires owner review. Cookies are host-only; HTTPS
 selects Secure cookies. The served-build tests verify these attributes.
 
-At tunnel cutover set `CLIENT_IP_HEADER=cf-connecting-ip`. Only that header is
-read, with no X-Forwarded-For fallback, including when missing or malformed.
+At tunnel cutover set `CLIENT_IP_HEADER=cf-connecting-ip` **and**
+`DOCLIFTS_TRUSTED_EDGE=cloudflare`. Only that header is read, with no
+X-Forwarded-For fallback, including when missing or malformed. The declaration
+is what makes the header trustworthy: the app cannot tell a header a proxy
+overwrites from one a client supplied, so the pair is checked and a mismatch
+stops the server at boot (validated when `src/lib/server/client-ip.ts` is
+imported, which every server boot path does, and enforced again on every call).
+`scripts/check-trusted-edge.sh`, run by
+`scripts/compose-prod.sh` before any `up`, refuses the deploy first and names
+the missing line. Leaving both unset is the development/tailnet-legacy mode:
+first-XFF applies and nothing is enforced.
 Both the app and Better Auth normalize IPv6 to /64 and IPv4-mapped IPv6 to IPv4.
-IPv4 stays whole. The app log hashes the same normalized address. An unset/empty
-setting preserves the first-XFF behavior for development and the tailnet stage.
+IPv4 stays whole. The app log hashes the same normalized address.
 Trust depends on the app remaining reachable only from the connector and the
 owner's private network. Do not publish its port to the internet.
+
+## Readiness
+
+`GET /health` is public (allowlisted, no session) and runs one `select 1`
+against the database, bounded by a 2 s `statement_timeout` set inside the
+transaction and shared between concurrent probes. It answers `200
+{"status":"ok"}` or `503 {"status":"unavailable"}` and nothing else — no host,
+no database name, no driver message; the failure is logged server-side once a
+minute. The Compose healthcheck targets it, so "unhealthy" now means the app
+cannot query its database, not merely that a listener is open. Compose does not
+restart a container for being unhealthy: it is a signal for `up --wait`, the
+deploy checks and a human.
+
+Two probes are worth keeping distinct: this one, and the login page's own
+reachability. A 503 here does not mean sign-in is broken, and a healthy
+container does not mean the migration chain has run.
 
 The IP failure ceiling defaults to ten per fifteen minutes. Email failures
 only delay a sign-in, capped at the configured delay (30 seconds by default).
@@ -54,11 +78,16 @@ After the reviewed cutover settings and backup are ready:
 sudo -n scripts/compose-prod.sh --profile public up -d --wait web cloudflared
 ```
 
-For rollback: restore the prior PUBLIC_ORIGIN, clear CLIENT_IP_HEADER,
+For rollback: restore the prior PUBLIC_ORIGIN, set
+`DOCLIFTS_TRUSTED_EDGE=none` and clear `CLIENT_IP_HEADER` **together**,
 stop cloudflared with the wrapper, and recreate web. No rebuild or database
 restore is needed for an address rollback. Keep the prior image until acceptance.
-Confirm the private address works again and the public address goes down, then
-repeat the coordinated switch to public after the rehearsal.
+The pair moves together in both directions: with `DOCLIFTS_TRUSTED_EDGE=cloudflare`
+and no header the app refuses to boot (and the wrapper refuses the start), and
+with `DOCLIFTS_TRUSTED_EDGE=none` plus a header it refuses too, because nothing
+would overwrite a header the client can set. Confirm the private address works
+again and the public address goes down, then repeat the coordinated switch to
+public after the rehearsal.
 
 ## Applied edge policy and operational checks
 

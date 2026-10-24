@@ -78,6 +78,20 @@ describe('anonymous requests', () => {
 		const res = await fetch(new URL('/login', origin), { redirect: 'manual' });
 		expect(res.status).toBe(200);
 	});
+
+	it('answers readiness without a session, and describes nothing but the status', async () => {
+		// The served production build, real HTTP handler: this is the only gate
+		// that catches an allowlist or handler problem (a unit test that calls the
+		// route directly does not go through `handle`).
+		const res = await fetch(new URL('/health', origin), { redirect: 'manual' });
+
+		expect(res.status, 'the healthcheck reads this status').toBe(200);
+		expect(res.headers.get('content-type')).toContain('application/json');
+		// One field, no host, no database name, no driver message.
+		expect(await res.json()).toEqual({ status: 'ok' });
+		// Public and uncacheable: the 0.2.1 no-store rule is not asset-only.
+		expect(res.headers.get('cache-control')).toContain('no-store');
+	});
 });
 
 describe('signed-in requests', () => {

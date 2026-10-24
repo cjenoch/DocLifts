@@ -43,6 +43,14 @@ services:
     memswap_limit: 2g
     read_only: true
     tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    # M3 (2026-10-23): the runtime image ends in `USER node` (Dockerfile), so the
+    # app no longer runs as uid 0. It binds 3000, reads /app and writes only the
+    # /tmp tmpfs, so it needs no capabilities at all; drop every one and refuse
+    # setuid/privilege escalation, as the safety and connector services already
+    # do. If a future change needs a capability, that is a design decision to
+    # argue for here rather than a silent default set to keep.
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
     ulimits:
       core: { soft: 0, hard: 0 }
     restart: unless-stopped
@@ -95,7 +103,18 @@ services:
       # Every tunable needs a line here. The defaults are documented in
       # .env.example; uncomment to override.
       # Empty preserves tailnet/dev XFF behavior. Set cf-connecting-ip at cutover.
+      # The header alone is NOT the declaration: DOCLIFTS_TRUSTED_EDGE (below)
+      # states whether a proxy overwrites it, and the app refuses to boot on a
+      # pair that disagrees. Move them together.
       CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}
+      # M1 (2026-10-23): which edge overwrites the client-IP header.
+      #   cloudflare + CLIENT_IP_HEADER=cf-connecting-ip  — the public deployment
+      #   none       + no CLIENT_IP_HEADER               — reached directly
+      # Unset keeps legacy X-Forwarded-For and enforces nothing, so development,
+      # tests and builds are unaffected. scripts/check-trusted-edge.sh refuses a
+      # production start that leaves it undeclared, and src/lib/server/client-ip.ts
+      # refuses to boot on a mismatched pair.
+      DOCLIFTS_TRUSTED_EDGE: ${DOCLIFTS_TRUSTED_EDGE:-}
       LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-10}
       LOGIN_FAILURE_WINDOW_SEC: ${LOGIN_FAILURE_WINDOW_SEC:-900}
       LOGIN_DELAY_AFTER_FAILURES: ${LOGIN_DELAY_AFTER_FAILURES:-5}
@@ -144,12 +163,21 @@ services:
     # internet. DB stays off the host port.
     ports:
       - '100.118.77.26:3000:3000'
-    # Health: an HTTP GET to / returns 200 once the app is serving.
+    # Health: GET /health, which runs one bounded `select 1` against the
+    # database and answers 200 only when it returns. It used to GET /, which is
+    # a 303 to /login — a response that proves the listener is open and nothing
+    # about the database, so it stayed green through a database the app could
+    # not query.
+    #
     # Use 127.0.0.1 (not localhost): in Alpine, localhost may resolve to IPv6
     # ::1 first, and node listens on IPv4 0.0.0.0 — the IPv6 probe fails and
     # the container shows "unhealthy" even though the app is fine.
+    #
+    # A container that reports unhealthy here is NOT restarted by Compose:
+    # ordinary services have no auto-heal, so this is a signal for `--wait`,
+    # the deploy checks and a human. Do not read "unhealthy" as "self-healed".
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1']
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1 || exit 1']
       interval: 10s
       timeout: 5s
       retries: 12

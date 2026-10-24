@@ -9,7 +9,12 @@ and the release record for evidence and pending owner acceptance.
 The deletion worker handles explicit requests. Retention remains manual
 dry-run/apply, with no retention timer. Local health monitoring checks service
 state and aggregate failures/pending age without email/webhooks; it is not
-external host-down alerting. Signup stays closed. Full account export is not shipped.
+external host-down alerting. Separate UptimeRobot checks and Cloudflare tunnel
+alerts are configured; delivery/drill limits are tracked in
+[current monitoring status](../STATUS.md#external-availability-monitoring).
+Signup stays closed. Password-confirmed JSON, CSV ZIP and experimental Strong-style
+CSV exports shipped in 0.20.0. Photo files and restoring exports remain outside
+that release; see [data exports](data-exports.md).
 
 ## What the controls do
 

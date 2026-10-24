@@ -10,6 +10,8 @@ DocLifts is a workout log built around the equipment you actually use. Take a pi
 
 The hosted app is live on Android, iPhone and desktop browsers. Alpha access is currently operator-managed; public signup is closed. This is an actively developed test system. The former disposable demo has been retired.
 
+Current release: **0.20.0 Alpha**, deployed October 24, 2026. See [current status](STATUS.md) for runtime identity, verification evidence and outstanding owner acceptance.
+
 ## Built for the workout
 
 - **Know your build.** The release/build is visible on sign-in and in the app header. A newer build offers a refresh prompt; Account has a manual update check.
@@ -32,7 +34,7 @@ Identification requests go through one model-call interface with structured-outp
 
 ## Your data beyond the app
 
-**MCP is live in 0.17.0 Alpha.** Connect an agent at `https://doclifts-mcp.runthe.ai/mcp`, sign in to DocLifts, and approve account-scoped read access. Notes are optional; revoke access from Account → Connected agents. The Muse chat app has successfully read both app workouts and imported history, with notes access authorized. Other clients still need individual verification.
+**Read-only MCP is live.** Connect an agent at `https://doclifts-mcp.runthe.ai/mcp`, sign in to DocLifts, and approve account-scoped read access. Notes are optional; revoke access from Account → Connected agents. The Muse chat app has successfully read both app workouts and imported history, with notes access authorized. Other clients still need individual verification.
 
 Eight read-only tools cover workouts, bulk set history, imported notebooks, programs, equipment and a data dictionary. Bulk reads avoid opening every workout separately. Original notebook text, explicit-versus-estimated evidence, uncertain dates, weight conventions and historical machine context remain available for interpretation. Read [the MCP guide](docs/mcp-alpha.md) for setup, scopes, tool names and pagination.
 
@@ -42,7 +44,7 @@ Account exports are available as detailed JSON, spreadsheet CSV tables in a ZIP,
 
 ## Privacy during the Alpha
 
-Read the [privacy notice](https://doclifts.runthe.ai/privacy) before uploading photos or connecting an agent. Photos require an account-level acknowledgment before processing; manual logging stays available. The notice explains operator/provider access and the current limits around retention, export and deletion. Those controls are still being completed before public signup; see [privacy implementation and remaining work](docs/privacy.md).
+Read the [privacy notice](https://doclifts.runthe.ai/privacy) before uploading photos or connecting an agent. Photos require an account-level acknowledgment before processing; manual logging stays available. Account deletion and saved-photo removal are live, with durable off-host journal acknowledgment and bounded cleanup retries. Removing a photo preserves recorded workout performance; deleting an account removes its owned history. Downloads are available as described above. Retention scheduling and operational-log policy remain unfinished before public signup; see [privacy implementation and remaining work](docs/privacy.md) and [deletion controls](docs/data-lifecycle.md).
 
 ## How it runs
 
@@ -57,6 +59,8 @@ Read the [privacy notice](https://doclifts.runthe.ai/privacy) before uploading p
 | Quality checks | Formatting, type checks, migration checks, PostgreSQL integration tests, browser component tests and production-build end-to-end tests |
 
 Production runs on an Akamai Cloud (Linode) VPS. The tunnel provides public access; it does not provide a second application server or database. Encrypted off-host backups are scheduled, with an isolated restore drill completed. A complete replacement-VPS recovery and measured launch-capacity targets remain unverified; backups are not redundancy.
+
+External UptimeRobot checks cover app/database readiness, sign-in, MCP discovery and the two public websites. Cloudflare tunnel health alerts are enabled; test-email receipt and an actual outage/recovery drill remain unverified. Discovery checks do not exercise OAuth or authenticated tools. See [monitoring status](STATUS.md#external-availability-monitoring).
 
 Application source and fictional test fixtures live here. Credentials, personal workout data, production dumps and private host configuration do not. See [private-data policy](docs/private-data.md).
 
@@ -117,6 +121,8 @@ A Git push runs CI; it does not deploy the app. Releases require a green local g
 
 Useful references:
 
+- [Current status](STATUS.md) and [application overview](APP_DOCS.md)
+- [Account exports](docs/data-exports.md) and [first-workout acceptance checklist](docs/first-workout-acceptance.md)
 - [Release log and acceptance](docs/release-0.2.0.md)
 - [Migrations and recovery](docs/migrations.md)
 - [Public address and tunnel](docs/public-address.md)

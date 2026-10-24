@@ -1,6 +1,9 @@
-# DocLifts MCP — Alpha 0.17.0 specification
+# DocLifts MCP — account-scoped read access
 
-Status: **0.17.0 Alpha is live**, runtime `0633b6a`. Public SDK checks passed for
+Current through **0.20.0 Alpha**, October 24, 2026. See [current status](../STATUS.md)
+for the deployed runtime and remaining acceptance checks. The eight-tool contract
+was established by 0.17.0; refresh-session enforcement was hardened in 0.19.1.
+Public SDK checks passed for
 bulk/imported reads, pagination, notes excluded/included by consent, refresh and
 revocation. The **Muse chat app** has successfully called the imported-history and
 bulk-set tools, and its user-approved grant includes notes:read. This confirms
@@ -19,8 +22,11 @@ DocLifts password. Signup stays closed.
 Streamable HTTP with stateless JSON responses, using the official TypeScript
 SDK 1.32.0. Eight tools: list_workouts, list_workout_sets, get_workout, list_imported_workouts, list_programs,
 get_program, list_equipment, get_data_dictionary. No write, SQL, shell, model, URL-fetch,
-photo, pain-record or administration tool. Richer complete native archive/CSV
-export and note scribing remain later features; these reads are not a backup.
+photo, pain-record or administration tool. Account → Export your data separately
+offers JSON, CSV ZIP and experimental Strong-style CSV in 0.20.0; see
+[export formats and limits](data-exports.md). These downloads are not MCP tools,
+contain no photo image files and have no restore endpoint. Agent writes and note
+scribing remain future work; MCP reads are not a backup.
 
 ## Identity and consent
 

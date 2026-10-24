@@ -68,7 +68,10 @@ database. See [deletion and retention controls](data-lifecycle.md).
   after restore. The journal is encrypted but not immutable/WORM storage.
 - Local health monitoring records aggregate failures/pending age in a private
   status file and local service logs. It sends no email/webhook and does not detect
-  host loss from outside the VPS.
+  host loss from outside the VPS. Separate UptimeRobot HTTP checks and Cloudflare
+  tunnel alerts are configured; they do not establish delivery of privacy-worker
+  failure alerts. See [external monitoring status](../STATUS.md#external-availability-monitoring)
+  for the unverified test-email receipt and outage/recovery drill.
 - Signup remains closed. Recheck the notice against deployed settings whenever
   providers, retention, email features or data-sharing behavior change.
 

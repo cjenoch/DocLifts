@@ -60,6 +60,12 @@ blank pre-created rows; the rules are specified in [CLAUDE.md](CLAUDE.md).
 
 The [public privacy notice](https://doclifts.runthe.ai/privacy) is available from sign-in and Account. Before a new upload, the user acknowledges the current photo-processing notice once per account/version. This is enforced before image processing, screening or storage and carries between devices. Manual logging remains available without it. See [privacy controls and remaining work](docs/privacy.md).
 
+Account deletion and saved-photo removal are live. Account deletion fences access
+and revokes sessions and agent grants before bounded cleanup; photo removal
+preserves recorded workout performance. Both require durable off-host journal
+acknowledgment, and failed cleanup remains pending for retry. Retention scheduling
+and operational-log policy remain unfinished; see [deletion and retention](docs/data-lifecycle.md).
+
 Uploads are rebuilt into cleaned images in memory, screened, and only then stored
 or sent for identification. A rejection or scanner failure refuses the upload;
 manual set logging remains available. Local and OpenRouter screeners support
@@ -86,7 +92,7 @@ receive bounded data responses, not database credentials or arbitrary SQL access
 For history analysis, list_workouts supplies session metadata (including empty
 sessions), list_workout_sets supplies bulk contextual set rows, and
 list_imported_workouts supplies notebook workouts with their structured sets.
-Use limit50 and follow nextCursor. Read get_data_dictionary first: keep estimates,
+Use `limit: 50` and follow `nextCursor`. Read `get_data_dictionary` first: keep estimates,
 uncertain dates and test/incomplete entries visible, and do not double-count
 potentially overlapping collections. The Muse chat app has successfully read both
 collections. Other clients require individual verification.

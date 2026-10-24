@@ -60,7 +60,7 @@ export async function requestAccountDeletion(
 	ledger: Ledger,
 	now = new Date()
 ) {
-	return db.transaction(async (tx) => {
+	const job = await db.transaction(async (tx) => {
 		const [user] = await tx
 			.select()
 			.from(s.authUsers)
@@ -80,9 +80,8 @@ export async function requestAccountDeletion(
 			.for('update');
 		if (!session) return null;
 		const record = entry('account', userId, now);
-		// Journal first. A DB failure afterwards is recoverable by reconciliation;
-		// reporting an ambiguous request as "nothing changed" would be dishonest.
-		await ledger.append(record);
+		// Commit the authorized intent and access fence before contacting the journal.
+		// No transaction or web-pool connection spans remote durability I/O.
 		const job = await receipt(tx, userId, record);
 		await inventoryPhotos(tx, userId);
 		await revoke(tx, userId);
@@ -92,6 +91,32 @@ export async function requestAccountDeletion(
 			.where(eq(s.authUsers.id, userId));
 		return job;
 	});
+	if (job) await persistIntent(db, job, ledger);
+	return job;
+}
+
+/** An unacknowledged intent remains fenced and retryable, never erasable without
+ * a fresh durable append. A timeout can still have stored the authorized entry;
+ * callers must report ambiguity, not claim that nothing changed. */
+async function persistIntent(
+	db: Database,
+	job: typeof s.privacyDeletions.$inferSelect,
+	ledger: Ledger
+) {
+	try {
+		await ledger.append({
+			version: 1,
+			kind: job.kind,
+			subjectHash: job.subjectHash,
+			requestedAt: job.requestedAt.toISOString()
+		});
+	} catch {
+		await db
+			.update(s.privacyDeletions)
+			.set({ lastError: 'ledger' })
+			.where(eq(s.privacyDeletions.id, job.id));
+		throw new Error('Deletion intent pending durable journal acknowledgment');
+	}
 }
 
 async function inventoryPhotos(db: Database, userId: string) {
@@ -110,7 +135,7 @@ export async function requestPhotoDeletion(
 	now = new Date()
 ) {
 	if (!/^[a-f0-9-]{36}$/i.test(photoId)) return null;
-	return db.transaction(async (tx) => {
+	const job = await db.transaction(async (tx) => {
 		await tx.execute(sql`SELECT privacy_assert_active(${userId})`);
 		const [photo] = await tx
 			.select()
@@ -129,7 +154,6 @@ export async function requestPhotoDeletion(
 			);
 		if (pending) return pending;
 		const record = entry('photo', photoId, now);
-		await ledger.append(record);
 		await inventoryPhotos(tx, userId);
 		// Hide immediately. The key remains in the outbox until erasure succeeds.
 		await tx
@@ -142,6 +166,8 @@ export async function requestPhotoDeletion(
 			.where(eq(s.photoObjects.storageKey, photo.storageKey));
 		return receipt(tx, userId, record);
 	});
+	if (job) await persistIntent(db, job, ledger);
+	return job;
 }
 
 async function completePhotoReceipt(db: Database, photoId: string) {
@@ -163,7 +189,8 @@ export async function erasePhotoObject(
 	userId: string,
 	key: string,
 	store: PhotoStore,
-	accountDeletion = false
+	accountDeletion = false,
+	ledger?: Ledger
 ) {
 	return withStorageLock(db, key, async () => {
 		const [object] = await db
@@ -175,6 +202,24 @@ export async function erasePhotoObject(
 			throw new Error('Object inventory owner mismatch');
 		if (object.writeDeadline) throw new Error('Upload settlement requires operator reconciliation');
 		if (!accountDeletion && object.state === 'stored') return false;
+		if (!accountDeletion) {
+			if (!ledger) throw new Error('Photo erasure requires durable journal acknowledgment');
+			const [photo] = await db
+				.select({ owner: s.equipmentPhotos.userId })
+				.from(s.equipmentPhotos)
+				.where(eq(s.equipmentPhotos.id, object.photoId));
+			if (photo && photo.owner !== userId) throw new Error('Photo inventory owner mismatch');
+			const hash = subjectHash('photo', object.photoId);
+			const [existing] = await db
+				.select()
+				.from(s.privacyDeletions)
+				.where(and(eq(s.privacyDeletions.kind, 'photo'), eq(s.privacyDeletions.subjectHash, hash)));
+			if (existing?.ownerId && existing.ownerId !== userId)
+				throw new Error('Photo receipt owner mismatch');
+			const intent =
+				existing ?? (await receipt(db, userId, entry('photo', object.photoId, new Date())));
+			await persistIntent(db, intent, ledger);
+		}
 		if (!store.erase) throw new Error('Version-aware object erasure is unavailable');
 		await store.erase(key);
 		await db.transaction(async (tx) => {
@@ -375,7 +420,9 @@ export async function runDeletion(
 			(o) => job.kind === 'account' || subjectHash('photo', o.photoId) === job.subjectHash
 		);
 		for (const object of owned) {
-			if (await erasePhotoObject(db, userId, object.storageKey, store, job.kind === 'account'))
+			if (
+				await erasePhotoObject(db, userId, object.storageKey, store, job.kind === 'account', ledger)
+			)
 				removed++;
 		}
 		stage = 'database';

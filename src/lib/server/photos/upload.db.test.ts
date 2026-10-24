@@ -279,7 +279,9 @@ describe('uploadPhoto', () => {
 			'settlement'
 		);
 		expect((await acknowledgeUploadSettlement(db, alice, new Date(), true)).acknowledged).toBe(1);
-		await erasePhotoObject(db, alice, object.storageKey, failing);
+		await erasePhotoObject(db, alice, object.storageKey, failing, false, {
+			append: async () => {}
+		});
 		expect(failing.keys()).toEqual([]);
 	});
 });

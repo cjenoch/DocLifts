@@ -1,0 +1,9 @@
+services:
+  web:
+    volumes:
+      - type: bind
+        source: /run/doclifts-privacy-journal
+        target: /run/doclifts-privacy-journal
+        read_only: true
+        bind:
+          create_host_path: false

@@ -1,0 +1,8 @@
+{
+	"image": "sha256:REVIEWED_IMMUTABLE_IMAGE_ID",
+	"commit": "REVIEWED_FULL_40_CHARACTER_COMMIT",
+	"env_file": "/etc/doclifts-privacy/worker.env",
+	"network": "doclifts_default",
+	"socket_dir": "/run/doclifts-privacy-journal",
+	"limit": 25
+}

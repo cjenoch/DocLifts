@@ -1,0 +1,17 @@
+[Unit]
+Description=DocLifts bounded deletion cleanup
+Requires=docker.service doclifts-privacy-journal.service
+After=docker.service doclifts-privacy-journal.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+ExecStart=/usr/bin/python3 /usr/local/lib/doclifts/privacy/REVIEWED_COMMIT/worker.py --config /etc/doclifts-privacy/worker.json --apply
+TimeoutStartSec=960
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX

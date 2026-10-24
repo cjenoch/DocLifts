@@ -1,4 +1,4 @@
-import { deletionEnabled, fileLedger } from '$lib/server/privacy/ledger';
+import { deletionEnabled, durableLedger } from '$lib/server/privacy/ledger';
 import { requestPhotoDeletion, runDeletion } from '$lib/server/privacy/lifecycle';
 import { privacyDeletions, photoObjects } from '$lib/server/db';
 import { subjectHash } from '$lib/server/privacy/ledger';
@@ -86,13 +86,16 @@ export const actions: Actions = {
 		if (!deletionEnabled()) return fail(503, { message: 'Photo removal is not enabled yet.' });
 		if ((await request.formData()).get('confirmRemoval') !== 'yes')
 			return fail(400, { message: 'Confirm that you want to remove this image.' });
-		let ledger;
+		let ledger, job;
 		try {
-			ledger = fileLedger();
+			ledger = durableLedger();
+			job = await requestPhotoDeletion(db, userId, params.id, ledger);
 		} catch {
-			return fail(503, { message: 'Removal is temporarily unavailable. Contact support.' });
+			return fail(503, {
+				message:
+					'Removal could not be durably acknowledged. The image may already be hidden; contact support before retrying.'
+			});
 		}
-		const job = await requestPhotoDeletion(db, userId, params.id, ledger);
 		if (!job) error(404, 'Photo not found');
 		const result = await runDeletion(db, userId, job.id, photoStore(), ledger, 1);
 		if (result.state !== 'completed')
@@ -169,8 +172,16 @@ export const actions: Actions = {
 		if (deletionEnabled()) {
 			const photo = await loadOwnPhoto(db, userId, params.id);
 			if (!photo || !['uploaded', 'analyzed'].includes(photo.status)) error(404, 'Photo not found');
-			const ledger = fileLedger();
-			const job = await requestPhotoDeletion(db, userId, params.id, ledger);
+			let ledger, job;
+			try {
+				ledger = durableLedger();
+				job = await requestPhotoDeletion(db, userId, params.id, ledger);
+			} catch {
+				return fail(503, {
+					message:
+						'Removal could not be durably acknowledged. The image may already be hidden; contact support before retrying.'
+				});
+			}
 			if (!job) error(404, 'Photo not found');
 			const result = await runDeletion(db, userId, job.id, photoStore(), ledger, 1);
 			if (result.state !== 'completed')

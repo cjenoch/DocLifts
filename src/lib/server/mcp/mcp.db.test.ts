@@ -1,12 +1,13 @@
-import { beforeAll, afterAll, beforeEach, describe, it, expect } from 'vitest';
+import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from 'vitest';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
+import { createUser } from '../users';
 import { setupTestDb, resetTestDbWithUsers } from '../test-db';
 import { createAuth } from '../auth-core';
 import { authenticateMcp, revokeConnection, connectionsForUser } from './access';
 import { readMcpData } from './reads';
 import { handleMcp } from './handler';
-import { mcpResource } from './config';
+import { mcpResource, tokenHash } from './config';
 import * as s from '../db/schema';
 let h: Awaited<ReturnType<typeof setupTestDb>>;
 let alice: string, bob: string;
@@ -33,7 +34,8 @@ async function grant(
 	userId = alice,
 	scopes = 'workouts:read programs:read equipment:read offline_access',
 	exchangeOverride: Record<string, string> = {},
-	expectedStatus = 200
+	expectedStatus = 200,
+	loginSession?: { session: { id: string; token: string }; cookie: string }
 ) {
 	const registration = await auth.handler(
 		new Request(origin + '/api/auth/oauth2/register', {
@@ -52,14 +54,16 @@ async function grant(
 	);
 	const client = await registration.json();
 	expect(registration.status, JSON.stringify(client)).toBe(201);
-	const session = await (await auth.$context).internalAdapter.createSession(userId);
+	const session =
+		loginSession?.session ?? (await (await auth.$context).internalAdapter.createSession(userId));
 	const cookieValue = await import('better-auth/crypto').then(
 		async ({ makeSignature }) =>
 			session.token +
 			'.' +
 			(await makeSignature(session.token, 'mcp-test-only-secret-never-production'))
 	);
-	const cookie = '__Secure-better-auth.session_token=' + encodeURIComponent(cookieValue);
+	const cookie =
+		loginSession?.cookie ?? '__Secure-better-auth.session_token=' + encodeURIComponent(cookieValue);
 	const verifier = randomBytes(32).toString('base64url');
 	const query = new URLSearchParams({
 		client_id: client.client_id,
@@ -72,14 +76,22 @@ async function grant(
 		state: randomUUID()
 	});
 	const authorization = await auth.handler(
-		new Request(origin + '/api/auth/oauth2/authorize?' + query, { headers: { cookie } })
+		new Request(origin + '/api/auth/oauth2/authorize?' + query, {
+			headers: { cookie, 'x-forwarded-for': `192.0.2.${registrationIp++}` }
+		})
 	);
+	expect([302, 303]).toContain(authorization.status);
 	const location = authorization.headers.get('location');
 	expect(location).toContain('/account/connections/consent');
 	const consentResponse = await auth.handler(
 		new Request(origin + '/api/auth/oauth2/consent', {
 			method: 'POST',
-			headers: { cookie, origin, 'content-type': 'application/json' },
+			headers: {
+				cookie,
+				origin,
+				'content-type': 'application/json',
+				'x-forwarded-for': `192.0.2.${registrationIp++}`
+			},
 			body: JSON.stringify({
 				accept: true,
 				oauth_query: new URL(location!, origin).search.slice(1)
@@ -120,7 +132,8 @@ async function grant(
 		verifier,
 		token: result.access_token as string,
 		refresh: result.refresh_token as string,
-		session
+		session,
+		cookie
 	};
 }
 describe('MCP OAuth and account boundaries', () => {
@@ -230,6 +243,39 @@ async function rpc(
 		})
 	);
 }
+async function refreshGrant(
+	g: { client: { client_id: string }; refresh: string },
+	extra: Record<string, string> = {}
+) {
+	const response = await auth.handler(
+		new Request(origin + '/api/auth/oauth2/token', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/x-www-form-urlencoded',
+				'x-forwarded-for': `192.0.2.${registrationIp++}`
+			},
+			body: new URLSearchParams({
+				grant_type: 'refresh_token',
+				refresh_token: g.refresh,
+				client_id: g.client.client_id,
+				resource: mcpResource(),
+				...extra
+			})
+		})
+	);
+	return { response, body: await response.json() };
+}
+async function expectWorkout(token: string, id: string) {
+	const response = await rpc(token, 'tools/call', {
+		name: 'list_workouts',
+		arguments: { limit: 1 }
+	});
+	expect(response.status).toBe(200);
+	const body = await response.json();
+	expect(body.error).toBeUndefined();
+	expect(body.result.isError).not.toBe(true);
+	expect(body.result.structuredContent.workouts).toMatchObject([{ id }]);
+}
 describe('MCP scoped tools and bounded requests', () => {
 	it('exposes only granted tools and refuses a direct call to a hidden tool', async () => {
 		const g = await grant(alice, 'workouts:read');
@@ -328,6 +374,237 @@ describe('MCP scoped tools and bounded requests', () => {
 		).toBe(400);
 		expect(await authenticateMcp(h.db, 'Bearer ' + replayGrant.token)).toBeNull();
 	});
+	it.each(['logout', 'password change'] as const)(
+		'refuses issued and rotated families after real %s, preserving valid session grants',
+		async (mutation) => {
+			const password = 'Dummy-password-2026';
+			const user = await createUser(auth, h.db, {
+				email: 'scratch-test+lifecycle@doclifts.invalid',
+				password,
+				name: 'Dummy lifecycle'
+			});
+			const [program] = await h.db
+				.insert(s.programs)
+				.values({ userId: user.id, name: 'Dummy workout' })
+				.returning();
+			const [day] = await h.db
+				.insert(s.days)
+				.values({ programId: program.id, name: 'Day', position: 1 })
+				.returning();
+			const [workout] = await h.db
+				.insert(s.sessions)
+				.values({ userId: user.id, programId: program.id, dayId: day.id })
+				.returning();
+			const issued = await grant(user.id),
+				rotating = await grant(user.id),
+				other = await grant(user.id);
+			const rotated = await refreshGrant(rotating);
+			expect(rotated.response.status).toBe(200);
+			await expectWorkout(rotated.body.access_token, workout.id);
+			await expectWorkout(issued.token, workout.id);
+			const mutate = (g: typeof issued, path: string, body: object) =>
+				auth.handler(
+					new Request(origin + '/api/auth' + path, {
+						method: 'POST',
+						headers: { cookie: g.cookie, origin, 'content-type': 'application/json' },
+						body: JSON.stringify(body)
+					})
+				);
+			if (mutation === 'logout') {
+				expect((await mutate(issued, '/sign-out', {})).status).toBe(200);
+				expect((await mutate(rotating, '/sign-out', {})).status).toBe(200);
+				await expectWorkout(other.token, workout.id);
+				const freshOther = await refreshGrant(other);
+				expect(freshOther.response.status).toBe(200);
+				await expectWorkout(freshOther.body.access_token, workout.id);
+			} else {
+				const response = await mutate(issued, '/change-password', {
+					currentPassword: password,
+					newPassword: 'New-dummy-password-2026',
+					revokeOtherSessions: true
+				});
+				expect(response.status).toBe(200);
+				const cookie = response.headers
+					.getSetCookie()
+					.map((x) => x.split(';')[0])
+					.join('; ');
+				const fresh = await auth.api.getSession({ headers: new Headers({ cookie }) });
+				expect(fresh?.session.id).not.toBe(issued.session.id);
+				expect(fresh).toBeTruthy();
+				const newGrant = await grant(user.id, undefined, {}, 200, {
+					cookie,
+					session: fresh!.session
+				});
+				await expectWorkout(newGrant.token, workout.id);
+				expect((await refreshGrant(other)).response.status).toBe(400);
+			}
+			for (const g of [
+				issued,
+				{ ...rotating, refresh: rotated.body.refresh_token, token: rotated.body.access_token }
+			]) {
+				expect(await authenticateMcp(h.db, 'Bearer ' + g.token)).toBeNull();
+				expect(
+					(await rpc(g.token, 'tools/call', { name: 'list_workouts', arguments: { limit: 1 } }))
+						.status
+				).toBe(401);
+				const denied = await refreshGrant(g);
+				expect(denied.response.status).toBe(400);
+				expect(denied.body).toMatchObject({ error: 'invalid_grant' });
+				expect(denied.body.access_token).toBeUndefined();
+				expect(denied.body.refresh_token).toBeUndefined();
+				expect(
+					await h.db
+						.select()
+						.from(s.oauthRefreshToken)
+						.where(eq(s.oauthRefreshToken.clientId, g.client.client_id))
+				).toHaveLength(0);
+			}
+		}
+	);
+	it.each([false, true])(
+		'withholds a rotation racing session expiry, including access-only=%s',
+		async (accessOnly) => {
+			let g = await grant();
+			if (accessOnly) {
+				const narrowed = await refreshGrant(g, { scope: 'workouts:read' });
+				expect(narrowed.response.status).toBe(200);
+				expect(narrowed.body.refresh_token).toBeTruthy();
+				g = { ...g, refresh: narrowed.body.refresh_token, token: narrowed.body.access_token };
+			}
+			// Same account/client, different authorization and session: cleanup must
+			// preserve this grant even when the raced authorization is removed.
+			const [originalRefresh] = await h.db
+				.select()
+				.from(s.oauthRefreshToken)
+				.where(eq(s.oauthRefreshToken.token, tokenHash(g.refresh)));
+			const [originalAccess] = await h.db
+				.select()
+				.from(s.oauthAccessToken)
+				.where(eq(s.oauthAccessToken.token, tokenHash(g.token)));
+			const otherSession = await (await auth.$context).internalAdapter.createSession(alice);
+			const otherRefreshId = randomUUID(),
+				otherCode = randomUUID(),
+				otherToken = randomBytes(32).toString('base64url');
+			await h.db.insert(s.oauthRefreshToken).values({
+				...originalRefresh,
+				id: otherRefreshId,
+				token: tokenHash(randomBytes(32).toString('base64url')),
+				authorizationCodeId: otherCode,
+				sessionId: otherSession.id,
+				revoked: null
+			});
+			await h.db.insert(s.oauthAccessToken).values({
+				...originalAccess,
+				id: randomUUID(),
+				token: tokenHash(otherToken),
+				refreshId: otherRefreshId,
+				authorizationCodeId: otherCode,
+				sessionId: otherSession.id
+			});
+			const adapter = (await auth.$context).adapter;
+			const create = adapter.create.bind(adapter);
+			let raced = false;
+			let mintedRefresh = false;
+			const spy = vi.spyOn(adapter, 'create').mockImplementation(async (input) => {
+				if (input.model === 'oauthRefreshToken') mintedRefresh = true;
+				if (input.model === 'oauthAccessToken') {
+					raced = true;
+					await h.db
+						.update(s.authSessions)
+						.set({ expiresAt: new Date(0) })
+						.where(eq(s.authSessions.id, g.session.id));
+				}
+				return create(input);
+			});
+			try {
+				const result = await refreshGrant(g);
+				expect(raced).toBe(true);
+				expect(mintedRefresh).toBe(!accessOnly);
+				expect(result.response.status).toBe(400);
+				expect(result.body).toMatchObject({ error: 'invalid_grant' });
+				expect(result.body.access_token).toBeUndefined();
+				expect(result.body.refresh_token).toBeUndefined();
+				expect(
+					await h.db
+						.select()
+						.from(s.oauthRefreshToken)
+						.where(
+							eq(s.oauthRefreshToken.authorizationCodeId, originalRefresh.authorizationCodeId!)
+						)
+				).toHaveLength(0);
+				expect(
+					await h.db
+						.select()
+						.from(s.oauthAccessToken)
+						.where(eq(s.oauthAccessToken.authorizationCodeId, originalAccess.authorizationCodeId!))
+				).toHaveLength(0);
+				const valid = await rpc(otherToken, 'tools/call', {
+					name: 'list_workouts',
+					arguments: { limit: 1 }
+				});
+				expect(valid.status).toBe(200);
+				const data = await valid.json();
+				expect(data.error).toBeUndefined();
+				expect(data.result.isError).not.toBe(true);
+				expect(data.result.structuredContent.workouts).toEqual([]);
+				expect(
+					await h.db
+						.select()
+						.from(s.oauthRefreshToken)
+						.where(eq(s.oauthRefreshToken.id, otherRefreshId))
+				).toHaveLength(1);
+			} finally {
+				spy.mockRestore();
+			}
+		}
+	);
+
+	it.each(['expired', 'wrong owner', 'already orphaned', 'pending deletion'] as const)(
+		'rejects %s refresh binding through provider API and preserves unsupported JSON refusal',
+		async (kind) => {
+			const g = await grant();
+			if (kind === 'expired')
+				await h.db
+					.update(s.authSessions)
+					.set({ expiresAt: new Date(0) })
+					.where(eq(s.authSessions.id, g.session.id));
+			else if (kind === 'wrong owner')
+				await h.db
+					.update(s.authSessions)
+					.set({ userId: bob })
+					.where(eq(s.authSessions.id, g.session.id));
+			else if (kind === 'pending deletion')
+				await h.db
+					.update(s.authUsers)
+					.set({ deletionRequestedAt: new Date() })
+					.where(eq(s.authUsers.id, alice));
+			else
+				await h.db
+					.update(s.oauthRefreshToken)
+					.set({ sessionId: null })
+					.where(eq(s.oauthRefreshToken.clientId, g.client.client_id));
+			const body = {
+				grant_type: 'refresh_token',
+				refresh_token: g.refresh,
+				client_id: g.client.client_id,
+				resource: mcpResource()
+			};
+			await expect(auth.api.oauth2Token({ body })).rejects.toMatchObject({
+				status: 'BAD_REQUEST',
+				body: { error: 'invalid_grant' }
+			});
+			const response = await auth.handler(
+				new Request(origin + '/api/auth/oauth2/token', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify(body)
+				})
+			);
+			expect(response.status).toBe(415);
+			expect((await response.json()).access_token).toBeUndefined();
+		}
+	);
+
 	it('preserves historical machine context and separates every read across accounts', async () => {
 		const [program] = await h.db
 			.insert(s.programs)

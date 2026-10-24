@@ -41,6 +41,20 @@ tokens last 15 minutes and are opaque, hashed with SHA256 at rest. Both initial
 request and tool execution check current token expiry, resource, account session,
 client enabled state and consent. Revoking from the app deletes that user's
 consent, access tokens and refresh tokens for the client; other users untouched.
+
+Refresh grants also require their original browser session to remain live, owned
+by the same account, and unexpired. Signing out the current session ends refresh
+for its connected grants; an unrelated session's grants remain usable. Password
+change retires the previous sessions and their refresh grants while the new
+current-device session can authorize a fresh connection. The provider integration
+checks the binding before rotation and before returning a successful result,
+rejecting absent, expired or mismatched bindings with `invalid_grant`. Rejected
+authorization families are removed on the attempted refresh, including rows
+orphaned before this policy was installed; this is not an eager global sweep.
+Concurrent teardown can still leave token rows after the final check. MCP keeps
+its per-request live-session and consent checks, so those rows cannot authorize
+a read after teardown.
+
 Stored tokens and browser session cookies never appear in responses or logs.
 
 Signed consent query verified by the provider helper; tampering/expiry rejected.

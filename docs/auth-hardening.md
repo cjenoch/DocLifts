@@ -17,6 +17,26 @@ the first completes. Sequential correct-password sign-ins do not accumulate
 failures. At most 32 password requests are active per process; additional clients
 receive temporary 503 backpressure. Bodies are limited to 32 KiB and ten seconds.
 
+Failure tracking has separate limits of 4,096 IP keys and 4,096 email keys per
+process. Keys are full SHA-256 digests, so accepted email lengths do not increase
+retained key size. Each key keeps only the newest timestamps needed for the
+configured IP ceiling and capped delay curve (36 timestamps at defaults).
+Every check, failure and success sweeps up to 64 entries in each store, rotating
+live entries so unrelated expired keys are eventually collected. No background
+timer is needed; idle retained state stays within those bounds.
+
+A full IP store never evicts an unexpired penalty: an untracked IP receives
+temporary 503 with a one-second Retry-After, while tracked IPs retain their usual
+admission policy. Expiry and successful sign-in free slots. A sweep may require
+several requests to reach expired entries, but continuing traffic cannot leave
+them permanently unreachable. Email capacity alone never refuses a sign-in;
+new email delay counters are omitted while that store is full. Concurrent
+credential checks admitted before saturation may finish without a new counter,
+but cannot grow either store or displace existing failures. Thus saturation is
+an explicit availability tradeoff, not a bypass that resets a tracked IP or an
+email-wide hard lock. The per-key timestamp bound follows operator configuration;
+larger configured ceilings or delay thresholds increase that memory allowance.
+
 The installed Better Auth router rejects repeated slashes and uses exact route
 matching. The boundary additionally recognizes decoded and trailing-slash forms
 of the password endpoint, so these cannot select an unthrottled handler path.

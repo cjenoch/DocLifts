@@ -94,13 +94,44 @@ export DATABASE_URL="postgresql://${DB_USER}:${POSTGRES_PASSWORD}@${DB_HOST}:543
 echo "==> building runner image"
 docker build --target builder -t doclifts-migrations:local .
 
+# ONLY the variables the helper actually reads reach its container (2026-10-24).
+# This used to pass the WHOLE production env file with `--env-file`, so the S3
+# keys, the OpenRouter key, the Resend key and other unrelated credentials
+# entered a container that does not need them. The auth secret remains required.
+#
+# An ALLOWLIST, and specifically NOT the "pass the two secrets" shortcut: the
+# CLI builds its own auth instance from process.env outside SvelteKit
+# (scripts/user-cli-context.ts -> auth-core.ts), so it needs the same
+# non-secret configuration the server runs with. Dropping PUBLIC_ORIGIN,
+# DOCLIFTS_OPEN_SIGNUP, DOCLIFTS_RATE_LIMIT_STORAGE, SESSION_EXPIRES_DAYS or
+# PASSWORD_MIN_LENGTH would silently fall back to the code defaults, letting
+# the CLI enforce a different password policy or origin than the running
+# server — exactly the drift users.ts and auth-core.ts exist to prevent.
+# Adding a key here is a change to argue for, with the import that reads it.
+#
+# Bare `-e NAME` passes the value through from this shell's environment (the
+# env file was sourced above), so values do not appear in the Docker command
+# arguments. Docker administrators can still inspect the container environment.
+# Optional keys are passed only when nonempty in the sourced shell environment;
+# otherwise the CLI keeps its own default.
+RUNNER_ENV_ARGS=(-e DATABASE_URL -e BETTER_AUTH_SECRET)
+for key in \
+	PUBLIC_ORIGIN \
+	DOCLIFTS_OPEN_SIGNUP \
+	DOCLIFTS_RATE_LIMIT_STORAGE \
+	SESSION_EXPIRES_DAYS \
+	PASSWORD_MIN_LENGTH; do
+	if [[ -n "${!key:-}" ]]; then
+		RUNNER_ENV_ARGS+=(-e "$key")
+	fi
+done
+
 echo "==> pnpm user:${COMMAND} against ${DB_NAME}"
 # exec so the command's exit status is this script's exit status.
 # -i so a piped --password-stdin reaches the script inside the container.
 # Without it the CLI's stdin guard sees a TTY-ish empty stream and refuses.
 docker run --rm -i --network doclifts_default \
-	-e DATABASE_URL -e BETTER_AUTH_SECRET \
-	--env-file "$ENV_FILE" \
+	"${RUNNER_ENV_ARGS[@]}" \
 	doclifts-migrations:local pnpm "user:${COMMAND}" "$@"
 
 cat <<EOF

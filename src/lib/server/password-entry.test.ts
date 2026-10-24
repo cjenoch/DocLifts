@@ -105,6 +105,34 @@ describe('shared password entry', () => {
 		expect((await handle(request('203.0.113.100'))).status).toBe(200);
 	});
 
+	it('backs off only untracked IPs at capacity and recovers without resetting live penalties', async () => {
+		let now = 1_000_000;
+		const limit = new LoginThrottle(
+			{ ...DEFAULT_THROTTLE_CONFIG, maxFailures: 2, delayBaseMs: 0 },
+			() => now,
+			2
+		);
+		const backend = vi.fn(async () => new Response(null, { status: 401 }));
+		const handle = passwordEntryHandler(backend, limit);
+		expect((await handle(request('203.0.113.1'))).status).toBe(401);
+		expect((await handle(request('203.0.113.1'))).status).toBe(401);
+		expect((await handle(request('203.0.113.2', 'other@example.invalid'))).status).toBe(401);
+		const saturated = await handle(request('203.0.113.3'));
+		expect(saturated.status).toBe(503);
+		expect(saturated.headers.get('retry-after')).toBe('1');
+		expect((await handle(request('203.0.113.1'))).status).toBe(429);
+		expect(backend).toHaveBeenCalledTimes(3);
+		backend.mockImplementation(async () => new Response('ok'));
+		// The same email remains accessible from an already tracked IP. Success
+		// frees that IP slot, without clearing the first IP's failure ceiling.
+		expect((await handle(request('203.0.113.2'))).status).toBe(200);
+		expect((await handle(request('203.0.113.3'))).status).toBe(200);
+		expect((await handle(request('203.0.113.1'))).status).toBe(429);
+		now += 900_000;
+		expect((await handle(request('203.0.113.4'))).status).toBe(200);
+		expect((await handle(request('203.0.113.1'))).status).toBe(200);
+	});
+
 	it('rejects oversized bodies without verification and frees its lane', async () => {
 		const backend = vi.fn(async () => new Response('ok'));
 		const handle = passwordEntryHandler(backend, throttle());

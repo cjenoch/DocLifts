@@ -106,6 +106,12 @@ export function passwordEntryHandler(
 				);
 			const keys = { ip: lane, email: body.email };
 			const decision = await checkLoginThrottle(throttle, keys);
+			if (decision.kind === 'busy') {
+				return new Response(null, {
+					status: 503,
+					headers: { 'retry-after': String(decision.retryAfterSeconds) }
+				});
+			}
 			if (decision.kind === 'refuse') {
 				const response = new Response(null, {
 					status: 429,

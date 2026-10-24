@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.19.1 Alpha — audit follow-ups — not deployed
+
+- Login failure tracking has separate bounded IP/email stores, compact hashed
+  keys and incremental expiry. Live IP penalties are never evicted to admit new
+  keys. At capacity, untracked IPs receive a temporary 503; email remains
+  delay-only. Counters remain process-local and reset on restart.
+- OAuth refresh requires its original live, same-owner browser session before
+  rotation and before a successful response. Retired or orphaned grants return
+  `invalid_grant` and their authorization family is cleaned up. Unrelated
+  sessions remain usable. MCP's per-read session, consent and scope checks stay
+  in place; this does not claim atomicity across every concurrent teardown.
+- Catalog backups are private from creation, verified under unique temporary
+  names and published only on success. Account maintenance containers receive
+  explicit required credentials and policy settings rather than the entire
+  production environment file.
+- Node is pinned to 24.22.1 across development, CI and both image stages for
+  the October security fixes, including CVE-2026-111497 in the Brotli decoder.
+  Application dependency resolutions are unchanged. Brotli's reported version
+  remains 1.2.0 because Node backports the fix.
+- No schema, signup, photo-provider or retention-policy change. The integrated
+  full gate is repeated on the patched runtime before deployment.
+
 ## 0.19.0 Alpha — account and saved-photo deletion — deployed; acceptance pending
 
 - Deployed and deletion controls activated October 24, 2026 UTC as runtime `72b3d538`, after

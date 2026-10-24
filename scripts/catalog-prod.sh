@@ -76,29 +76,77 @@ DB_NAME="${DOCLIFTS_DB_NAME:-doclifts}"
 DB_HOST="${DOCLIFTS_DB_HOST:-db}"
 
 # ---------------------------------------------------------------- backup ----
+# The dump is a full copy of production, so nothing it creates may be readable
+# by another user, even briefly. This mirrors migrate-prod.sh exactly
+# (2026-10-23/24); the deviation this fixes: the dump used to be redirected
+# straight into its final `precatalog-*.dump` name and chmod'ed afterwards, so
+# between those two statements the file sat at the ambient umask (0644) and an
+# interrupted or SIGKILLed run left it that way permanently. Nothing here may
+# create a file before `umask 077`.
+umask 077
 mkdir -p "$BACKUP_DIR"
+
+# A root-owned 0700 directory is the failure seen in production; name it rather
+# than leave a bare chmod error. Same check as migrate-prod.sh, on the same
+# default directory (/srv/doclifts/backups), so behaviour does not differ
+# between the two wrappers.
+if [[ ! -w "$BACKUP_DIR" ]]; then
+	echo "$BACKUP_DIR is not writable by $(id -un) — the pre-import dump cannot be written. A root-owned 0700 directory is the usual cause; run this wrapper as that owner (sudo)." >&2
+	exit 1
+fi
+
+chmod 700 "$BACKUP_DIR"
+
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DUMP_PATH="${BACKUP_DIR}/precatalog-${STAMP}.dump"
+# The dump lands in a unique hidden temp (0600 from mktemp, and umask 077
+# above covers a SIGKILL that skips the trap) and is MOVED into its final name
+# only after `pg_restore --list` has verified it, so the retained
+# `precatalog-*.dump` set never contains a half-written or unverified file.
+TMP_DUMP="$(mktemp "${BACKUP_DIR}/.precatalog-${STAMP}.dump.tmp.XXXXXX")"
+
+cleanup() {
+	local status=$?
+	if [[ -f "$TMP_DUMP" ]]; then
+		rm -f "$TMP_DUMP"
+	fi
+	# Re-exit with the original status: an EXIT trap must not turn a refused
+	# import into a successful one on its way out.
+	exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 echo "==> dumping ${DB_NAME} to ${DUMP_PATH}"
-if ! docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc >"$DUMP_PATH"; then
+if ! docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc >"$TMP_DUMP"; then
 	echo "pre-import dump FAILED — refusing to import" >&2
-	rm -f "$DUMP_PATH"
 	exit 1
 fi
-if [[ ! -s "$DUMP_PATH" ]]; then
+# An empty or truncated dump is not a backup. pg_dump writes a valid file or
+# fails, but a redirect to a full disk produces a short one; check it.
+if [[ ! -s "$TMP_DUMP" ]]; then
 	echo "pre-import dump is empty — refusing to import" >&2
-	rm -f "$DUMP_PATH"
 	exit 1
 fi
-chmod 600 "$DUMP_PATH"
+# Verify against the temp name, so an unverified file never appears under a
+# `precatalog-*.dump` name.
 if ! docker run --rm -v "${BACKUP_DIR}:/dumps:ro" postgres:16 \
-	pg_restore --list "/dumps/$(basename "$DUMP_PATH")" >/dev/null 2>&1; then
+	pg_restore --list "/dumps/$(basename "$TMP_DUMP")" >/dev/null 2>&1; then
 	echo "pre-import dump failed verification — refusing to import" >&2
-	rm -f "$DUMP_PATH"
 	exit 1
 fi
+
+# Promote only a verified dump. mv within the directory is atomic, so a reader
+# sees either the previous state or the complete verified file.
+mv -f "$TMP_DUMP" "$DUMP_PATH"
 echo "==> dump verified ($(du -h "$DUMP_PATH" | cut -f1))"
+
+# Hidden temps a SIGKILL left behind are not dumps and are never in any list
+# above; clear them once they are a day old. They were created at 0600, so the
+# abandoned file is never world-readable either.
+find "${BACKUP_DIR}" -maxdepth 1 -name '.precatalog-*.dump.tmp.*' -mtime +1 -delete
 
 # ------------------------------------------------------------- environment ----
 set -a

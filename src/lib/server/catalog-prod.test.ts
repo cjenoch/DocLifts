@@ -6,6 +6,10 @@
  * no docker, no sudo, no database. The wrapper itself is checked as text:
  * that it uses the function, mounts an outside file read-only, and prints its
  * confirmation prompt as a whole line.
+ *
+ * The dump-privacy behaviour is proven separately, by RUNNING the wrapper with
+ * a fake `docker` on PATH: see the last describe block, which also asserts the
+ * `umask 077`-before-anything invariant as text.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
@@ -13,8 +17,10 @@ import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync
 } from 'node:fs';
@@ -202,5 +208,147 @@ describe('scripts/catalog-prod.sh (read, never run)', () => {
 		const line = text.match(/echo "(Apply this import[^"]*)"/)![1];
 		const r = spawnSync('bash', ['-c', `DB_NAME=doclifts; echo "${line}"`], { encoding: 'utf8' });
 		expect(r.stdout).toBe('Apply this import to doclifts? Type IMPORT to continue:\n');
+	});
+
+	it('sets umask 077 before it creates anything', () => {
+		// The dump is a full copy of production. `umask 077` must precede the
+		// first mkdir/mktemp, not follow the redirect that creates the file, or
+		// the window between them is world-readable (the bug this fixes).
+		const umask = text.indexOf('umask 077');
+		expect(umask).toBeGreaterThan(-1);
+		expect(umask).toBeLessThan(text.indexOf('mkdir -p "$BACKUP_DIR"'));
+		expect(umask).toBeLessThan(text.indexOf('mktemp'));
+	});
+});
+
+/**
+ * The dump-privacy fix (2026-10-24), exercised for real with a fake `docker`
+ * on PATH. The wrapper used to redirect pg_dump straight into its final
+ * `precatalog-*.dump` name and chmod it afterwards: a run interrupted between
+ * those two steps left a world-readable partial copy of production on disk,
+ * and a SIGKILL left it there permanently.
+ *
+ * These tests observe the file WHILE it is still being written. The shim
+ * records the mode of every hidden temp in the backup directory at the moment
+ * pg_dump and pg_restore run, so "private from the first byte" is proven
+ * behaviourally rather than read out of the source. The CSV is an absolute
+ * path outside the repository, so the run needs no git and no mount fixture.
+ */
+describe('scripts/catalog-prod.sh (run with a fake docker)', () => {
+	const DOCKER_SHIM = `#!/usr/bin/env bash
+set -euo pipefail
+args="$*"
+printf '%s\\n' "$args" >>"\${FAKE_LOG:?}"
+# Prove the file is private while it is still being written: record the mode
+# of any hidden pre-import temp present during this call.
+if [[ -n "\${FAKE_BACKUP_DIR:-}" && -n "\${FAKE_MODE_LOG:-}" ]]; then
+	for f in "\${FAKE_BACKUP_DIR}"/.precatalog-*.dump.tmp.*; do
+		[[ -e "$f" ]] || continue
+		printf '%s\\n' "$(stat -c %a "$f")" >>"\${FAKE_MODE_LOG}"
+	done
+fi
+if [[ "$args" == *pg_dump* ]]; then
+	printf 'FAKE-CUSTOM-FORMAT-DUMP\\n'
+	exit "\${FAKE_DUMP_STATUS:-0}"
+fi
+if [[ "$args" == *pg_restore* ]]; then exit "\${FAKE_RESTORE_STATUS:-0}"; fi
+exit 0
+`;
+
+	const ENV_FIXTURE = 'POSTGRES_PASSWORD=fixture-postgres-password\n';
+
+	let root: string;
+	let bin: string;
+	let envFile: string;
+	let csv: string;
+
+	function run(extra: Record<string, string> = {}) {
+		const backupDir = mkdtempSync(join(root, 'backups-'));
+		return {
+			backupDir,
+			result: spawnSync('bash', [WRAPPER, csv], {
+				encoding: 'utf8',
+				input: 'IMPORT\n',
+				env: {
+					...process.env,
+					PATH: `${bin}:${process.env.PATH ?? ''}`,
+					DOCLIFTS_PROD_ENV: envFile,
+					DOCLIFTS_BACKUP_DIR: backupDir,
+					FAKE_LOG: join(backupDir, 'docker-argv.log'),
+					FAKE_MODE_LOG: join(backupDir, 'temp-modes.log'),
+					FAKE_BACKUP_DIR: backupDir,
+					...extra
+				}
+			})
+		};
+	}
+
+	const argv = (dir: string): string[] =>
+		readdirSync(dir)
+			.filter((e) => e === 'docker-argv.log')
+			.flatMap((e) => readFileSync(join(dir, e), 'utf8').trim().split('\n'))
+			.filter(Boolean);
+	const tempModes = (dir: string): string[] =>
+		readdirSync(dir)
+			.filter((e) => e === 'temp-modes.log')
+			.flatMap((e) => readFileSync(join(dir, e), 'utf8').trim().split('\n'))
+			.filter(Boolean);
+	const dumps = (dir: string): string[] =>
+		readdirSync(dir).filter((e) => /^precatalog-.*\.dump$/.test(e));
+	const temps = (dir: string): string[] =>
+		readdirSync(dir).filter((e) => e.startsWith('.precatalog-') && e.includes('.tmp'));
+
+	beforeAll(() => {
+		root = mkdtempSync(join(tmpdir(), 'catalog-prod-run-'));
+		bin = join(root, 'bin');
+		mkdirSync(bin);
+		writeFileSync(join(bin, 'docker'), DOCKER_SHIM, { mode: 0o755 });
+		envFile = join(root, 'prod.env');
+		writeFileSync(envFile, ENV_FIXTURE, { mode: 0o600 });
+		csv = join(root, 'snapshot.csv');
+		writeFileSync(csv, 'manufacturer,code,name\nExample,EX-1,Thing\n');
+	});
+
+	afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+	it('keeps the dump private while it is being written, then promotes a verified copy', () => {
+		const { backupDir, result } = run();
+		expect(result.status, result.stderr).toBe(0);
+
+		// 0600 at every observed moment while pg_dump/pg_restore ran — never the
+		// ambient 0644 the old redirect-then-chmod left on disk.
+		const modes = tempModes(backupDir);
+		expect(modes.length, 'the temp was never observed mid-write').toBeGreaterThan(0);
+		expect(new Set(modes)).toEqual(new Set(['600']));
+
+		// Verified under the hidden temp name, never under the retained one.
+		const verify = argv(backupDir).find((line) => line.includes('pg_restore')) ?? '';
+		expect(verify).toContain('.precatalog-');
+		expect(verify).toContain('.dump.tmp.');
+		expect(verify, 'verification must never read the promoted name').not.toMatch(/\.dump(\s|$)/);
+
+		const promoted = dumps(backupDir);
+		expect(promoted).toHaveLength(1);
+		expect(statSync(join(backupDir, promoted[0])).mode & 0o777).toBe(0o600);
+		expect(statSync(backupDir).mode & 0o777).toBe(0o700);
+		expect(temps(backupDir)).toEqual([]);
+	});
+
+	it('a failed dump refuses to import and leaves no temp and no dump behind', () => {
+		const { backupDir, result } = run({ FAKE_DUMP_STATUS: '1' });
+
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain('pre-import dump FAILED');
+		expect(dumps(backupDir)).toEqual([]);
+		expect(temps(backupDir)).toEqual([]);
+	});
+
+	it('a dump that fails verification is never promoted', () => {
+		const { backupDir, result } = run({ FAKE_RESTORE_STATUS: '1' });
+
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain('failed verification');
+		expect(dumps(backupDir)).toEqual([]);
+		expect(temps(backupDir)).toEqual([]);
 	});
 });

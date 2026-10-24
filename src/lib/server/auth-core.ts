@@ -35,6 +35,7 @@ import { MCP_SCOPES, mcpResource, tokenHash } from './mcp/config';
 import { betterAuth } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
 import { clientIpHeader } from './client-ip';
+import { requireRefreshSession } from './mcp/refresh-session';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { exercises } from './db/schema';
 import { authTables } from './db/auth-schema';
@@ -130,6 +131,13 @@ function configuredAuth(db: Database, opts: CreateAuthOptions) {
 		secret: opts.secret,
 		hooks: {
 			before: createAuthMiddleware(async (ctx) => {
+				if (
+					ctx.path === '/oauth2/token' &&
+					ctx.body?.grant_type === 'refresh_token' &&
+					typeof ctx.body.refresh_token === 'string'
+				) {
+					await requireRefreshSession(db, ctx.body.refresh_token);
+				}
 				// Some OAuth clients omit RFC 8707's resource parameter. This issuer serves
 				// one MCP resource: bind it BEFORE the provider validates and signs the
 				// authorization request, so consent, codes and tokens all keep that audience.
@@ -142,6 +150,18 @@ function configuredAuth(db: Database, opts: CreateAuthOptions) {
 				) {
 					return { context: { query: { ...ctx.query, resource: mcpResource() } } };
 				}
+			}),
+			after: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== '/oauth2/token' || ctx.body?.grant_type !== 'refresh_token') return;
+				const result = ctx.context.returned;
+				if (!result || typeof result !== 'object' || !('access_token' in result)) return;
+				// Teardown can commit while the provider rotates. Never return that
+				// successful issuance if its new grant has already lost its session.
+				const refreshToken =
+					'refresh_token' in result && typeof result.refresh_token === 'string'
+						? result.refresh_token
+						: ctx.body.refresh_token;
+				await requireRefreshSession(db, typeof refreshToken === 'string' ? refreshToken : '');
 			})
 		},
 		plugins: [

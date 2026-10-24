@@ -28,7 +28,7 @@ Read `CLAUDE.md` for architectural rules. Run `pnpm check`, `pnpm lint` and `pnp
 ## Development runtime
 
 Run `pnpm install --frozen-lockfile` before working. The devEngines.runtime pin
-in package.json installs Node 24.21.0 for project scripts and pnpm exec; the
+in package.json installs Node 24.22.1 for project scripts and pnpm exec; the
 lockfile records the runtime download checksums. Check with `pnpm exec node --version`.
 A bare node command still uses your shell's runtime. Run standalone scripts with
 `pnpm exec node`, and do not change a shared host's global Node to work on DocLifts.

@@ -188,7 +188,7 @@ jobs:
           node scripts/audit-summary.mjs audit.json >> "$GITHUB_STEP_SUMMARY"
           tail -n 1 "$GITHUB_STEP_SUMMARY"
 
-  # The production image, built the way the VPS builds it (node:24.21.0-alpine).
+  # The production image, built the way the VPS builds it (node:24.22.1-alpine).
   # Added in 0.4.0 for sharp, a native dependency: the test job above runs on
   # glibc, so it cannot show that the alpine runtime stage gets sharp's musl
   # binary. The Dockerfile's runtime stage loads sharp at build time, so a

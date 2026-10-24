@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.20.0 Alpha — account exports — not deployed
+## 0.20.0 Alpha — account exports — deployed; acceptance pending
 
 - Account → Export your data provides detailed JSON, spreadsheet CSV tables in
   a ZIP, and experimental classic Strong-style CSV. Native exports retain
@@ -18,6 +18,16 @@
   truncating them, and recheck session/deletion state before returning files.
   Exports stay in memory and are not cached. Spreadsheet formula-like text is
   escaped; JSON preserves exact strings. No schema change or restore endpoint.
+- Deployed October 24, 2026 UTC at `9d9dda83` after PR48. Local and exact-head CI40095337882 passed lint, typecheck, Drizzle,
+  998 local server tests (2 expected skips), 997 CI server tests (3 expected
+  skips), 42 components, production build and 173 browser tests. Docker and CodeQL passed.
+- A fresh encrypted off-host backup and repository check succeeded. Recovery
+  images were retained; only web was replaced. No migrations or worker changes.
+  All seven production aggregate totals remained unchanged. Public automation
+  downloaded and parsed JSON, ZIP and Strong files with the dedicated automation
+  account, and checked phone layout, build identity and CSP. No owner or human
+  Alpha account was used. Phone acceptance and a real third-party import remain
+  pending.
 
 ## 0.19.1 Alpha — audit follow-ups — deployed; acceptance pending
 

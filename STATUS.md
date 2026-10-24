@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 24, 2026 UTC. Current application: **0.19.1 Alpha**, runtime `b41d397f`.
+Updated October 24, 2026 UTC. Current application: **0.20.0 Alpha**, runtime `9d9dda83`.
 Deployed and automatically verified; owner phone/agent acceptance pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
@@ -21,7 +21,31 @@ Markdown merge does not require rebuilding the application.
 - Android and iPhone sign-in were owner-tested. Signup remains closed; Alpha
   accounts are operator-managed. The old disposable demo is retired.
 
+## External availability monitoring
+
+Five UptimeRobot HTTP monitors cover app/database readiness, sign-in, MCP discovery,
+enoch.ai and runthe.ai. The owner confirmed activation on October 24, 2026.
+Cloudflare's enabled Tunnel Health Alert watches the active production tunnel for
+all health transitions, including recovery. Its saved scope and email destination
+were checked, and a built-in test notification was submitted. Inbox delivery and
+an actual outage/recovery drill remain unverified. MCP discovery checks do not
+exercise OAuth or authenticated tools. Private configuration evidence is in the
+operator's ops repository.
+
 ## Deployment and evidence
+
+Runtime `9d9dda83` deployed October 24, 2026 UTC after PR48. Account now offers
+password-confirmed JSON, CSV tables in a ZIP and experimental Strong-style CSV.
+Native exports preserve imported notebooks, date uncertainty, original load
+basis and pain notes; photos are metadata only. No restore endpoint is shipped.
+Local server tests passed 998 with 2 expected skips; exact-head CI40095337882
+passed 997 with 3 expected skips. Both passed 42 components and 173 browser tests
+plus lint, typecheck, Drizzle and build; Docker and CodeQL passed. Public automation verified all three downloads using its own
+account, phone layout/build and CSP. Seven aggregate totals were unchanged.
+A fresh encrypted off-host backup/check passed and recovery images were retained.
+Only web changed; the privacy worker retains its 0.19.1 security-patched image.
+See [export formats and limits](docs/data-exports.md). Owner phone acceptance and
+actual third-party import remain pending.
 
 SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
@@ -94,7 +118,7 @@ worker result. This is not external host-down alerting.
 
 The [privacy notice](https://doclifts.runthe.ai/privacy) and versioned upload
 acknowledgment remain live. Retention is a manual dry-run/apply control, with no
-retention timer. Account JSON/CSV exports and experimental Strong-style CSV are implemented for 0.20.0 Alpha, awaiting deployment. Photo image files and restoring exports remain outside this release. Signup stays closed.
+retention timer. Account JSON/CSV exports and experimental Strong-style CSV are live. Photo image files and restoring exports remain outside this release. Signup stays closed.
 See [privacy controls](docs/privacy.md) and [activation/recovery](docs/privacy-activation.md).
 
 Private release evidence remains in the VPS-only operations repository.

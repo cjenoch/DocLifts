@@ -42,12 +42,16 @@ echo "==> building as ${DOCLIFTS_BUILD_SHA}"
 
 # Before anything that creates or recreates containers, refuse an env file with
 # a key compose never reads: it would be silently absent from the container.
+# Then refuse a trusted-edge declaration that disagrees with CLIENT_IP_HEADER
+# (or is missing), so a public deployment cannot start in the legacy
+# X-Forwarded-For mode the app used to fall back to.
 # Only `up`/`create`/`run` — `ps`, `logs` and `config` must stay usable for
 # diagnosing exactly that kind of mistake.
 for arg in "$@"; do
 	case "$arg" in
 		up | create | run)
 			bash "$(dirname "${BASH_SOURCE[0]}")/check-env-passthrough.sh" "$ENV_FILE"
+			bash "$(dirname "${BASH_SOURCE[0]}")/check-trusted-edge.sh" "$ENV_FILE"
 			break
 			;;
 	esac

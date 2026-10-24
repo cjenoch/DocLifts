@@ -3628,3 +3628,33 @@ verification remains pending. No schema, auth, MCP or tunnel changes.
   MCP SDK discovery and reads, token revocation and browser logout revocation.
   Owner/human Alpha accounts and workout data were not modified. Owner phone/agent
   acceptance remains pending; this does not establish every client's compatibility.
+
+## 0.18.5 Alpha — operations build cceb608 — deployed; acceptance pending
+
+- PR42 deployed October 24, 2026 UTC as build `cceb608`. The application release
+  label remains 0.18.5 Alpha; the visible build identifies this operations update.
+- Web runs as uid 1000 with all Linux capabilities dropped, no-new-privileges,
+  read-only root filesystem and a writable temporary filesystem. `/health` checks
+  database readiness instead of treating the sign-in redirect as health.
+- Production explicitly declares the Cloudflare edge and trusted client-IP
+  header. The production wrapper refuses an absent or mismatched declaration;
+  runtime refuses a mismatched pair. Undeclared development defaults remain.
+- Dumps use private permissions from creation, unique temporary files and
+  failure cleanup. Migration containers receive only their database URL.
+- Exact-head CI40042604239 at `0d461ed` passed the full gate: 958 server tests
+  (3 expected skips), 42 components, 167 browser tests, Docker and CodeQL.
+  VPS server tests passed 961/961; the initial VPS browser run passed 162/167.
+  Unchanged focused retries and the independent laptop/CI runs passed the
+  affected scenarios. Host/timing sensitivity remains a follow-up, not a
+  conclusively isolated cause. No assertion or timeout was weakened.
+- Independent laptop browser run passed all 167 tests in 309 seconds. Its full
+  server run had one source-archive metadata failure; restoring Git metadata
+  made the affected file pass unchanged (17 passed, 1 expected skip).
+- Fresh encrypted off-host backup and repository integrity check passed before
+  deployment. The earlier October 23 isolated restore drill remains evidence of
+  recoverability; no new full restore or replacement-host drill was run here.
+- Only web was recreated. No migration, host reboot, tunnel restart, provider
+  change or privacy lifecycle activation. Previous images remain available.
+- Public automation-only sign-in, private pages, build identity, OAuth/MCP reads,
+  revocation and logout passed. Health, runtime restrictions and unchanged
+  production aggregates were verified. Owner phone/agent acceptance pending.

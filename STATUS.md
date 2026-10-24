@@ -1,6 +1,6 @@
 # DocLifts — current status
 
-Updated October 23, 2026. Current application: **0.18.5 Alpha**, runtime `43a8f50`.
+Updated October 24, 2026 UTC. Current application: **0.18.5 Alpha**, runtime `cceb608`.
 Deployed and automatically verified; owner phone/agent acceptance pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
@@ -24,16 +24,21 @@ SvelteKit/Node 24 and PostgreSQL 16 run in Docker Compose on the VPS, reached
 through Cloudflare Tunnel. The old systemd/release-symlink deployment is retired.
 Use the production wrappers and rules in [CLAUDE.md](CLAUDE.md).
 
-Deployed October 23, 2026 as 43a8f50 (tag 0.18.5), after PR39 and exact-head
-CI40032121853 at 3036f8a. CI passed 922 server tests (3 skips), 42 component tests,
-166 end-to-end tests, lint, typecheck, Drizzle consistency and build. Local server
-coverage passed 923 tests (2 skips): two existing 5-second timeouts passed focused
-retries without changing timeouts; CI skips a permission test when run as root.
-Local e2e initially passed 163/166. An image-load race, an existing 5-second
-consent wait timeout and its cascading leftover-consent failure recovered in one
-fresh-fixture run of both affected suites (19/19), with unchanged assertions and
-timeouts. All 166 cases are covered; test-timing repairs remain follow-up work.
-Local components/build and CI Docker/runtime/CodeQL checks passed.
+Operations build `cceb608` deployed October 24, 2026 UTC after PR42. The app
+label stays 0.18.5 Alpha, with the distinct runtime build visible in the GUI.
+Exact-head CI40042604239 passed 958 server tests (3 expected skips), 42 components,
+167 browser tests, lint, typecheck, Drizzle consistency, build, Docker and CodeQL.
+The VPS server suite passed 961/961. Its initial browser run passed 162/167;
+unchanged focused retries and independent laptop/CI runs passed affected cases.
+The laptop full browser pass was 167/167. Timing failures remain follow-up work;
+a cross-host pass alone does not isolate their cause.
+
+Web now runs as uid 1000 with all capabilities dropped and no-new-privileges,
+plus its existing read-only filesystem. `/health` runs a database readiness
+query. The production wrapper requires an explicit trusted-edge declaration;
+runtime rejects a mismatched Cloudflare/header pair. Private dump creation and
+migration-only database credentials are enforced. Readiness shares one in-flight
+probe; pool queue time is not bounded, and unhealthy does not mean auto-restarted.
 
 JSON and URL-encoded password sign-ins now share the form's failure-only throttle.
 Request bodies and concurrent password work are bounded. Email remains delay-only;
@@ -42,8 +47,10 @@ per-IP authentication work and a short-lived denied-token hash cache; successful
 tokens still revalidate session and consent. See [auth hardening](docs/auth-hardening.md)
 for restart, multi-instance, shared-IP and distributed-traffic limitations.
 
-A fresh encrypted off-host snapshot restored in isolation with matching database
-counts, photo hashes, seven SQLite integrity checks and automation login/history.
+The October 23 encrypted snapshot passed an isolated restore with matching
+database counts, photo hashes, seven SQLite checks and automation login/history.
+A fresh pre-operations-deploy snapshot and full repository integrity check passed;
+a second restore drill was not repeated for this schema-unchanged deployment.
 The previous running image and older recovery images are retained. Only web was
 recreated; no migration, host reboot, tunnel or provider-setting change.
 
@@ -56,9 +63,11 @@ The [privacy notice](https://doclifts.runthe.ai/privacy) and versioned upload
 acknowledgment from 0.18.4 remain live. Self-service deletion/export and retention
 remain unfinished; see [privacy controls](docs/privacy.md). Signup stays closed.
 
-Private evidence: ops/auth-release-2026-10-23 in the VPS-only operations repository.
-See [release records](docs/release-0.2.0.md). Owner phone/agent acceptance remains
-pending. Hermes's separate infrastructure hardening is not part of this release.
+Private evidence: ops/ops-hardening-release-2026-10-24 and the earlier
+ops/auth-release-2026-10-23 in the VPS-only operations repository. See
+[release records](docs/release-0.2.0.md). Owner phone/agent acceptance remains
+pending. Account/photo deletion and retention are being validated in draft PR41;
+they are not deployed or activated.
 
 ## Host maintenance
 

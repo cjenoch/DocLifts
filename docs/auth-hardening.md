@@ -38,6 +38,13 @@ only changes Better Auth's own backstop, not these maps. Trusted proxy IP header
 configuration is required to make IP identity meaningful. Missing or malformed
 IP values share a bounded fallback lane.
 
+Those controls also require the header to be configured at all, so a deployment
+can no longer be started in the legacy `X-Forwarded-For` mode by accident: the
+production wrapper refuses a start that has not declared
+`DOCLIFTS_TRUSTED_EDGE` (`cloudflare` with `CLIENT_IP_HEADER=cf-connecting-ip`,
+or `none` with no header), and the app refuses to boot on a mismatched pair. See
+[public address](public-address.md).
+
 This does not prevent distributed credential guessing or guarantee availability
 under a distributed attack. Email-only delays deliberately do not serialize or
 lock an account, so different IPs can attempt the same email concurrently. That

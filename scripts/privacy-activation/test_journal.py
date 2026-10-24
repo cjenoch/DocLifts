@@ -145,21 +145,22 @@ class RealResticTests(unittest.TestCase):
         # Local disposable repository only. No production env/config/storage is loaded.
         with tempfile.TemporaryDirectory(prefix="privacy-restic-test-") as temp:
             root = Path(temp)
-            password = root / "password"
-            password.write_text("fictional-recovery-password-only\n")
-            password.chmod(0o600)
+            key_file = root / "repository-key"
+            key_file.write_text("fictional-recovery-password-only\n")
+            key_file.chmod(0o600)
             env_file = root / "empty.env"
             env_file.write_text("")
             config = root / "config.json"
+            # Configuration stores the key file path, never its contents.
             config.write_text(json.dumps({
                 "env_file": str(env_file), "repository": str(root / "repository"),
-                "password_file": str(password), "cache_dir": str(root / "cache"),
+                "password_file": str(key_file), "cache_dir": str(root / "cache"),
             }))
             remote = journal.Restic(config)
             # Clear inherited provider/config variables: this test can only address local paths.
             remote.env = {"PATH": os.environ["PATH"],
                           "RESTIC_REPOSITORY": str(root / "repository"),
-                          "RESTIC_PASSWORD_FILE": str(password),
+                          "RESTIC_PASSWORD_FILE": str(key_file),
                           "RESTIC_CACHE_DIR": str(root / "cache")}
             remote.run(["init"])
             old_host = journal.Journal(remote, root / "old-host")

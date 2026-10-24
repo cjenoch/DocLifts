@@ -136,17 +136,23 @@ advisories. Signup stays closed.
 
 ## Next work, not shipped
 
-- Complete replacement-VPS recovery rehearsal and external host-down monitoring.
-  Encrypted off-host backup automation and an isolated data/app restore drill are
-  complete; production still runs on one VPS.
+- Complete replacement-VPS recovery rehearsal. Encrypted off-host backups and an
+  isolated data/app restore drill are complete; production still runs on one VPS.
+- Validate delivery of the configured external monitoring alerts: confirm the
+  Cloudflare test email and record an authorized outage/recovery drill. Monitor
+  configuration is complete; inbox delivery and the drill remain unverified.
 - Follow up the remaining moderate advisory when Drizzle replaces its loader, or
   before changing how database tooling is run; see [dependency triage](docs/dependencies.md).
   Deeper independent OAuth review, measured capacity tests and existing security
   follow-up before widening Alpha access. Screening does not solve prompt injection.
-- Full account export and separately reviewed retention scheduling/log policy
-  before public signup; provider processing and external copies retain their own limits.
+- Review retention scheduling/log policy before public signup; provider processing
+  and external copies retain their own limits.
+- Complete owner phone acceptance of the shipped JSON/CSV exports and an actual
+  third-party import check for experimental Strong-style CSV. Photo image files
+  and restoring exports remain outside 0.20.0; Hevy import is not yet verified.
 - Signup/approval gates and fuller beginner onboarding. Four workout layouts and the
-  first-set guide are live; owner gym acceptance remains pending.
+  first-set guide are live; owner gym acceptance remains pending. Record results with
+  the [first-workout acceptance checklist](docs/first-workout-acceptance.md).
 - Explicit test/training labels; richer import/export and reviewed notebook
   ingestion. Existing imported history is readable, not a self-service importer.
 - Beginner machine guidance and further client compatibility checks.

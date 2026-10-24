@@ -159,6 +159,7 @@ describe('route inventory', () => {
 		const expectedGuarded = new Set([
 			'/',
 			'/account',
+			'/account/export',
 			'/account/connections',
 			'/account/connections/consent',
 			'/account/password',

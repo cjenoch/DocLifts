@@ -25,7 +25,7 @@
  *
  * STORAGE AND ITS LIMITS — READ THIS BEFORE SCALING
  * -------------------------------------------------
- * `Map<key, number[]>` of failure timestamps, pruned on read. In-process, so:
+ * Bounded hashed-key stores with incremental expiry collection. In-process, so:
  *
  *   - a restart clears every counter (an operator restart is a free reset —
  *     convenient, and also a hole);
@@ -169,6 +169,7 @@ export type Clock = () => number;
 
 export type ThrottleDecision =
 	| { kind: 'allow' }
+	| { kind: 'busy'; retryAfterSeconds: number }
 	| { kind: 'delay'; delayMs: number; keyType: ThrottleKeyType; count: number }
 	| { kind: 'refuse'; retryAfterSeconds: number; keyType: ThrottleKeyType; count: number };
 
@@ -222,6 +223,16 @@ export async function checkLoginThrottle(
 ): Promise<ThrottleDecision> {
 	const throttleKeys = buildKeys(keys);
 	const decision = throttle.check(throttleKeys);
+
+	if (decision.kind === 'busy') {
+		console.log(
+			JSON.stringify({
+				event: 'login_throttle_capacity',
+				retry_after_s: decision.retryAfterSeconds
+			})
+		);
+		return decision;
+	}
 
 	if (decision.kind === 'refuse') {
 		logThrottle({
@@ -279,14 +290,23 @@ export function clearLoginFailures(throttle: LoginThrottle, keys: ThrottleKeys):
 	throttle.clear(buildKeys(keys));
 }
 
+// Separate capacity keeps arbitrary email cardinality from displacing IP penalties.
+const KEY_CAPACITY = 4096;
+const SWEEP_KEYS_PER_STORE = 64;
+
 export class LoginThrottle {
-	/** key -> failure timestamps, ascending, pruned on every read. */
-	private readonly failures = new Map<string, number[]>();
+	/** Fixed-size digests -> bounded recent timestamps; neither raw email nor IP is retained. */
+	private readonly failures = {
+		ip: new Map<string, number[]>(),
+		email: new Map<string, number[]>()
+	};
+	private readonly timestampsPerKey: number;
 	private readonly clock: Clock;
 
 	constructor(
 		readonly config: ThrottleConfig = DEFAULT_THROTTLE_CONFIG,
-		clock?: Clock
+		clock?: Clock,
+		private readonly keyCapacity = KEY_CAPACITY
 	) {
 		// A negative ceiling is not "no ceiling": the check below only treats 0
 		// as disabled, so -1 would fall through to `count >= -1`, which refuses
@@ -298,6 +318,17 @@ export class LoginThrottle {
 				`login throttle: maxFailures must be >= 0 (0 disables the ceiling), got ${config.maxFailures}`
 			);
 		}
+		if (!Number.isSafeInteger(keyCapacity) || keyCapacity < 1) {
+			throw new Error('login throttle: key capacity must be a positive safe integer');
+		}
+		// Counts above these thresholds cannot change admission or the capped
+		// delay curve. Keep the newest samples: when they expire, every discarded
+		// older sample has expired too. Configured ceilings are never truncated.
+		this.timestampsPerKey = Math.max(
+			1,
+			Math.ceil(config.maxFailures),
+			Math.ceil(config.delayAfterFailures) + 31
+		);
 		this.clock = clock ?? (() => Date.now());
 	}
 
@@ -320,13 +351,34 @@ export class LoginThrottle {
 		return Math.min(delayBaseMs * 2 ** capped, delayMaxMs);
 	}
 
-	/** Failure timestamps for `key`, pruned to the live window. */
-	private liveFailures(key: string): number[] {
+	/** Round-robin collection: bounded work even when all keys are live.
+	 * Rotating inspected live entries ensures unrelated stale keys are reached.
+	 * Idle processes retain at most the fixed capacity until traffic resumes.
+	 */
+	private sweep(): void {
 		const cutoff = this.clock() - this.config.windowSeconds * 1000;
-		const stored = this.failures.get(key) ?? [];
+		for (const store of Object.values(this.failures)) {
+			const entries = store.entries();
+			const budget = Math.min(store.size, SWEEP_KEYS_PER_STORE);
+			for (let i = 0; i < budget; i++) {
+				const entry = entries.next().value;
+				if (!entry) break;
+				const [id, times] = entry;
+				store.delete(id);
+				if (times.some((at) => at > cutoff)) store.set(id, times);
+			}
+		}
+	}
+
+	/** Failure timestamps for a key, pruned to the live window. */
+	private liveFailures(key: ThrottleKey): number[] {
+		const store = this.failures[key.type];
+		const id = this.keyId(key);
+		const cutoff = this.clock() - this.config.windowSeconds * 1000;
+		const stored = store.get(id) ?? [];
 		const live = stored.filter((at) => at > cutoff);
-		if (live.length === 0) this.failures.delete(key);
-		else this.failures.set(key, live);
+		if (live.length === 0) store.delete(id);
+		else store.set(id, live);
 		return live;
 	}
 
@@ -340,9 +392,10 @@ export class LoginThrottle {
 	 * they have to sit through hoping.
 	 */
 	check(keys: readonly ThrottleKey[]): ThrottleDecision {
+		this.sweep();
 		const counts: { key: ThrottleKey; count: number }[] = keys.map((key) => ({
 			key,
-			count: this.liveFailures(this.keyId(key)).length
+			count: this.liveFailures(key).length
 		}));
 
 		// `maxFailures === 0` disables the ceiling. Read literally, `count >=
@@ -356,7 +409,7 @@ export class LoginThrottle {
 				? counts.find(({ key, count }) => key.type === 'ip' && count >= this.config.maxFailures)
 				: undefined;
 		if (atCeiling) {
-			const stored = this.failures.get(this.keyId(atCeiling.key)) ?? [];
+			const stored = this.failures.ip.get(this.keyId(atCeiling.key)) ?? [];
 			const oldest = stored[0] ?? this.clock();
 			const retryAfterMs = Math.max(0, oldest + this.config.windowSeconds * 1000 - this.clock());
 			return {
@@ -365,6 +418,16 @@ export class LoginThrottle {
 				keyType: atCeiling.key.type,
 				count: atCeiling.count
 			};
+		}
+
+		// Never evict an unexpired IP penalty to make room for a new address.
+		// Existing IPs remain usable under their normal policy; email capacity
+		// alone can never refuse an account. Expiry/success frees capacity.
+		if (
+			this.failures.ip.size >= this.keyCapacity &&
+			keys.some((key) => key.type === 'ip' && !this.failures.ip.has(this.keyId(key)))
+		) {
+			return { kind: 'busy', retryAfterSeconds: 1 };
 		}
 
 		const delayed = counts
@@ -387,18 +450,26 @@ export class LoginThrottle {
 
 	/** Record one failure against every key. Called ONLY on a failed sign-in. */
 	recordFailure(keys: readonly ThrottleKey[]): void {
+		this.sweep();
 		const now = this.clock();
 		for (const key of keys) {
 			const id = this.keyId(key);
-			const stored = this.liveFailures(id);
+			const store = this.failures[key.type];
+			const stored = this.liveFailures(key);
+			// Concurrent verifications may fill capacity after their pre-check.
+			// Do not grow the map or discard an existing IP's live failures.
+			if (!store.has(id) && store.size >= this.keyCapacity) continue;
 			stored.push(now);
-			this.failures.set(id, stored);
+			if (stored.length > this.timestampsPerKey)
+				stored.splice(0, stored.length - this.timestampsPerKey);
+			store.set(id, stored);
 		}
 	}
 
 	/** Forget every counter for these keys. Called ONLY on a successful sign-in. */
 	clear(keys: readonly ThrottleKey[]): void {
-		for (const key of keys) this.failures.delete(this.keyId(key));
+		this.sweep();
+		for (const key of keys) this.failures[key.type].delete(this.keyId(key));
 	}
 
 	/**
@@ -411,7 +482,7 @@ export class LoginThrottle {
 	}
 
 	private keyId(key: ThrottleKey): string {
-		return `${key.type}:${key.value}`;
+		return createHash('sha256').update(key.value).digest('hex');
 	}
 }
 

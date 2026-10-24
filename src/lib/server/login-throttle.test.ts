@@ -40,6 +40,112 @@ function fakeClock(start = 1_000_000) {
 }
 
 describe('LoginThrottle', () => {
+	describe('bounded failure storage', () => {
+		// Inspect retained state, not just admission: the original leak returned
+		// allow correctly while keeping unrelated, expired email keys forever.
+		const stores = (t: LoginThrottle) =>
+			Reflect.get(t, 'failures') as Record<'ip' | 'email', Map<string, number[]>>;
+
+		it('collects unrelated expired keys with bounded sweeps, including after success', () => {
+			const clock = fakeClock();
+			const t = new LoginThrottle(DEFAULT_THROTTLE_CONFIG, clock.now);
+			for (let i = 0; i < 128; i++) {
+				t.recordFailure([{ type: 'email', value: `user-${i}@example.invalid` }]);
+			}
+			t.recordFailure([IP, EMAIL]);
+			t.clear([IP, EMAIL]);
+			expect(stores(t).ip.size).toBe(0);
+			expect(stores(t).email.size).toBe(128);
+			clock.advanceSeconds(24 * 60 * 60);
+			expect(stores(t).email.size).toBe(128); // Idle state is bounded, no timer required.
+			t.check([OTHER_IP, OTHER_EMAIL]);
+			expect(stores(t).email.size).toBe(64);
+			t.clear([OTHER_IP, OTHER_EMAIL]);
+			expect(stores(t).email.size).toBe(0);
+
+			// Live entries at the front must not starve expiry elsewhere in the map.
+			const keys = Array.from({ length: 128 }, (_, i) => ({
+				type: 'email' as const,
+				value: `mixed-${i}@example.invalid`
+			}));
+			for (const key of keys) t.recordFailure([key]);
+			clock.advanceSeconds(899);
+			for (const key of keys.slice(0, 64)) t.recordFailure([key]);
+			clock.advanceSeconds(1);
+			for (let i = 0; i < 4; i++) t.check([OTHER_IP, OTHER_EMAIL]);
+			expect(stores(t).email.size).toBe(64);
+		});
+
+		it('bounds key count and bytes without evicting live IP penalties or locking an email', () => {
+			const clock = fakeClock();
+			const t = new LoginThrottle(
+				{ ...DEFAULT_THROTTLE_CONFIG, maxFailures: 2, delayBaseMs: 0 },
+				clock.now,
+				2
+			);
+			t.recordFailure([IP, EMAIL]);
+			t.recordFailure([IP, EMAIL]);
+			t.recordFailure([OTHER_IP, OTHER_EMAIL]);
+			const newIp: ThrottleKey = { type: 'ip', value: '192.0.2.3' };
+			const longEmail: ThrottleKey = {
+				type: 'email',
+				value: 'a'.repeat(32_000) + '@example.invalid'
+			};
+			for (let i = 0; i < 8; i++) {
+				expect(t.check([newIp, longEmail]).kind).toBe('busy');
+				// Also bound writes admitted before another request filled capacity.
+				t.recordFailure([newIp, longEmail]);
+			}
+			expect(stores(t).ip.size).toBe(2);
+			expect(stores(t).email.size).toBe(2);
+			expect(t.check([IP]).kind).toBe('refuse');
+			expect(t.check([OTHER_IP, longEmail]).kind).toBe('allow');
+			t.clear([OTHER_IP, OTHER_EMAIL]);
+			expect(t.check([IP]).kind).toBe('refuse');
+			expect(t.check([newIp, longEmail]).kind).toBe('allow');
+			t.recordFailure([newIp, longEmail]);
+			expect([...stores(t).email.keys()].every((key) => /^[a-f0-9]{64}$/.test(key))).toBe(true);
+			clock.advanceSeconds(900);
+			expect(t.check([OTHER_IP, OTHER_EMAIL]).kind).toBe('allow');
+			expect(stores(t).ip.size).toBe(0);
+			expect(stores(t).email.size).toBe(0);
+		});
+
+		it('retains enough recent timestamps for configured ceilings and delays at window edges', () => {
+			for (const maxFailures of [0, 48]) {
+				const clock = fakeClock();
+				const config = {
+					...DEFAULT_THROTTLE_CONFIG,
+					maxFailures,
+					delayAfterFailures: 3.5,
+					delayBaseMs: 0.25,
+					delayMaxMs: 100
+				};
+				const t = new LoginThrottle(config, clock.now);
+				const all: number[] = [];
+				for (let i = 0; i < 80; i++) {
+					all.push(clock.now());
+					t.recordFailure([IP, EMAIL]);
+					clock.advanceSeconds(1);
+				}
+				const bound = Math.max(maxFailures, Math.ceil(config.delayAfterFailures) + 31);
+				expect([...stores(t).ip.values()][0]).toHaveLength(bound);
+				expect([...stores(t).email.values()][0]).toHaveLength(bound);
+				clock.advanceSeconds(819);
+				for (let i = 0; i <= 81; i++) {
+					const count = all.filter((at) => at > clock.now() - 900_000).length;
+					const decision = t.check([IP, EMAIL]);
+					const delay = t.delayFor(count);
+					expect(decision.kind).toBe(
+						maxFailures > 0 && count >= maxFailures ? 'refuse' : delay > 0 ? 'delay' : 'allow'
+					);
+					if (decision.kind === 'delay') expect(decision.delayMs).toBe(delay);
+					clock.advanceSeconds(1);
+				}
+			}
+		});
+	});
+
 	describe('allow', () => {
 		it('allows an unknown key', () => {
 			const t = new LoginThrottle(DEFAULT_THROTTLE_CONFIG, fakeClock().now);

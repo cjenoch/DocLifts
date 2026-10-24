@@ -256,6 +256,9 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 		expect(job).not.toBeNull();
 		expect(await requestAccountDeletion(h.db, alice, a.authSession, ledger)).toBeNull();
 		expect(journal).toHaveLength(1);
+		await expect(
+			h.db.update(s.authUsers).set({ name: 'late profile write' }).where(eq(s.authUsers.id, alice))
+		).rejects.toMatchObject({ cause: { code: '23514' } });
 		expect(await authenticateMcp(h.db, 'Bearer ' + bearer)).toBeNull();
 		expect(await h.db.select().from(s.oauthRefreshToken)).toEqual([]);
 		expect(await h.db.select().from(s.oauthConsent)).toEqual([]);

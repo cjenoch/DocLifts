@@ -51,6 +51,7 @@ BEGIN
  ELSIF TG_ARGV[0] = 'gym' THEN SELECT user_id INTO owner_id FROM gyms WHERE id=NEW.gym_id;
  ELSIF TG_ARGV[0] = 'exercise' THEN SELECT user_id INTO owner_id FROM exercises WHERE id=NEW.exercise_id;
  ELSIF TG_ARGV[0] = 'import' THEN SELECT user_id INTO owner_id FROM workout_log_imports WHERE id=NEW.import_id;
+ ELSIF TG_ARGV[0] = 'client' THEN SELECT user_id INTO owner_id FROM auth.oauth_client WHERE client_id=NEW.client_id;
  END IF;
  PERFORM privacy_assert_active(owner_id);
  IF TG_TABLE_NAME = 'equipment_photos' AND TG_OP = 'UPDATE' THEN
@@ -114,3 +115,16 @@ BEGIN
 END $$;
 --> statement-breakpoint
 CREATE TRIGGER privacy_verification_fence BEFORE INSERT OR UPDATE ON auth.verification FOR EACH ROW EXECUTE FUNCTION privacy_verification_fence();
+
+--> statement-breakpoint
+CREATE TRIGGER privacy_write_fence BEFORE INSERT OR UPDATE ON auth.oauth_client_resource FOR EACH ROW EXECUTE FUNCTION privacy_write_fence('client');
+--> statement-breakpoint
+CREATE FUNCTION public.privacy_user_write_fence() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF OLD.deletion_requested_at IS NOT NULL AND NEW IS DISTINCT FROM OLD THEN
+  RAISE EXCEPTION 'Account unavailable' USING ERRCODE = '23514';
+ END IF;
+ RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER privacy_user_write_fence BEFORE UPDATE ON auth."user" FOR EACH ROW EXECUTE FUNCTION privacy_user_write_fence();

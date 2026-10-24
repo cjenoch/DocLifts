@@ -1,11 +1,22 @@
 # Dependency inventory and security updates
 
 Measured October 4, 2026 for 0.18.3 Alpha. This is a lockfile snapshot, not a
-promise that future advisories will remain absent. Node is 24.21.0, pnpm 11.3.0.
+promise that future advisories will remain absent. The current Node pin is 24.22.1
+(updated October 24, 2026); pnpm remains 11.3.0.
 
 The full and production-filtered pnpm audits went from 16 findings (3 critical,
 5 high, 6 moderate, 2 low) to one moderate finding. No audit entries are ignored.
 The existing audit remains report-only; this release does not change that policy.
+
+## Node security patch
+
+Node 24.22.1 includes the Brotli decoder fix for CVE-2026-111497, described in the
+[Node release notes](https://nodejs.org/en/blog/release/v24.22.1) and
+[October security advisory](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).
+The project-managed development runtime, CI pin and both Alpine Docker stages
+use that exact patch release. The lockfile records pnpm-generated runtime URLs
+and integrity metadata. Application package resolutions are unchanged by this
+runtime patch; the earlier audit counts below have not been remeasured here.
 
 ## Direct dependencies
 
@@ -31,7 +42,7 @@ Versions are installed resolutions, not the ranges in package.json.
 | `@vitest/browser-playwright`   | 4.1.5    | 4.1.11   | Development/build |
 | `dotenv`                       | 17.4.2   | 17.4.2   | Development/build |
 | `drizzle-kit`                  | 0.31.10  | 0.31.10  | Development/build |
-| `node`                         | 24.21.0  | 24.21.0  | Development/build |
+| `node`                         | 24.21.0  | 24.22.1  | Development/build |
 | `playwright`                   | 1.59.1   | 1.59.1   | Development/build |
 | `prettier`                     | 3.8.3    | 3.8.3    | Development/build |
 | `prettier-plugin-svelte`       | 3.5.1    | 3.5.1    | Development/build |

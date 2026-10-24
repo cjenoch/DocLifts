@@ -179,9 +179,22 @@ Keep `PRIVACY_DELETION_ENABLED` unset/`0`. Before setting it to `1`, review migr
 and exact-head tests, quiesce old writers, verify S3 version-list/delete permissions
 and actual bucket behavior with disposable objects, provision a writable private
 ledger path and its independent recovery copy, rehearse restore reconciliation,
-and arrange monitored worker retries. Add explicit production environment
-passthrough and a writable ledger mount in the separately owned Compose change;
-the runtime otherwise has a read-only filesystem. Only then enable the UI.
+and arrange monitored worker retries. Compose explicitly forwards
+`PRIVACY_DELETION_ENABLED` with default `0` and `DELETION_LEDGER_PATH` with an empty
+default. It does **not** provision a writable journal mount: the non-root web
+runtime has a read-only filesystem, so a reviewed private mount with appropriate
+permissions is still required. Only enable the UI after these prerequisites pass.
+
+The production web image contains the compiled application and production
+dependencies, not the repository's TypeScript CLI or its `tsx` development runtime.
+Run these operator commands from an explicitly pinned, reviewed checkout with
+the repository's pinned pnpm/Node runtime and installed development dependencies,
+or provide a separately reviewed worker artifact. Do not assume `pnpm privacy`
+exists inside the web container. Supply its database, storage and journal
+configuration securely; the web container's environment is not automatically
+available to that worker. Rehearse the chosen worker runtime and journal recovery
+before scheduling it.
+
 Retention scheduling and operational-log retention require their own reviewed
 activation. Do not widen signup based solely on these controls passing tests.
 

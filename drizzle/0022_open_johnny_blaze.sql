@@ -98,6 +98,9 @@ END $$;
 CREATE FUNCTION public.privacy_verification_fence() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE owner_id text; payload jsonb;
 BEGIN
+ IF NEW.identifier LIKE 'reset-password:%' THEN
+  PERFORM privacy_assert_active(NEW.value); RETURN NEW;
+ END IF;
  BEGIN
   payload := NEW.value::jsonb;
   IF jsonb_typeof(payload)='object' AND payload ? 'userId' THEN

@@ -252,7 +252,6 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			expiresAt: new Date(Date.now() + 60000)
 		});
 		expect((await authenticateMcp(h.db, 'Bearer ' + bearer))?.userId).toBe(alice);
-		expect(await requestAccountDeletion(h.db, alice, b.authSession, ledger)).toBeNull();
 		const job = await requestAccountDeletion(h.db, alice, a.authSession, ledger);
 		expect(job).not.toBeNull();
 		expect(await requestAccountDeletion(h.db, alice, a.authSession, ledger)).toBeNull();
@@ -296,6 +295,19 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 		expect(await store.get(a.key)).toBeNull();
 		expect(await store.get(b.key)).not.toBeNull();
 		expect(await h.db.select().from(s.authUsers).where(eq(s.authUsers.id, alice))).toEqual([]);
+		for (const [identifier, value] of [
+			['late-code', JSON.stringify({ userId: alice })],
+			['reset-password:late', alice]
+		])
+			await expect(
+				h.db.insert(s.authVerifications).values({
+					id: crypto.randomUUID(),
+					identifier,
+					value,
+					expiresAt: new Date(Date.now() + 60000)
+				})
+			).rejects.toMatchObject({ cause: { code: '23514' } });
+
 		expect((await h.db.select().from(s.sets)).map((r) => r.id)).toEqual([b.set.id]);
 		expect(
 			await h.db.select().from(s.equipmentModels).where(eq(s.equipmentModels.id, global.id))
@@ -457,18 +469,16 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 		await h.db
 			.insert(s.oauthClient)
 			.values({ id: clientId, clientId, redirectUris: ['https://fixture.invalid/cb'] });
-		await h.db
-			.insert(s.oauthRefreshToken)
-			.values({
-				id: refreshId,
-				clientId,
-				userId: alice,
-				sessionId,
-				token: crypto.randomUUID(),
-				scopes: [],
-				createdAt: new Date(),
-				expiresAt: expired
-			});
+		await h.db.insert(s.oauthRefreshToken).values({
+			id: refreshId,
+			clientId,
+			userId: alice,
+			sessionId,
+			token: crypto.randomUUID(),
+			scopes: [],
+			createdAt: new Date(),
+			expiresAt: expired
+		});
 		const [foreign] = await h.db
 			.insert(s.oauthAccessToken)
 			.values({

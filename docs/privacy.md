@@ -28,6 +28,26 @@ and `PHOTO_NOTICE_VERSION` together. Existing users will then need to acknowledg
 again before new uploads. Existing stored-photo reads/reanalysis are not gated by
 this new-upload acknowledgment.
 
+## Account and saved-photo removal
+
+Available in 0.19.0 Alpha, runtime `72b3d538`. In Account,
+use the current password and explicit destructive confirmation to request account
+removal. The server selects the signed-in owner, fences further access and revokes
+sessions/agent grants before bounded cleanup. A deletion receipt distinguishes
+pending work from completion.
+
+Remove an individual saved photo from its review controls. That removes the image
+and its links while preserving recorded workout performance. Account deletion
+intentionally removes the account's owned history too; neither control removes
+another account's records or the global equipment catalog.
+
+Both paths require verified encrypted off-host journal acknowledgment before
+reporting acceptance or erasing objects. A connection/provider failure can leave
+an already-fenced account or hidden image awaiting retry; it is not proof that
+nothing changed. The operator's bounded worker retries cleanup. Recovery must
+reconcile the independently recovered newest journal before reopening a restored
+database. See [deletion and retention controls](data-lifecycle.md).
+
 ## Boundaries and remaining work
 
 - Photos are private to other users, but accessible to the operator and relevant
@@ -38,14 +58,17 @@ this new-upload acknowledgment.
   disabled, but structured results and operational records persist.
 - Notes may contain health information and can reach authorized agents with notes
   scope. Revocation stops future connection access; it cannot recall copied data.
-- Account and saved-photo removal have an inactive implementation for review; see
-  [deletion and retention controls](data-lifecycle.md). Operational activation,
-  independent journal preservation and complete export remain outstanding.
-  Support handles requests after verifying account ownership.
-  Do not ask a user to email passwords or unnecessary sensitive information.
-- Automatic age-based log/discarded-record cleanup is outstanding. Encrypted backup
-  retention is separate from live data. Record deletion requests privately and
-  reconcile them before any restored copy is returned to service.
+- Full account export is not shipped. Support handles additional requests after
+  verifying account ownership. Do not ask a user to email passwords or unnecessary
+  sensitive information.
+- Retention controls remain manual dry-run/apply; no retention timer is enabled.
+  Saved photos and valuable history have no silent age purge. Operational-log
+  policy remains separate. Encrypted backups expire separately from live data;
+  journal reconciliation prevents intentional deletions from silently returning
+  after restore. The journal is encrypted but not immutable/WORM storage.
+- Local health monitoring records aggregate failures/pending age in a private
+  status file and local service logs. It sends no email/webhook and does not detect
+  host loss from outside the VPS.
 - Signup remains closed. Recheck the notice against deployed settings whenever
   providers, retention, email features or data-sharing behavior change.
 

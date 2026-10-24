@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.19.0 Alpha — account and saved-photo deletion — deployed; acceptance pending
+
+- Deployed and deletion controls activated October 24, 2026 UTC as runtime `72b3d538`, after
+  PR41's lifecycle implementation and PR44's durable acceptance/recovery tooling.
+  Schema migrations 0022/0023 had already deployed with controls disabled at
+  `5b6f9e3`; the activation follow-up adds no migration.
+- Account removal requires the current password and explicit confirmation,
+  immediately fences access and revokes sessions/agent grants, then runs bounded
+  retryable cleanup. Saved-photo removal preserves recorded workout performance.
+- Acceptance and erasure require a verified encrypted off-host journal entry.
+  Short database transactions finish before remote acknowledgment. The private
+  broker holds backup credentials outside web; its pinned worker runs as uid
+  1000 with a read-only filesystem. Recovery unions newer journal entries before
+  an older database can return to service.
+- Exact-head CI40061488884 at `72b3d538` passed 974 server tests (3 expected
+  skips), 42 components, 169 browser tests, lint, typecheck, Drizzle consistency,
+  build, Docker and CodeQL. All 11 Python tests passed with a disposable encrypted
+  restic repository, including preservation through ordinary backup pruning.
+  The independent laptop full application gate passed 974 server tests, 42
+  components and 169 browser tests at `f8f03ff`; final `72b3d538` changes only
+  the disposable Python fixture file.
+  The final test-only fixture clarification also passed Python checks and lint;
+  its optional real-restic check passed on the VPS.
+- A restored production snapshot passed migrations through 0023, a repeat no-op
+  and unchanged aggregate counts before their earlier deployment. A separate
+  isolated fixture rehearsal used the real encrypted off-host journal, restored
+  the pre-deletion database, reconciled twice and preserved the unrelated account
+  and photo. Its photo store was in memory; it did not use live S3 credentials.
+- Public automation passed sign-in, OAuth/PKCE/refresh, MCP reads, revocation,
+  logout, visible build and 390px checks. A new disposable account removed a
+  saved photo through the UI while preserving its logged set, then requested
+  account deletion with the current password. The old session was denied,
+  the worker completed, both actual S3 fixture objects and the account's data
+  were absent, and the public receipt showed completion. All seven aggregate
+  totals returned to their pre-fixture baseline. Actual object-store checks covered the never-versioned
+  bucket's null versions; historical versions/delete markers have fixture coverage.
+  No human Alpha or owner account was a destructive test fixture.
+- A local-only five-minute health monitor checks broker/worker/timer state and
+  aggregate failure/pending age, writes a private status file and fails its unit
+  on attention conditions. It sends no email or webhook and does not provide
+  external host-down monitoring. The final check was healthy with zero
+  pending/failed jobs and a successful worker result.
+- Retention remains manual dry-run/apply with explicit durations; no retention
+  timer is enabled. Full account export is not shipped. Backups expire separately;
+  the deletion journal is encrypted, not immutable/WORM, and has no automated prune.
+  Provider copies and exported agent data cannot be recalled by account deletion.
+- Signup remains closed. Owner phone/agent acceptance remains pending.
+
 ## 0.18.5 Alpha — operations build cceb608 — deployed; acceptance pending
 
 - PR42 deployed October 24, 2026 UTC as build `cceb608`. The application release

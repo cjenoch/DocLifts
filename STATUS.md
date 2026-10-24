@@ -94,7 +94,7 @@ worker result. This is not external host-down alerting.
 
 The [privacy notice](https://doclifts.runthe.ai/privacy) and versioned upload
 acknowledgment remain live. Retention is a manual dry-run/apply control, with no
-retention timer. Full account export is not shipped. Signup stays closed.
+retention timer. Account JSON/CSV exports and experimental Strong-style CSV are implemented for 0.20.0 Alpha, awaiting deployment. Photo image files and restoring exports remain outside this release. Signup stays closed.
 See [privacy controls](docs/privacy.md) and [activation/recovery](docs/privacy-activation.md).
 
 Private release evidence remains in the VPS-only operations repository.

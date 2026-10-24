@@ -38,7 +38,7 @@ Eight read-only tools cover workouts, bulk set history, imported notebooks, prog
 
 Imported records remain separate from app sessions and do not feed automatic progression or operational workout totals. The collections can overlap; an agent should not blindly add their totals. App entries can also contain tests or incomplete sets. Personal import payloads stay outside this repository.
 
-Self-service notebook ingestion, portable full-data import/export, custom fields, and beginner machine guidance/videos are planned work, not current features. The intended direction is straightforward: document your training in a form you can understand, keep and use elsewhere.
+Account exports are available as detailed JSON, spreadsheet CSV tables in a ZIP, and experimental Strong-style CSV for completed app sets. Native exports retain imported notebooks and uncertainty; photo metadata is included, but image files are not. See [export formats and portability](docs/data-exports.md). Self-service notebook ingestion, restoring an export, custom fields, and beginner machine guidance/videos remain planned work. The intended direction is straightforward: document your training in a form you can understand, keep and use elsewhere.
 
 ## Privacy during the Alpha
 

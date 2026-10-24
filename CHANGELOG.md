@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.20.0 Alpha — account exports — not deployed
+
+- Account → Export your data provides detailed JSON, spreadsheet CSV tables in
+  a ZIP, and experimental classic Strong-style CSV. Native exports retain
+  historical prescriptions separately from entered values, incomplete/Trash
+  workouts, programs, machine identity, notes, pain records and imported notebook
+  text with its date uncertainty and evidence. Photo metadata and AI results
+  are included; image files, credentials and operational journals are excluded.
+- Strong-style CSV includes entered sets from ended, non-Trash app workouts.
+  Loads convert from pounds to kilograms without changing their recorded basis;
+  RIR stays in notes and timed sets use Seconds. The selected time zone controls
+  timezone-less dates. Notebook records, programs and photos are excluded.
+  Actual Hevy import is unverified; Hevy officially supports direct Strong files.
+- Downloads require the current password and a live same-owner session, use a
+  consistent read-only database snapshot, reject oversize exports instead of
+  truncating them, and recheck session/deletion state before returning files.
+  Exports stay in memory and are not cached. Spreadsheet formula-like text is
+  escaped; JSON preserves exact strings. No schema change or restore endpoint.
+
 ## 0.19.1 Alpha — audit follow-ups — deployed; acceptance pending
 
 - Login failure tracking has separate bounded IP/email stores, compact hashed

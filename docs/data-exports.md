@@ -92,7 +92,7 @@ No account ID is accepted. A live owner session and deletion fence are checked
 before reading and immediately before returning the file. Downloads are private,
 no-store attachments, built in memory with no persistent export or S3 request.
 
-Two exports globally and one per account can build at once. Queries use a
+Two exports per web process and one per account can build at once. Queries use a
 read-only REPEATABLE READ transaction with a 5s statement timeout, 1s lock timeout
 and a 15s deadline checked between queries. Immediate exports are capped at
 50,000 native records and 32 MiB; files above the limit fail instead of silently

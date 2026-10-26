@@ -18,6 +18,22 @@ use that exact patch release. The lockfile records pnpm-generated runtime URLs
 and integrity metadata. Application package resolutions are unchanged by this
 runtime patch; the earlier audit counts below have not been remeasured here.
 
+## Cloudflare Tunnel certificate update
+
+The connector image is pinned to cloudflared **2026.10.4** and its multi-platform
+manifest digest (October 26, 2026), replacing 2026.9.3. This exceeds the
+2026.10.2 minimum in Cloudflare's
+[eMudhra certificate compromise advisory](https://blog.cloudflare.com/emudhra-certificate-compromise/).
+Cloudflare reported no identified active exploitation on its services at the
+time of that advisory. The [2026.10.4 release](https://github.com/cloudflare/cloudflared/releases/tag/2026.10.4)
+also restricts debug endpoints on the metrics server.
+
+Pull and recreate every connector using the patched image; restarting an old
+container does not install the fix. Check other hosts and disconnected replicas
+before bringing them back online. See the [rolling upgrade procedure](public-address.md#connector-security-updates).
+This connector update does not change the application release or the package
+audit counts below.
+
 ## Direct dependencies
 
 Versions are installed resolutions, not the ranges in package.json.

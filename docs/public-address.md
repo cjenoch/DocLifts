@@ -98,6 +98,45 @@ would overwrite a header the client can set. Confirm the private address works
 again and the public address goes down, then repeat the coordinated switch to
 public after the rehearsal.
 
+## Connector security updates
+
+Compose pins cloudflared **2026.10.4** by version and manifest digest. Versions
+before 2026.10.2 retain trust in the compromised eMudhra intermediates described
+in [Cloudflare's advisory](https://blog.cloudflare.com/emudhra-certificate-compromise/).
+Inspect every host and the dashboard connector inventory; an offline replica
+must also be upgraded before it reconnects.
+
+Before upgrading, inspect the private ingress configuration without exposing
+credentials. Replace any HTTPS origin certificate chaining to an affected
+intermediate first. Never use `noTLSVerify` to work around certificate rejection.
+The production ingress inspected on October 26 uses `http://web:3000` for the
+browser and MCP hosts, with an explicit 404 fallback, so it has no HTTPS origin
+certificate to replace.
+
+After the required gates, verified backup and Compose dry run:
+
+1. Pull the exact patched image from Compose and verify `cloudflared --version`.
+2. Start a temporary replica of the same tunnel using that image, the same
+   private read-only configuration mount and Docker network, and the existing
+   non-root user, memory limits and security restrictions. Publish no ports.
+3. Confirm the new replica has registered its edge connections and passes its
+   local `/ready` check. Keep metrics reachable only inside its container.
+4. Recreate only the original connector with
+   `sudo -n scripts/compose-prod.sh --profile public up -d --no-deps cloudflared`.
+   A restart alone keeps the vulnerable image. `--no-deps` avoids recreating web.
+5. Check the original connector's version and connection registrations, then
+   public `/health`, sign-in and MCP discovery. Confirm the tunnel is Healthy
+   in Cloudflare before removing the temporary replica.
+6. Stop the temporary replica gracefully and repeat the public probes. Retain
+   private rollout evidence; keep credentials and connector configuration out
+   of Git.
+
+An overlapping replica keeps new traffic flowing, but long-lived WebSocket,
+SSH and other sessions on the retiring connector may need to reconnect. Do not
+roll back to a version below the security minimum. The general address rollback
+above is separate from a connector security upgrade. See
+[Cloudflare's update guidance](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/update-cloudflared/).
+
 ## Applied edge policy and operational checks
 
 Security headers, HTTPS redirect, private cache bypass, free managed WAF and

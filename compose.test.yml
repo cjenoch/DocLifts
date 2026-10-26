@@ -1,0 +1,50 @@
+# Local Codex Desktop gate only. No production env, ports, or Docker socket.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: doclifts
+      POSTGRES_PASSWORD: local-test-only
+      POSTGRES_DB: doclifts_test
+    # Disposable fixtures: avoid disk flush latency on Docker Desktop.
+    tmpfs: ['/var/lib/postgresql/data:rw,nosuid,size=384m']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U doclifts -d doclifts_test']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+    security_opt: ['no-new-privileges:true']
+
+  runner:
+    image: doclifts-local-test:node24.22.1-pw1.59.1
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CI: '1'
+      # Fictional credentials, scoped to this unpublished Docker network.
+      PGUSER: doclifts
+      PGPASSWORD: local-test-only
+      PGHOST: postgres
+      PGDATABASE: doclifts_test
+    volumes:
+      - test_work:/work
+      - pnpm_store:/pnpm-store
+    mem_limit: 3g
+    memswap_limit: 3g
+    cpus: 2
+    pids_limit: 512
+    shm_size: 512m
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
+
+volumes:
+  test_work:
+  pnpm_store:

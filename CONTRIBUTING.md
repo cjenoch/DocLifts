@@ -27,13 +27,20 @@ Read `CLAUDE.md` for architectural rules. Run `pnpm check`, `pnpm lint` and `pnp
 
 ## Development runtime
 
+**Codex Desktop default (owner decision, 2026-10-26):** run the test suite in
+Docker Desktop on Predator-Doc with `pwsh -File scripts/local-tests.ps1 gate`.
+Use [the local test stack](docs/local-testing.md), with reusable Linux dependency
+volumes and an isolated PostgreSQL container. Do not start the legacy TestDev01
+VM or consume the VPS with routine test runs. Keep branch CI and production
+deployment/migration/restore checks in their existing roles.
+
 Run `pnpm install --frozen-lockfile` before working. The devEngines.runtime pin
 in package.json installs Node 24.22.1 for project scripts and pnpm exec; the
 lockfile records the runtime download checksums. Check with `pnpm exec node --version`.
 A bare node command still uses your shell's runtime. Run standalone scripts with
 `pnpm exec node`, and do not change a shared host's global Node to work on DocLifts.
 
-When updating Node, change devEngines.runtime, .node-version and both Dockerfile
+When updating Node, change devEngines.runtime, .node-version, Dockerfile.test and both Dockerfile
 base images together, regenerate the lockfile with pnpm install, then run the
 full gate. CI checks the actual project and production-container Node versions
 against .node-version. Development/CI use glibc on Linux while production uses

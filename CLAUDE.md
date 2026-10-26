@@ -541,6 +541,18 @@ runs, the data is owned by an account nobody can sign in as.
 
 ## Shipping and production
 
+**Standard Codex Desktop test environment (owner decision, 2026-10-26).**
+Use Docker Desktop on Predator-Doc for DocLifts tests. Run
+`pwsh -File scripts/local-tests.ps1 gate` from the intended checkout; it snapshots
+current edits, reconciles cached Linux dependencies with the frozen lockfile,
+and runs the full gate against an isolated PostgreSQL container. Focused
+`server`, `client`, `e2e` and `lint` actions support the editing loop. See
+`docs/local-testing.md`. Do not start TestDev01/VMware for testing or default to
+running the suite on the VPS. Reserve the VPS for deployment and production
+verification, including migration/restore rehearsals. Branch CI remains
+required. Ordinary test containers do not satisfy the security-audit skill's
+separate restricted-execution requirements.
+
 Owner rules (2026-10-01). They govern how a change reaches `main` and
 production, not what the change is.
 

@@ -66,6 +66,14 @@ Application source and fictional test fixtures live here. Credentials, personal 
 
 ## Local development
 
+For Codex Desktop work on Predator-Doc, the standard test environment is
+Docker Desktop with the local PostgreSQL and Linux runner, not the legacy
+VMware guest or the VPS. Run `pwsh -File scripts/local-tests.ps1 gate` from the
+checkout to test. It snapshots current edits and reuses Linux dependency caches.
+See [local Docker testing](docs/local-testing.md) for startup, focused checks,
+resource limits and isolation details. The manual setup below remains available
+for interactive application development.
+
 Use the pnpm version pinned in `package.json`. `pnpm install --frozen-lockfile` installs the project's pinned Node 24.22.1 runtime as well as dependencies; all `pnpm run` and `pnpm exec` commands then use it. A different Node on your shell PATH does not need to be replaced. For standalone Node scripts, use `pnpm exec node` instead of bare `node`. CI reads the matching `.node-version` pin, and both Docker stages use the same patch version. Start an isolated PostgreSQL instance for development; never point test tooling at production:
 
 ```sh

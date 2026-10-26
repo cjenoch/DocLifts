@@ -176,6 +176,17 @@ const guard: Handle = async ({ event, resolve }) => {
 const betterAuth: Handle = ({ event, resolve }) =>
 	svelteKitHandler({ event, resolve, auth, building });
 
+/** Upstream workaround for GHSA-pfhg-q3qv-9q6r, before auth and route actions. */
+const actionPathBoundary: Handle = ({ event, resolve }) => {
+	if (event.url.pathname.startsWith('//')) {
+		return new Response('Invalid request path', {
+			status: 400,
+			headers: { 'content-type': 'text/plain; charset=utf-8' }
+		});
+	}
+	return resolve(event);
+};
+
 /**
  * ORDER MATTERS, AND IT IS THE OPPOSITE OF WHAT IT LOOKS LIKE.
  *
@@ -219,7 +230,13 @@ const responsePolicy: Handle = async ({ event, resolve }) => {
 	});
 };
 
-export const handle: Handle = sequence(responsePolicy, csrfBoundary, betterAuth, guard);
+export const handle: Handle = sequence(
+	responsePolicy,
+	actionPathBoundary,
+	csrfBoundary,
+	betterAuth,
+	guard
+);
 
 /**
  * Runs once when the server starts, before it listens.

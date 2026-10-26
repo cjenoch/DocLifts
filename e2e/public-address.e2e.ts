@@ -44,6 +44,24 @@ function login(ip: string, password = 'wrong-password', xff = '192.0.2.9') {
 }
 
 describe('public-origin served build', () => {
+	it('rejects leading double-slash paths before auth and enhanced form actions', async () => {
+		for (const path of ['//example.invalid/login', '///exercises?/rename']) {
+			for (const method of ['GET', 'POST']) {
+				const response = await fetch(`${server.origin}${path}`, {
+					method,
+					headers: { origin: PUBLIC, accept: 'application/json', 'x-sveltekit-action': 'true' },
+					redirect: 'manual'
+				});
+				expect(response.status, `${method} ${path}`).toBe(400);
+				expect(response.headers.get('location')).toBeNull();
+				expect(response.headers.get('cache-control')).toContain('no-store');
+				expect(await response.text()).toBe('Invalid request path');
+			}
+		}
+		const ordinary = await fetch(`${server.origin}/login`);
+		expect(ordinary.status).toBe(200);
+	});
+
 	it('accepts same-origin login despite forged host/protocol and sets a host-only secure cookie', async () => {
 		const res = await login('203.0.113.1', TEST_PASSWORD);
 		expect((await res.json()).type).toBe('redirect');

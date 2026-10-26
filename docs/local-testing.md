@@ -48,9 +48,10 @@ are omitted. It excludes host dependencies, the host `.git` directory, private e
 files and key/certificate files; the public `.env.example` is included. It does
 not read a production environment or mount the host checkout into the runner.
 
-A separate Git bundle supplies HEAD and its history, without host Git
-configuration, hooks or credentials. The runner builds a fresh index from that
-baseline while retaining the working-tree snapshot. Tests can distinguish
+A separate Git bundle supplies HEAD's committed tree as a temporary root
+commit, without host Git configuration, hooks, credentials or old history.
+This also works with shallow checkouts. The runner builds a fresh index from
+that baseline while retaining the working-tree snapshot. Tests can distinguish
 committed catalog files from edits; new files are not silently treated as
 committed. This temporary Git directory is recreated for every run.
 

@@ -18,7 +18,7 @@ tar -xf "$archive" -C /work
 rm "$archive"
 git init -q
 git config core.fileMode false
-git fetch -q "$bundle" HEAD
+git fetch -q "$bundle" refs/heads/local-test-baseline
 git reset -q --mixed FETCH_HEAD
 rm "$bundle"
 

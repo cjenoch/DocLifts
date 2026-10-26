@@ -65,10 +65,18 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Source snapshot failed' }
     $sha = & git -C $repo rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw 'Cannot identify checkout revision' }
-    # Bundles contain Git objects/ref data, not host configuration or hooks.
-    # Tests distinguish committed catalog files from working-tree edits.
+    # Bundle a root commit of HEAD's tree. This works with shallow checkouts
+    # too, without copying host configuration/hooks or fetching old history.
+    # The temporary bare repo reads shared objects but writes only to itself.
+    $baselineRepo = Join-Path $snapshot 'baseline.git'
+    & git clone --quiet --bare --shared -- $repo $baselineRepo
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare checkout baseline' }
+    $baselineCommit = & git -C $baselineRepo -c user.name='Local test snapshot' -c user.email='snapshot@doclifts.invalid' commit-tree 'HEAD^{tree}' -m 'Committed tree for local tests'
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot create checkout baseline' }
+    & git -C $baselineRepo update-ref refs/heads/local-test-baseline $baselineCommit
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot name checkout baseline' }
     $bundle = Join-Path $snapshot 'baseline.bundle'
-    & git -C $repo bundle create --quiet $bundle HEAD
+    & git -C $baselineRepo bundle create --quiet $bundle refs/heads/local-test-baseline
     if ($LASTEXITCODE -ne 0) { throw 'Cannot bundle checkout baseline' }
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
     Write-Host "Checkout HEAD: $sha; working-tree snapshot SHA256: $hash"

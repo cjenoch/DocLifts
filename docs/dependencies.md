@@ -102,6 +102,35 @@ outside this batch. Revisit when Drizzle removes/replaces the loader or before
 changing how database tools are run. Better Auth's optional peers mean this path
 can appear in the production graph too; do not classify solely by package name.
 
+## SvelteKit advisory review — October 26, 2026
+
+GitHub reports two low-severity advisories against the locked Kit 2.70.3;
+both list 3.0.0 as the first patched version. This review adds an upstream
+workaround without changing the framework major or the owner's report-only
+dependency-audit policy. The dependency alerts remain open until an upgrade
+removes the affected version; mitigation is not a package-level patch.
+
+- [GHSA-pfhg-q3qv-9q6r](https://github.com/sveltejs/kit/security/advisories/GHSA-pfhg-q3qv-9q6r):
+  enhanced forms can navigate off-origin when an action route accepts a pathname
+  beginning with `//`. DocLifts uses enhanced forms but has no rest/catch-all
+  routes. As defense in depth, `actionPathBoundary` rejects those parsed paths
+  with HTTP 400 before Better Auth, the session guard, or page actions. This is
+  the maintainer's documented workaround. The served-build regression checks
+  GET and action POST refusals, absence of a redirect, no-store headers, and an
+  ordinary login page that still succeeds. No exploit against production was
+  attempted and no exploitable DocLifts route was established.
+- [GHSA-27mw-82g8-phjj](https://github.com/sveltejs/kit/security/advisories/GHSA-27mw-82g8-phjj):
+  untrusted `cache-control` values passed to `setHeaders` can inject HTML into
+  prerendered pages. Current application routes do not enable prerendering,
+  and their cache policies are fixed literals. Neither prerequisite exists in
+  the reviewed source, so this lead is not applicable to the current route set.
+  Reassess before adding prerendering or forwarding upstream/user-supplied cache
+  headers. This conclusion does not make Kit 2.x generally unaffected.
+
+The review covers the current `src/routes`, `src/hooks.server.ts`,
+`svelte.config.js`, and frozen dependency lockfile. A future Kit 3 migration
+requires its own compatibility review and full local/branch gates.
+
 ## Validation
 
 Frozen installation, the full local gate (1,102 passing tests and two expected

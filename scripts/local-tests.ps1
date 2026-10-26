@@ -91,7 +91,9 @@ try {
     Invoke-Docker cp (Join-Path $PSScriptRoot 'local-test-gate.sh') "${runner}:$containerHelper"
     # Git checkout line endings must not affect the Linux helper.
     Invoke-Docker exec $runner sed -i 's/\r$//' $containerHelper
-    Invoke-Docker exec -e "DOCLIFTS_BUILD_SHA=local-$($sha.Substring(0,12))-$($hash.Substring(0,12))" $runner bash $containerHelper $containerArchive $Action @TestFilter
+    # The app requires a 7-40 character hex build identifier. Derive the local
+    # identifier from actual content, including uncommitted edits.
+    Invoke-Docker exec -e "DOCLIFTS_BUILD_SHA=$($hash.Substring(0,40))" $runner bash $containerHelper $containerArchive $Action @TestFilter
 } finally {
     if ($snapshot) {
         # Exact directory created above, inside our named state directory.

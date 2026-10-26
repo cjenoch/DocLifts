@@ -6,7 +6,7 @@
 
 DocLifts is a workout log built around the equipment you actually use. Take a picture, start recording sets while identification runs, and review the machine match when you are ready. AI helps with identification; you stay in control of your workout.
 
-**[Open DocLifts Alpha](https://doclifts.runthe.ai)** · [Release history](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
+**[Open DocLifts Alpha](https://doclifts.runthe.ai)** · [Documentation](docs/README.md) · [Release history](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
 The hosted app is live on Android, iPhone and desktop browsers. Alpha access is currently operator-managed; public signup is closed. This is an actively developed test system. The former disposable demo has been retired.
 
@@ -66,7 +66,7 @@ Application source and fictional test fixtures live here. Credentials, personal 
 
 ## Local development
 
-Use the pnpm version pinned in `package.json`. `pnpm install --frozen-lockfile` installs the project's pinned Node 24.22.1 runtime as well as dependencies; all `pnpm run` and `pnpm exec` commands then use it. A different Node on your shell PATH does not need to be replaced. For standalone Node scripts, use `pnpm exec node` instead of bare `node`. CI reads the matching `.node-version` pin, and both Docker stages use the same patch version. Start an isolated PostgreSQL instance for development; never point test tooling at production:
+Use the pnpm version pinned in `package.json`. `pnpm install --frozen-lockfile` installs the project's pinned Node 24.22.1 runtime as well as dependencies; all `pnpm run` and `pnpm exec` commands then use it. A different Node on your shell PATH does not need to be replaced. For standalone Node scripts, use `pnpm exec node` instead of bare `node`. CI reads the matching `.node-version` pin, and both Docker stages use the same patch version. The commands below use Bash; see the [development guide](docs/development.md) for PowerShell, account creation and troubleshooting. Start an isolated PostgreSQL instance for development; never point test tooling at production:
 
 ```sh
 docker run -d --name doclifts-dev-db \
@@ -90,16 +90,20 @@ Once PostgreSQL is ready:
 pnpm install --frozen-lockfile
 pnpm exec node --version # v24.22.1
 pnpm db:migrate
-pnpm user:bootstrap --email lifter@example.invalid --password-stdin
-pnpm exec playwright install chromium
-pnpm dev
 ```
 
-The account command reads the password from standard input. Create a program through the app; there is no demo seed command. Photo identification requires additional provider/storage settings from `.env.example`; manual logging does not require an AI provider.
+Next, [bootstrap a local account](docs/development.md#create-the-first-account) with the environment-loaded command and a password pipe. The account CLI does not load `.env` automatically, and `--password-stdin` refuses an interactive terminal. Then start the app with the same local environment:
+
+```sh
+pnpm exec node --env-file=.env node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173 --strictPort
+```
+
+Open `http://localhost:5173`, matching `PUBLIC_ORIGIN`. Explicitly loading `.env` also supplies the auth module's `process.env` reads. Create a program through the app; there is no demo seed command. Photo identification requires additional provider/storage settings from `.env.example`; manual logging does not require an AI provider.
 
 The full development gate is:
 
 ```sh
+pnpm exec playwright install chromium
 pnpm lint
 pnpm check
 pnpm exec node --env-file=.env node_modules/drizzle-kit/bin.cjs check

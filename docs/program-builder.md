@@ -1,8 +1,8 @@
-# Program builder (local implementation)
+# Program builder
 
 ## User path
 
-Home → **Create program** → **Start blank draft** or **Use Traveling PPL preset** → edit structured fields → **Review program** → **Save program**. Choosing a preset does not save anything. **Back to editing** returns to the draft. The editor requires JavaScript; persistence uses ordinary POST server actions with server-side validation, not client-only validation or a JSON textarea.
+Home → **Create program** → **Start blank** or a starter template (Traveling PPL, Barbell Strength, Machine Full Body, or Machines and Dumbbells) → edit structured fields → **Review program** → **Save program**. Choosing a preset does not save anything. **Back to editing** returns to the draft. The editor requires JavaScript; persistence uses ordinary POST server actions with server-side validation, not client-only validation or a JSON textarea.
 
 A draft has a name, optional description, ordered named days (optional notes and alternate group), library or quick-added exercises, progression tier/policy, and ordered prescription rows. Draft rows can be moved or removed; there is no saved-program tree deletion control. New exercises explicitly declare generic equipment type and lower-body increment metadata. Existing library metadata is not silently changed. Sets support warmup/top/backoff/working roles, reps or seconds, ranges, RIR, rest, notes and optional cold-start initial load. There is no template current-load or physical-machine default.
 
@@ -20,45 +20,70 @@ Work sets initially have NULL loads. Warmup guidance is notes only and assumes n
 
 The required preset has 5/6/5/5 exercises and 11/12/11/12 working sets for Push/Pull/Legs A/Legs B. Prescription details live in `src/lib/traveling-ppl.ts` and pass through the same save validation as blank drafts.
 
-## Migration and scope
+## Phone editor and drafts
 
-`drizzle/0006_program_draft_requests.sql` adds the durable idempotency receipt table, fingerprint constraint, program FK and index; generated snapshot/journal metadata accompanies it. Review the additive migration before any future production rollout. Only the isolated local browser database has been used by this acceptance lane. Production migration, backups/rollback execution, deployment and imported logs are not part of this work.
+The editor moves through Program → Day → Exercise screens. Equal sets have shared
+controls; **Customize sets** exposes individual warmups, top sets, backoffs, timed
+sets, loads and notes. **Advanced** holds tier and progression settings.
+Choosing a starting point replaces only the unsaved draft.
 
-For a fresh, approved isolated local database only:
+The draft, request ID and current screen survive reloads in this tab's
+sessionStorage when available. New programs, edits and drafts made from workouts
+have separate keys. This is browser storage, not a saved program or cross-device
+synchronization. Cancel clears the stored draft; submission also clears it,
+with server validation failures returned for correction.
+
+Before review, the editor enforces both 250,000 serialized JSON characters and
+500,000 URL-encoded form bytes, including the request UUID. This keeps
+Unicode-heavy notes below adapter-node's default 512 KiB request limit.
+Rejected drafts remain editable. Server actions independently reject oversized
+payloads and unreadable bodies.
+
+## Save a workout as a program
+
+After finishing a workout, choose **Save as program**, then **New program** or
+**Add as a day to** an existing active program. Both open a draft for review;
+nothing is saved until the editor's save action succeeds. Adding a day to an
+existing program uses the same versioned-edit flow.
+
+The draft preserves exercise order and includes sets with a saved load, reps or
+RIR; notes alone do not qualify a set. Roles and target metrics are retained.
+Rep ranges come from performed values, with prescription/default fallbacks when
+reps are missing. Starting loads and machine bindings are omitted. Unidentified
+photo blocks need an exercise chosen before saving. The source workout is read,
+not rewritten.
+
+## Implementation and verification
+
+- [ProgramEditor.svelte](../src/lib/components/ProgramEditor.svelte) and [editor-ui.ts](../src/lib/editor-ui.ts): screens, labels and browser drafts.
+- [program-draft.ts](../src/lib/program-draft.ts): schema and size limits.
+- [starter-templates.ts](../src/lib/starter-templates.ts) and [traveling-ppl.ts](../src/lib/traveling-ppl.ts): editable starter definitions.
+- [program-builder.ts](../src/lib/server/program-builder.ts): owner-scoped reads, transactional saves and versioning.
+- [workout-to-program.ts](../src/lib/server/workout-to-program.ts): drafts from finished workouts.
+
+Migration [0006_program_draft_requests.sql](../drizzle/0006_program_draft_requests.sql)
+introduced the durable idempotency receipt table. New installations apply the
+full migration chain and create an account using the [development guide](development.md).
+There is no demo seed command.
+
+After local database setup, focused checks are:
 
 ```sh
-DATABASE_URL=postgresql://builder@127.0.0.1:55441/builder_browser pnpm db:migrate
-DATABASE_URL=postgresql://builder@127.0.0.1:55441/builder_browser pnpm exec vite dev --host 127.0.0.1 --port 5179
+pnpm test:server program-builder
+pnpm test:server workout-to-program
+pnpm test:client ProgramEditor
+pnpm build
+CI=1 pnpm test:e2e e2e/program-editor.e2e.ts e2e/starter-templates.e2e.ts e2e/save-as-program.e2e.ts
 ```
 
-Do not run the application's seed command: acceptance needs no real Sunrise program, physical-machine data or historical logs. Server integration tests use the separate `builder_test` database, never the browser database.
+Use the [PowerShell CI syntax](development.md#validation) when needed. These
+checks complement the full application gate in [Contributing](../CONTRIBUTING.md).
+They use synthetic accounts and an isolated test database. Automated mobile
+viewport checks do not establish acceptance on the owner's physical phone;
+see [current status](../STATUS.md) and [first-workout acceptance](first-workout-acceptance.md).
 
-## Real mobile acceptance
-
-With the already migrated isolated database and local server above:
-
-```sh
-DATABASE_URL=postgresql://builder@127.0.0.1:55441/builder_browser pnpm exec tsx scripts/program-builder-browser-check.ts
-```
-
-The script hard-refuses any other DATABASE_URL (including an unset URL), does not load `.env`, does not truncate tables, refuses unfamiliar programs/library data, and never navigates outside the fixed local app origin. It inserts one synthetic exercise definition for existing-library selection. All programs, prescriptions and workout rows are created by real browser forms; the script never seeds a program or guesses workout fixtures. Reruns append uniquely named synthetic records and overwrite the current evidence report; there is no cleanup of historical test records.
-
-Coverage:
-
-- 390×844 Chromium, real structured blank three-day PPL creation, existing library plus two quick-adds, explicit lower-body metadata, reps and seconds, MAIN warmup/top/backoff, draft add/remove/reorder.
-- Explicit review before save, saved program on home, UI start/log/end with database readback.
-- UI edit/save-as-version with fresh child IDs, source inactive/new version active, exact source child-tree equality, and exact ended session/occurrence/set snapshot equality. Only source activation/update timestamp may change.
-- Capture the actual hidden payload/requestId **before** each UI save; replay the exact browser POST body concurrently twice with same-origin headers. Each retry must redirect to the original program ID with no additional tree/library/receipt rows. This covers blank, edit and preset saves.
-- Invalid nested range returns 400; missing nested exercise UUID rolls back newly added library rows and the entire tree. Failed edit leaves its source unchanged and active.
-- Preset choose/edit/review/save, four days, exact mandatory exercise lists, legs alternation, and blank initial loads. Start and end all four days; verify actual set/occurrence counts, blank visible load inputs, NULL prescribed loads and NULL machine IDs.
-- Every screenshot checkpoint checks document/body width against the mobile viewport and rejects JavaScript or console errors.
-
-Artifacts: `../evidence/result.json` and the screenshots listed in that report. A failed run writes `passed: false` and `failure.png`; do not treat stale screenshots as proof of a successful run. Evidence contains synthetic names and generated IDs only, with hashes for immutable snapshot comparisons rather than database dumps. Imported log rows: **zero**.
-
-Use explicit accessible select labels and whitespace-tolerant text assertions. Run acceptance against a stable build, not a development server undergoing concurrent edits; the harness rejects JavaScript errors rather than ignoring transient failures. Final verification also exercised the built adapter-node runtime with its default request-body limit: 262 server/client tests passed, type checking had zero errors/warnings, build passed, and the full mobile harness passed. Missing program edit URLs return HTTP 404.
-
-Before review, the editor enforces both 250,000 serialized JSON characters and 500,000 URL-encoded form bytes (including the request UUID). The byte check protects Unicode-heavy notes from exceeding adapter-node's default 512 KiB request limit. Rejected drafts remain editable before navigation. Server actions independently reject oversized JSON and handle unreadable request bodies without reflecting their contents. No runtime body-limit increase is required.
-
-## Limitations
-
-The mobile editor is intentionally structured but long and verbose, especially for the preset. This is a responsive web form, not a native app/PWA. It needs JavaScript for draft editing/review. This browser script is not a replacement for the full server/client regression suites, concurrency/transaction unit coverage or build/type-check gates. No authentication, model catalog import, persistent gym defaults, cloud deployment or production writes were added by this acceptance work.
+The old `scripts/program-builder-browser-check.ts` is a prototype-era harness
+with a fixed `builder_browser` database, port and earlier UI assumptions. Its
+historical 262-test result is not evidence for the current editor. Use the
+maintained Vitest suites above for current changes; do not treat the old script
+or its screenshots as the current setup or release gate.

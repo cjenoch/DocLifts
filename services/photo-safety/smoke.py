@@ -19,6 +19,9 @@ status, result = call(buffer.getvalue())
 assert status == 200 and 0 <= result["nsfw"] < 0.5, (status, result)
 assert result["model"] == "Falconsai/nsfw_image_detection@96cb0d0342c7afb80cab76ecc58b265fa44da256"
 assert call(b"not-an-image")[0] == 503
+png = io.BytesIO()
+image.save(png, format="PNG")
+assert call(png.getvalue())[0] == 503
 assert call(buffer.getvalue(), "image/png")[0] == 400
 assert call(b"")[0] == 413
 assert call(b"", declared=8 * 1024 * 1024 + 1)[0] == 413

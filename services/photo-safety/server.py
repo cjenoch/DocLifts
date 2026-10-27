@@ -51,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
             data = self.rfile.read(length)
             if len(data) != length:
                 raise ValueError("short_body")
-            with Image.open(io.BytesIO(data)) as image:
+            with Image.open(io.BytesIO(data), formats=["JPEG"]) as image:
                 if image.format != "JPEG" or max(image.size) > 1600:
                     raise ValueError("image_shape")
                 inputs = processor(images=image.convert("RGB"), return_tensors="pt")

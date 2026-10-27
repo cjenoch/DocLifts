@@ -18,10 +18,26 @@ use that exact patch release. The lockfile records pnpm-generated runtime URLs
 and integrity metadata. Application package resolutions are unchanged by this
 runtime patch; the earlier audit counts below have not been remeasured here.
 
+## October 27 dependency refresh
+
+The production-filtered lockfile audit reported 26 advisories before this
+refresh and three afterward: one moderate esbuild development-server advisory
+and two low SvelteKit advisories. The latter were reviewed in the October 26
+action-path mitigation and prerender applicability assessment. Audit results
+describe package versions, not proof that an affected path is reachable.
+The refresh updates Zod, Vite and Vitest and pins compatible patched versions
+of Undici, body-parser, fast-uri, ip-address and qs through pnpm overrides.
+Revisit those overrides when parent dependencies require patched versions.
+
+The photo-safety image pins Pillow 13.0.0 and certifi 2026.10.23. The service
+also restricts Pillow's format detection to JPEG before decoding. Its model
+continues to run offline; rebuild the image to pick up these changes.
+
 ## Cloudflare Tunnel certificate update
 
-The connector image is pinned to cloudflared **2026.10.4** and its multi-platform
-manifest digest (October 26, 2026), replacing 2026.9.3. This exceeds the
+The connector image is pinned to cloudflared **2026.10.5** and its multi-platform
+manifest digest (October 27, 2026). The preceding 2026.10.4 update replaced
+2026.9.3. This exceeds the
 2026.10.2 minimum in Cloudflare's
 [eMudhra certificate compromise advisory](https://blog.cloudflare.com/emudhra-certificate-compromise/).
 Cloudflare reported no identified active exploitation on its services at the

@@ -35,8 +35,11 @@ continues to run offline; rebuild the image to pick up these changes.
 
 ## Cloudflare Tunnel certificate update
 
-The connector image is pinned to cloudflared **2026.10.5** and its multi-platform
-manifest digest (October 27, 2026). The preceding 2026.10.4 update replaced
+The connector image is pinned to cloudflared **2026.10.6** and its multi-platform
+manifest digest (October 29, 2026). Version 2026.10.6 updates go-jose to 4.1.6,
+which fixes [GHSA-mgcc-cww5-fp2q](https://github.com/go-jose/go-jose/security/advisories/GHSA-mgcc-cww5-fp2q).
+This package advisory does not establish that attacker-controlled keys reach the
+affected parser in this tunnel configuration. The preceding 2026.10.4 update replaced
 2026.9.3. This exceeds the
 2026.10.2 minimum in Cloudflare's
 [eMudhra certificate compromise advisory](https://blog.cloudflare.com/emudhra-certificate-compromise/).

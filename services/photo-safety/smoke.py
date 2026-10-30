@@ -1,5 +1,6 @@
 """Run in classifier container. Generated solid-colour pixels only."""
 import http.client
+import importlib.util
 import io
 import json
 from PIL import Image
@@ -25,4 +26,5 @@ assert call(png.getvalue())[0] == 503
 assert call(buffer.getvalue(), "image/png")[0] == 400
 assert call(b"")[0] == 413
 assert call(b"", declared=8 * 1024 * 1024 + 1)[0] == 413
+assert importlib.util.find_spec("pip") is None, "pip should not be installed in the runtime image"
 print("PASS: real inference; malformed, MIME, empty and oversized refusals")

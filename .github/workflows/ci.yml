@@ -214,7 +214,7 @@ jobs:
         run: |
           docker build --target privacy-worker \
             --build-arg DOCLIFTS_BUILD_SHA=${{ github.sha }} -t doclifts-worker:ci .
-          docker run --rm --user 1000:1000 --read-only --entrypoint node doclifts-worker:ci \
+          docker run --rm --user 1000:1000 --read-only --tmpfs /tmp:rw,noexec,nosuid,size=32m --entrypoint node doclifts-worker:ci \
             /app/node_modules/tsx/dist/cli.mjs --version
           docker run --rm --entrypoint sh doclifts-worker:ci -c \
             'test ! -e /root/.cache/node/corepack && test ! -e /usr/local/lib/node_modules/npm'

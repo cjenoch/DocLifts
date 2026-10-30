@@ -188,7 +188,7 @@ jobs:
           node scripts/audit-summary.mjs audit.json >> "$GITHUB_STEP_SUMMARY"
           tail -n 1 "$GITHUB_STEP_SUMMARY"
 
-  # The production image, built the way the VPS builds it (node:24.22.1-alpine).
+  # The production image, built the way the VPS builds it (node:24.22.2-alpine).
   # Added in 0.4.0 for sharp, a native dependency: the test job above runs on
   # glibc, so it cannot show that the alpine runtime stage gets sharp's musl
   # binary. The Dockerfile's runtime stage loads sharp at build time, so a
@@ -209,6 +209,15 @@ jobs:
 
       - name: Verify production runtime matches development
         run: test "$(docker run --rm doclifts-web:ci node -p 'process.versions.node')" = "$(cat .node-version)"
+
+      - name: Build and check the scheduled privacy worker image
+        run: |
+          docker build --target privacy-worker \
+            --build-arg DOCLIFTS_BUILD_SHA=${{ github.sha }} -t doclifts-worker:ci .
+          docker run --rm --user 1000:1000 --read-only --entrypoint node doclifts-worker:ci \
+            /app/node_modules/tsx/dist/cli.mjs --version
+          docker run --rm --entrypoint sh doclifts-worker:ci -c \
+            'test ! -e /root/.cache/node/corepack && test ! -e /usr/local/lib/node_modules/npm'
 
       - name: sharp processes an image inside the runtime image
         run: >-

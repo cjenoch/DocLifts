@@ -68,7 +68,7 @@ different branches sequentially. Do not bypass the wrapper with simultaneous
 `docker exec` test runs. The wrapper refuses remote Docker contexts and an
 explicit `DOCKER_HOST` override.
 
-`Dockerfile.test` uses Node 24.22.1, pnpm 11.3.0 and the same Playwright 1.59.1
+`Dockerfile.test` uses Node 24.22.2, pnpm 11.3.0 and the same Playwright 1.59.1
 image as CI. Update its Node pin together with `.node-version`, package.json,
 the lockfile and the production Dockerfile; update its browser tag with the
 resolved Playwright version and CI. Version/browser checks fail on drift.

@@ -100,7 +100,7 @@ public after the rehearsal.
 
 ## Connector security updates
 
-Compose pins cloudflared **2026.10.6** by version and manifest digest. Versions
+Compose pins cloudflared **2026.10.7** by version and manifest digest. Versions
 before 2026.10.2 retain trust in the compromised eMudhra intermediates described
 in [Cloudflare's advisory](https://blog.cloudflare.com/emudhra-certificate-compromise/).
 Inspect every host and the dashboard connector inventory; an offline replica

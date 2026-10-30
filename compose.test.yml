@@ -19,7 +19,7 @@ services:
     security_opt: ['no-new-privileges:true']
 
   runner:
-    image: doclifts-local-test:node24.22.1-pw1.59.1
+    image: doclifts-local-test:node24.22.2-pw1.59.1
     build:
       context: .
       dockerfile: Dockerfile.test

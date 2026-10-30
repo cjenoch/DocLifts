@@ -74,7 +74,7 @@ See [local Docker testing](docs/local-testing.md) for startup, focused checks,
 resource limits and isolation details. The manual setup below remains available
 for interactive application development.
 
-Use the pnpm version pinned in `package.json`. `pnpm install --frozen-lockfile` installs the project's pinned Node 24.22.1 runtime as well as dependencies; all `pnpm run` and `pnpm exec` commands then use it. A different Node on your shell PATH does not need to be replaced. For standalone Node scripts, use `pnpm exec node` instead of bare `node`. CI reads the matching `.node-version` pin, and both Docker stages use the same patch version. Start an isolated PostgreSQL instance for development; never point test tooling at production:
+Use the pnpm version pinned in `package.json`. `pnpm install --frozen-lockfile` installs the project's pinned Node 24.22.2 runtime as well as dependencies; all `pnpm run` and `pnpm exec` commands then use it. A different Node on your shell PATH does not need to be replaced. For standalone Node scripts, use `pnpm exec node` instead of bare `node`. CI reads the matching `.node-version` pin, and both Docker stages use the same patch version. Start an isolated PostgreSQL instance for development; never point test tooling at production:
 
 ```sh
 docker run -d --name doclifts-dev-db \
@@ -96,7 +96,7 @@ Once PostgreSQL is ready:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm exec node --version # v24.22.1
+pnpm exec node --version # v24.22.2
 pnpm db:migrate
 pnpm user:bootstrap --email lifter@example.invalid --password-stdin
 pnpm exec playwright install chromium

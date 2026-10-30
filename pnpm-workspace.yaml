@@ -10,6 +10,10 @@ overrides:
   # October 2026 advisories: keep fixes within the existing major versions.
   # Remove each override once the parent dependencies request fixed versions.
   'undici@7': 7.30.1
+  # Drizzle's deprecated loader and CLI retain older esbuild binaries. Test
+  # migration/check commands when changing these overrides.
+  '@esbuild-kit/core-utils>esbuild': 0.28.2
+  'drizzle-kit>esbuild': 0.28.2
   'body-parser@2': 2.4.0
   'fast-uri@3': 3.1.9
   'ip-address@10': 10.7.5

@@ -5,7 +5,7 @@ This file is read by Claude, Cursor, and other AI coding tools when working in t
 ## Stack
 
 - **Framework:** SvelteKit (Svelte 5)
-- **Runtime:** Node 24.22.1 LTS (project-managed by pnpm; see CONTRIBUTING.md)
+- **Runtime:** Node 24.22.2 LTS (project-managed by pnpm; see CONTRIBUTING.md)
 - **Database:** PostgreSQL 16, self-hosted in Docker for dev
 - **ORM:** Drizzle (TypeScript-native, SQL-shaped)
 - **Forms:** plain HTML POSTs to SvelteKit server actions, Zod-validated server-side.

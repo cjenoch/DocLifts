@@ -1,8 +1,8 @@
 # Dependency inventory and security updates
 
 Measured October 4, 2026 for 0.18.3 Alpha. This is a lockfile snapshot, not a
-promise that future advisories will remain absent. The current Node pin is 24.22.1
-(updated October 24, 2026); pnpm remains 11.3.0.
+promise that future advisories will remain absent. The current Node pin is 24.22.2
+(updated October 30, 2026); pnpm remains 11.3.0.
 
 The full and production-filtered pnpm audits went from 16 findings (3 critical,
 5 high, 6 moderate, 2 low) to one moderate finding. No audit entries are ignored.
@@ -10,7 +10,7 @@ The existing audit remains report-only; this release does not change that policy
 
 ## Node security patch
 
-Node 24.22.1 includes the Brotli decoder fix for CVE-2026-111497, described in the
+Node 24.22.2 retains the Brotli decoder fix for CVE-2026-111497, described in the
 [Node release notes](https://nodejs.org/en/blog/release/v24.22.1) and
 [October security advisory](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).
 The project-managed development runtime, CI pin and both Alpine Docker stages
@@ -35,8 +35,9 @@ continues to run offline; rebuild the image to pick up these changes.
 
 ## Cloudflare Tunnel certificate update
 
-The connector image is pinned to cloudflared **2026.10.6** and its multi-platform
-manifest digest (October 29, 2026). Version 2026.10.6 updates go-jose to 4.1.6,
+The connector image is pinned to cloudflared **2026.10.7** and its multi-platform
+manifest digest (October 30, 2026). This release fixes an HTTP/2 concurrent-stream
+regression; it retains the 2026.10.6 update to go-jose 4.1.6,
 which fixes [GHSA-mgcc-cww5-fp2q](https://github.com/go-jose/go-jose/security/advisories/GHSA-mgcc-cww5-fp2q).
 This package advisory does not establish that attacker-controlled keys reach the
 affected parser in this tunnel configuration. The preceding 2026.10.4 update replaced

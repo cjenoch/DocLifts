@@ -1,6 +1,6 @@
 # DocLifts — multi-stage build (SvelteKit adapter-node)
 # Builder: resolve deps + `vite build` -> emits ./build (immutable node artifact)
-FROM node:24.22.1-alpine AS builder
+FROM node:24.22.2-alpine AS builder
 WORKDIR /app
 
 # pnpm corepack (project pins pnpm@11.3.0 via package.json packageManager)
@@ -39,11 +39,18 @@ RUN test -n "$DOCLIFTS_BUILD_SHA" || test "$DOCLIFTS_BUILD_SHA" = "unknown" \
   || (echo "DOCLIFTS_BUILD_SHA must be a real sha" >&2; exit 1)
 RUN pnpm build
 
+# The privacy scheduler invokes tsx directly; it does not need Corepack's
+# root-owned package-manager cache. Keep the builder intact for migration and
+# operator scripts that invoke pnpm, and use this stage for scheduled jobs.
+FROM builder AS privacy-worker
+RUN rm -rf /root/.cache/node/corepack /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
+
 # Runtime: slim node + adapter-node output + production deps.
 # The adapter-node build does NOT vendor third-party imports (drizzle-orm,
 # postgres) — the server resolves them from node_modules at runtime, so the
 # runtime image must carry the production dependency graph, not just ./build.
-FROM node:24.22.1-alpine AS runtime
+FROM node:24.22.2-alpine AS runtime
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
@@ -60,7 +67,9 @@ WORKDIR /app
 # `node`; the file mode comes from the build context, not from this Dockerfile.
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN corepack enable && corepack prepare pnpm@11.3.0 --activate \
-    && pnpm install --prod --frozen-lockfile
+    && pnpm install --prod --frozen-lockfile \
+    && rm -rf /root/.cache/node/corepack /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 # sharp (0.4.0 photos) is native. pnpm installs the prebuilt binary for the
 # platform it runs on, so this alpine stage gets @img/sharp-linuxmusl-<arch>,

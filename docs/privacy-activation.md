@@ -49,7 +49,7 @@ provider access controls independently.
    a mode-0660 socket. Preserve the runtime directory across broker restarts so
    web does not retain a bind mount of an unlinked directory. Inspect local
    cache/config paths before using its sandbox.
-4. Build `--target builder --build-arg DOCLIFTS_BUILD_SHA=FULL_COMMIT`, pin its
+4. Build `--target privacy-worker --build-arg DOCLIFTS_BUILD_SHA=FULL_COMMIT`, pin its
    immutable Docker image ID, and retain that image. The worker checks both its
    ID and full source stamp. Its direct Node/tsx command needs no runtime install.
 5. Prepare a root-owned mode-0600 worker environment containing exactly

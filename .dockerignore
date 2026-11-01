@@ -10,6 +10,7 @@ node_modules
 .gitignore
 Dockerfile
 docker-compose.yml
+docker-compose.override.yml
 Caddyfile
 .DS_Store
 .vscode

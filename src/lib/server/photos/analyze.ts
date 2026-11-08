@@ -322,7 +322,22 @@ export async function analyzePhoto(
 			);
 		return { ok: true, candidate: output, callId };
 	} catch (error) {
-		if (error instanceof LlmError) return { ok: false, error };
+		if (error instanceof LlmError) {
+			// Record the failed read on a photo that has none yet, so the workout
+			// page can show it as failed after a reload (photoBlocksForSession).
+			// An analyzed photo keeps the call that produced its candidate.
+			await db
+				.update(equipmentPhotos)
+				.set({ llmCallId: error.callId })
+				.where(
+					and(
+						eq(equipmentPhotos.id, photo.id),
+						eq(equipmentPhotos.userId, userId),
+						eq(equipmentPhotos.status, 'uploaded')
+					)
+				);
+			return { ok: false, error };
+		}
 		throw error;
 	}
 }

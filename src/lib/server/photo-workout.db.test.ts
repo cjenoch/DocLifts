@@ -361,6 +361,51 @@ describe('photoBlocksForSession and machinesToName', () => {
 		expect((await machinesToName(db, alice)).count).toBe(2);
 		expect((await photoBlocksForSession(db, alice, sessionId))[matched.id]).toBeUndefined();
 	});
+
+	it('failed: an uploaded photo whose recorded read did not end ok; only the owner’s call counts', async () => {
+		const call = async (userId: string, status: s.LlmCallStatus) => {
+			const [row] = await db
+				.insert(s.llmCalls)
+				.values({
+					userId,
+					purpose: 'equipment_from_photo',
+					provider: 'openrouter',
+					model: 'test-model',
+					status,
+					latencyMs: 1,
+					promptHash: '0'.repeat(16)
+				})
+				.returning();
+			return row.id;
+		};
+		const link = (photoId: string, llmCallId: string) =>
+			db.update(s.equipmentPhotos).set({ llmCallId }).where(eq(s.equipmentPhotos.id, photoId));
+		const sessionId = await openSession();
+		const failedPhoto = await photo();
+		const failed = await openPhotoBlock(db, alice, sessionId, failedPhoto.id);
+		await link(failedPhoto.id, await call(alice, 'timeout'));
+		// An ok call on an uploaded photo (undo of a candidate that no longer parses): not a failure.
+		const okPhoto = await photo();
+		const ok = await openPhotoBlock(db, alice, sessionId, okPhoto.id);
+		await link(okPhoto.id, await call(alice, 'ok'));
+		// A failed call that is not this user's is never read for them.
+		const foreignPhoto = await photo();
+		const foreign = await openPhotoBlock(db, alice, sessionId, foreignPhoto.id);
+		await link(foreignPhoto.id, await call(bob, 'provider_error'));
+
+		const blocks = await photoBlocksForSession(db, alice, sessionId);
+		expect(blocks[failed.id]).toEqual({ kind: 'failed', photoId: failedPhoto.id });
+		expect(blocks[ok.id]).toEqual({ kind: 'reading', photoId: okPhoto.id });
+		expect(blocks[foreign.id]).toEqual({ kind: 'reading', photoId: foreignPhoto.id });
+		expect(await photoBlocksForSession(db, bob, sessionId)).toEqual({});
+
+		// A read that then succeeds moves the photo on: failed is not sticky.
+		await db
+			.update(s.equipmentPhotos)
+			.set({ status: 'analyzed', candidate: FIXTURE_CANDIDATE, llmCallId: await call(alice, 'ok') })
+			.where(eq(s.equipmentPhotos.id, failedPhoto.id));
+		expect((await photoBlocksForSession(db, alice, sessionId))[failed.id]?.kind).toBe('match');
+	});
 });
 
 describe('photoTimeLabel', () => {

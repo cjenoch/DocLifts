@@ -8,6 +8,8 @@ export class WorkoutPhotos {
 	autoRead = $state<string[]>([]);
 	readingIds = $state<string[]>([]);
 	laterIds = $state<string[]>([]);
+	/** Photos whose read, run from this page, came back failed (until read again). */
+	failedIds = $state<string[]>([]);
 	photoStage = $state<string | null>(null);
 	photoError = $state('');
 	photoRequestId = $state('');
@@ -58,8 +60,16 @@ export class WorkoutPhotos {
 		() => {
 			this.readingIds = [...this.readingIds, photoId];
 			this.autoRead = this.autoRead.filter((id) => id !== photoId);
-			return async ({ update }) => {
+			this.failedIds = this.failedIds.filter((id) => id !== photoId);
+			return async ({ result, update }) => {
 				try {
+					// A refusal or an error is a failed read too: the block stays as it was.
+					if (
+						result.type === 'failure' ||
+						result.type === 'error' ||
+						(result.type === 'success' && result.data?.read === 'failed')
+					)
+						this.failedIds = [...this.failedIds, photoId];
 					await update();
 				} finally {
 					this.readingIds = this.readingIds.filter((id) => id !== photoId);

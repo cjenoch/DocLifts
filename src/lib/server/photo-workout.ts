@@ -27,6 +27,7 @@ import {
 	exercises,
 	gymEquipment,
 	gyms,
+	llmCalls,
 	sessionExercises,
 	sessions,
 	sets
@@ -381,9 +382,15 @@ export type PhotoBlockState =
 
 /**
  * What each unidentified photo block of this session shows, by block id.
- * `uploaded`: the read has not finished (the page reads it once, right after
- * the photo; on a later load it offers "Read again"). `analyzed` with a
- * preselected match: the "Use this" card. Anything else: name it now or later.
+ * `uploaded` whose recorded read (`llm_call_id`) did not end `ok`: `failed`,
+ * "Read again" or name it. Any other `uploaded`: `reading`, the read has not
+ * finished (the page reads it once, right after the photo; on a later load it
+ * offers "Read again"). `analyzed` with a preselected match: the "Use this"
+ * card. Anything else: name it now or later.
+ *
+ * `analyzePhoto` records the call on an `uploaded` photo whether it succeeds
+ * or fails, so a failed read survives a reload. A read that never ran (the
+ * request was cut off before the model call) has no call and stays `reading`.
  */
 export async function photoBlocksForSession(
 	db: Database,
@@ -391,10 +398,19 @@ export async function photoBlocksForSession(
 	sessionId: string
 ): Promise<Record<string, PhotoBlockState>> {
 	const rows = await db
-		.select({ photo: equipmentPhotos, occurrenceId: sessionExercises.id })
+		.select({
+			photo: equipmentPhotos,
+			occurrenceId: sessionExercises.id,
+			readStatus: llmCalls.status
+		})
 		.from(equipmentPhotos)
 		.innerJoin(sessionExercises, eq(sessionExercises.id, equipmentPhotos.sessionExerciseId))
 		.innerJoin(exercises, eq(exercises.id, sessionExercises.exerciseId))
+		// The read on record, owner-scoped like every llm_calls read.
+		.leftJoin(
+			llmCalls,
+			and(eq(llmCalls.id, equipmentPhotos.llmCallId), eq(llmCalls.userId, userId))
+		)
 		.where(
 			and(
 				eq(equipmentPhotos.userId, userId),
@@ -406,10 +422,11 @@ export async function photoBlocksForSession(
 		)
 		.orderBy(desc(equipmentPhotos.createdAt));
 	const out: Record<string, PhotoBlockState> = {};
-	for (const { photo, occurrenceId } of rows) {
+	for (const { photo, occurrenceId, readStatus } of rows) {
 		if (out[occurrenceId]) continue;
 		if (photo.status === 'uploaded') {
-			out[occurrenceId] = { kind: 'reading', photoId: photo.id };
+			const failed = readStatus != null && readStatus !== 'ok';
+			out[occurrenceId] = { kind: failed ? 'failed' : 'reading', photoId: photo.id };
 			continue;
 		}
 		const candidate = photo.status === 'analyzed' ? parseCandidate(photo.candidate) : null;

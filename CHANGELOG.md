@@ -2,6 +2,21 @@
 
 ## Unreleased — one workout-state vocabulary — not deployed
 
+- Phase 2 (server guards and workout-page fixes):
+  - The server now refuses what the workout page already hid: swapping or
+    binding a machine to a photo block ("Name this machine from its photo
+    first."), binding a machine to a free weight, and restoring from Trash a
+    workout that was trashed before it ended.
+  - Finishing a workout with "From now on" swaps reports "the program changed"
+    instead of an error when the program is replaced at the same moment, and
+    no longer misses a workout of that program started at the same moment.
+  - A photo whose read failed now offers Read again and Name it, also after a
+    reload; a photo not read yet says so instead of claiming a failure.
+  - The exercise menu on an unnamed photo block says why swap and remove are
+    missing.
+  - The rest timer's "Try alert" no longer overwrites a running rest's status,
+    and dismissing a finished rest clears its message.
+
 - No user-visible change. Internal: `sessionPhase`, `setStatus` and
   `workoutCapabilities` (`src/lib/workout-state.ts`) and the SQL fragments in
   `workout-state-sql.ts` replace 87 hand-spelled session predicates and 25 set

@@ -62,6 +62,11 @@ export const workoutUi = {
 	photoReading: 'Identifying machine…',
 	/** Any read that ends without a match: failure, timeout, limit, no placard. */
 	photoReadFailed: 'Could not read this photo. Name it now or later.',
+	/**
+	 * A photo with no read on record and none running (the page was left or
+	 * reloaded before the read ended): nothing failed, so no failure copy.
+	 */
+	photoNotRead: 'This photo is not read yet. Read it or name it now or later.',
 	photoReadAgain: 'Read again',
 	photoNameIt: 'Name it',
 	photoUseThis: 'Use this',
@@ -98,6 +103,8 @@ export const workoutUi = {
 	undo: 'Undo',
 	undoSeconds: 5,
 	swapLocked: 'Logged sets: swap is closed. Skip the rest and add the other exercise.',
+	/** A photo block with nothing logged: swap and remove appear once it is named. */
+	photoBlockMenuNote: 'Name the machine first to swap or remove it.',
 	/** The swap sheet and its confirm step. */
 	swapFor: (name: string) => `Swap ${name} for…`,
 	swapConfirm: (from: string, to: string) => `Swap ${from} for ${to}?`,
@@ -154,5 +161,8 @@ export const workoutUi = {
 	restLabel: 'Rest',
 	restOver: 'Rest over',
 	restAdd: '+30 s',
-	restDismiss: 'Dismiss rest timer'
+	restDismiss: 'Dismiss rest timer',
+	/** Under the clock when a rest runs out (and for "Try alert" while idle). */
+	restFinished: 'Rest finished · ready for your next set',
+	restFinishedNoSound: 'Rest finished · tap the clock to enable sound in this tab'
 } as const;

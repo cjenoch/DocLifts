@@ -54,14 +54,19 @@
 		keep({ startedAt: Date.now(), seconds: duration });
 		status = '';
 	}
+	/** The end of a rest: the line under the clock, then the visual and the chime. */
 	function alert() {
+		status = ui.restFinished;
+		if (!signal()) status = ui.restFinishedNoSound;
+	}
+	/**
+	 * The visual alert and, when on, the chime. Writes no status, so "Try alert"
+	 * can preview it during a running rest. False when sound is on but blocked.
+	 */
+	function signal(): boolean {
 		alertCount += 1;
-		status = 'Rest finished · ready for your next set';
-		if (!sound) return;
-		if (!audio || audio.state !== 'running') {
-			status = 'Rest finished · tap the clock to enable sound in this tab';
-			return;
-		}
+		if (!sound) return true;
+		if (!audio || audio.state !== 'running') return false;
 		for (const [offset, hz] of [
 			[0, 660],
 			[0.19, 880]
@@ -82,6 +87,7 @@
 				gain.disconnect();
 			};
 		}
+		return true;
 	}
 	onMount(() => {
 		try {
@@ -137,7 +143,11 @@
 						type="button"
 						class="readout"
 						aria-label={ui.restDismiss}
-						onclick={() => keep(null)}
+						onclick={() => {
+							keep(null);
+							// Nothing to report under an idle clock.
+							status = '';
+						}}
 						><span>{left ? ui.restLabel : ui.restOver}</span><output data-testid="rest-clock"
 							>{clock(left)}</output
 						></button
@@ -200,7 +210,8 @@
 			onclick={() => {
 				prepare();
 				settings = false;
-				setTimeout(alert, 100);
+				// During a running rest, a preview only: the clock and its line stay as they are.
+				setTimeout(() => (rest && left > 0 ? signal() : alert()), 100);
 			}}>Try alert</button
 		>
 	</div>

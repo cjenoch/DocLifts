@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { sessionPhase } from '$lib/workout-state';
 	import TrashAction from '$lib/TrashAction.svelte';
 	import TrashPurgeForm from '$lib/TrashPurgeForm.svelte';
 	import { enhance } from '$app/forms';
@@ -174,7 +175,7 @@
 									<div class="font-medium text-zinc-100">{session.dayName}</div>
 									<div class="text-xs text-zinc-500">
 										{new Date(session.startedAt).toLocaleString()}
-										{#if session.endedAt}
+										{#if sessionPhase(session) === 'ended'}
 											· ended
 										{:else}
 											· open
@@ -183,10 +184,12 @@
 								</div>
 								<div class="flex items-center gap-2">
 									<a
-										href="/sessions/{session.id}{session.endedAt ? '?edit=1' : ''}"
+										href="/sessions/{session.id}{sessionPhase(session) === 'ended'
+											? '?edit=1'
+											: ''}"
 										class="rounded-md bg-zinc-800 px-2.5 py-1 text-xs font-semibold text-zinc-100 active:bg-zinc-700"
 									>
-										{session.endedAt ? 'Edit' : 'Resume'}
+										{sessionPhase(session) === 'ended' ? 'Edit' : 'Resume'}
 									</a>
 								</div>
 							</div>

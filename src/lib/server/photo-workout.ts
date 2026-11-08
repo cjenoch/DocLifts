@@ -43,6 +43,9 @@ import { matchCandidate } from './photos/match';
 import { parseCandidate } from './photos/analyze';
 import { defaultMachineLabel } from '../catalog-labels';
 import { workoutUi } from '../workout-ui';
+import { sessionPhase } from '../workout-state';
+import { lockSession } from './session-lock';
+import { historyFilter, sessionIs } from './workout-state-sql';
 
 /** Marks the per-user placeholder exercise, whatever its display name. */
 export const PLACEHOLDER_MOVEMENT = 'unidentified-machine';
@@ -111,13 +114,10 @@ export async function openPhotoBlock(
 ) {
 	z.string().uuid().parse(photoId);
 	return db.transaction(async (tx) => {
-		const [session] = await tx
-			.select()
-			.from(sessions)
-			.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
-			.for('update');
-		if (!session || session.deletedAt) throw new MachineInputError('Session not found');
-		if (session.endedAt) throw new MachineInputError('Session has ended');
+		const session = await lockSession(tx, userId, sessionId);
+		if (!session || sessionPhase(session) === 'trashed')
+			throw new MachineInputError('Session not found');
+		if (sessionPhase(session) === 'ended') throw new MachineInputError('Session has ended');
 		if (!session.gymId) throw new MachineInputError('This workout has no gym');
 		const [photo] = await tx
 			.select()
@@ -224,12 +224,8 @@ export async function identifySessionExercise(
 	const value = identifySchema.parse(input);
 	return db.transaction(async (tx) => {
 		// Serialises with set updates and quick-add, like every block change.
-		const [session] = await tx
-			.select()
-			.from(sessions)
-			.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
-			.for('update');
-		if (!session || session.deletedAt) return null;
+		const session = await lockSession(tx, userId, sessionId);
+		if (!session || sessionPhase(session) === 'trashed') return null;
 		const [block] = await tx
 			.select({ occurrence: sessionExercises, exercise: exercises })
 			.from(sessionExercises)
@@ -363,7 +359,8 @@ export async function identifySessionExercise(
 
 		// Last time's numbers into the sets not touched yet, on an open workout
 		// (0.6.1). A set with a saved value or note keeps its prescription.
-		if (!session.endedAt) await prefillOccurrence(tx, userId, updated, { onlyUntouched: true });
+		if (sessionPhase(session) === 'open')
+			await prefillOccurrence(tx, userId, updated, { onlyUntouched: true });
 		return { occurrence: updated, machineId: machine.id, merged: machine.id !== placeholder.id };
 	});
 }
@@ -463,7 +460,7 @@ export async function machinesToName(
 		.where(
 			and(
 				eq(sessions.userId, userId),
-				isNull(sessions.deletedAt),
+				sessionIs.notTrashed(),
 				eq(equipmentPhotos.userId, userId),
 				ne(equipmentPhotos.status, 'discarded'),
 				eq(exercises.userId, userId),
@@ -494,7 +491,7 @@ export async function unidentifiedBlockOfPhoto(
 				eq(equipmentPhotos.id, photoId),
 				eq(equipmentPhotos.userId, userId),
 				eq(sessions.userId, userId),
-				isNull(sessions.deletedAt),
+				sessionIs.notTrashed(),
 				eq(exercises.userId, userId),
 				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
 			)
@@ -532,8 +529,7 @@ export async function autoIdentifyRepeatVisit(
 				eq(equipmentPhotos.status, 'analyzed'),
 				eq(sessions.id, sessionId),
 				eq(sessions.userId, userId),
-				isNull(sessions.endedAt),
-				isNull(sessions.deletedAt),
+				sessionIs.open(),
 				eq(exercises.userId, userId),
 				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
 			)
@@ -559,12 +555,10 @@ export async function autoIdentifyRepeatVisit(
 		.where(
 			and(
 				eq(sessions.userId, userId),
-				isNull(sessions.deletedAt),
-				sql`${sessions.endedAt} IS NOT NULL`,
+				historyFilter(),
 				eq(gymEquipment.gymId, row.photo.gymId),
 				eq(gymEquipment.equipmentModelId, found.preselectedId),
-				isNull(gymEquipment.archivedAt),
-				sql`${sets.executedLoad} IS NOT NULL AND ${sets.executedReps} IS NOT NULL`
+				isNull(gymEquipment.archivedAt)
 			)
 		)
 		.orderBy(desc(sessions.startedAt))
@@ -599,12 +593,8 @@ export async function undoPhotoIdentify(
 	z.string().uuid().parse(sessionId);
 	z.string().uuid().parse(occurrenceId);
 	return db.transaction(async (tx) => {
-		const [session] = await tx
-			.select()
-			.from(sessions)
-			.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
-			.for('update');
-		if (!session || session.deletedAt || session.endedAt) return null;
+		const session = await lockSession(tx, userId, sessionId);
+		if (!session || sessionPhase(session) !== 'open') return null;
 		const [block] = await tx
 			.select({ occurrence: sessionExercises, photo: equipmentPhotos })
 			.from(sessionExercises)

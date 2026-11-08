@@ -19,6 +19,7 @@ import { and, desc, eq, isNotNull, isNull, ne } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './db/schema';
 import { sessions, sets } from './db/schema';
+import { historyFilter } from './workout-state-sql';
 
 /**
  * Local type alias for any Drizzle PG client backed by this schema.
@@ -324,17 +325,14 @@ export async function computeConsecutiveBackwards(
 		.innerJoin(sessions, eq(sets.sessionId, sessions.id))
 		.where(
 			and(
-				// Owner predicate first. The history filters below stay in their
-				// existing order; this scopes the read to one user and nothing else.
+				// Owner predicate first; it scopes the read to one user and nothing
+				// else. The history filters are `historyFilter()` (CLAUDE.md).
 				eq(sets.userId, userId),
 				eq(sets.exerciseId, exerciseId),
 				identityFilter(identity),
 				eq(sets.setRole, setRole),
 				eq(sets.position, position),
-				isNotNull(sets.executedLoad),
-				isNotNull(sets.executedReps),
-				isNotNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
+				historyFilter()
 			)
 		)
 		.orderBy(sets.sessionId, desc(sets.loggedAt), desc(sets.id))
@@ -409,19 +407,15 @@ export async function getLastCompletedSet(
 		.innerJoin(sessions, eq(sets.sessionId, sessions.id))
 		.where(
 			and(
-				// Owner predicate first. The three history filters below stay in
-				// their existing order; this scopes the read to one user and
-				// nothing else. `sets` carries its own user_id, so no join to
-				// `sessions` is needed to scope it.
+				// Owner predicate first; it scopes the read to one user and nothing
+				// else. `sets` carries its own user_id, so no join to `sessions` is
+				// needed to scope it. The history filters are `historyFilter()`.
 				eq(sets.userId, userId),
 				eq(sets.exerciseId, exerciseId),
 				identityFilter(identity),
 				eq(sets.setRole, setRole),
 				eq(sets.position, position),
-				isNotNull(sets.executedLoad),
-				isNotNull(sets.executedReps),
-				isNotNull(sessions.endedAt),
-				isNull(sessions.deletedAt),
+				historyFilter(),
 				// drizzle drops `undefined` operands inside and(...), so this is a no-op when no session is being excluded.
 				excludeSessionId ? ne(sessions.id, excludeSessionId) : undefined
 			)

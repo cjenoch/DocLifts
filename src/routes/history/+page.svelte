@@ -3,8 +3,14 @@
 	import { workoutUi } from '$lib/workout-ui';
 	import TrashAction from '$lib/TrashAction.svelte';
 	import { appShell, pageTitle } from '$lib/app-shell';
+	import { sessionPhase, type SessionLike } from '$lib/workout-state';
 
 	let { data }: { data: PageData } = $props();
+
+	// historyForMonth returns only sessions not in the Trash, so it does not
+	// select deletedAt; null is the truth for every row here.
+	const phaseOf = (s: Pick<SessionLike, 'endedAt'>) =>
+		sessionPhase({ endedAt: s.endedAt, deletedAt: null });
 
 	const monthLabel = $derived.by(() => {
 		const [y, m] = data.month.split('-').map(Number);
@@ -66,7 +72,7 @@
 							<span class="font-medium text-zinc-100"
 								>{s.systemKind === 'quick' ? workoutUi.quickWorkoutLabel : s.dayName}</span
 							>
-							{#if s.endedAt}
+							{#if phaseOf(s) === 'ended'}
 								<span class="text-xs font-semibold tracking-wide text-emerald-400 uppercase"
 									>Done</span
 								>
@@ -81,7 +87,7 @@
 								· {s.programName}{#if !s.programIsActive}
 									<span class="text-zinc-600">(archived)</span>{/if}{/if}
 						</div>
-						{#if s.endedAt}
+						{#if phaseOf(s) === 'ended'}
 							<div class="mt-2 text-xs text-indigo-300">Edit →</div>
 						{:else}
 							<div class="mt-2 text-xs text-indigo-300">Resume →</div>

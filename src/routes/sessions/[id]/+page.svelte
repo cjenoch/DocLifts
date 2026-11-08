@@ -16,6 +16,7 @@
 	import { FREE_TYPES, pickerUi } from '$lib/picker-ui';
 	import TrashAction from '$lib/TrashAction.svelte';
 	import { workoutUi } from '$lib/workout-ui';
+	import { isCompleted, isTouched } from '$lib/workout-state';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let dirtyIds = $state<string[]>([]);
 	let appending = $state<string | null>(null);
@@ -39,21 +40,16 @@
 	$effect(() => preferences.restore(data.user!.id, data.session.programId, data.quick));
 	const activeGroup = $derived(
 		data.groups.find((g) => g.key === guidedGroup)?.key ??
-			data.groups.find((g) => g.sets.some((s) => s.executedLoad == null || s.executedReps == null))
-				?.key ??
+			data.groups.find((g) => g.sets.some((s) => !isCompleted(s)))?.key ??
 			data.groups[0]?.key
 	);
 	const currentSet = (g: PageData['groups'][number]) =>
-		guidedSets[g.key] ??
-		g.sets.find((s) => s.executedLoad == null || s.executedReps == null)?.id ??
-		g.sets.at(-1)?.id;
+		guidedSets[g.key] ?? g.sets.find((s) => !isCompleted(s))?.id ?? g.sets.at(-1)?.id;
 	function savedSet(id: string) {
 		timer?.start();
 		const group = data.groups.find((g) => g.sets.some((s) => s.id === id));
 		if (group) {
-			const next = group.sets.find(
-				(s) => s.id !== id && (s.executedLoad == null || s.executedReps == null)
-			);
+			const next = group.sets.find((s) => s.id !== id && !isCompleted(s));
 			if (next) guidedSets[group.key] = next.id;
 		}
 	}
@@ -92,21 +88,21 @@
 	const toName = $derived(Object.keys(data.photoBlocks).length);
 
 	const allSets = $derived(data.groups.flatMap((g) => g.sets));
-	const completed = $derived(
-		allSets.filter((s) => s.executedLoad != null && s.executedReps != null).length
-	);
+	const completed = $derived(allSets.filter(isCompleted).length);
 </script>
 
 <svelte:head><title>{heading} · DocLifts</title></svelte:head>
 <main
 	class="workout"
-	class:modern={!data.session.endedAt}
+	class:modern={data.capabilities.canEditLive}
 	data-layout={preferences.layout}
 	class:editing
 >
 	<a class="back" href={backHref}>{data.quick ? '← Workout' : '← Program'}</a>
 	<header>
-		<div class="eyebrow">DOCLIFTS / {data.session.endedAt ? 'WORKOUT HISTORY' : 'IN SESSION'}</div>
+		<div class="eyebrow">
+			DOCLIFTS / {data.capabilities.phase === 'ended' ? 'WORKOUT HISTORY' : 'IN SESSION'}
+		</div>
 		<h1>{heading}</h1>
 		<p class="muted">
 			{new Date(data.session.startedAt).toLocaleDateString(undefined, {
@@ -123,7 +119,7 @@
 		<progress value={completed} max={Math.max(allSets.length, 1)} aria-label="Workout completion"
 		></progress>
 	</header>
-	<WorkoutControls {preferences} bind:editing ended={data.session.endedAt != null} />
+	<WorkoutControls {preferences} bind:editing ended={data.capabilities.phase === 'ended'} />
 	{#if editing}<section class="edit-intro">
 			<h2>Edit this workout</h2>
 			<p>
@@ -146,7 +142,7 @@
 		>
 	{/if}
 
-	{#if !data.session.endedAt && data.groups.length === 0}
+	{#if data.capabilities.canEditLive && data.groups.length === 0}
 		<section
 			class="mb-5 rounded-xl border border-indigo-800 bg-indigo-950/40 p-5"
 			data-testid="first-machine-guide"
@@ -172,8 +168,8 @@
 	{#if toName}<p class="to-name" data-testid="machines-to-name">
 			{workoutUi.machinesToName(toName)}
 		</p>{/if}
-	{#if data.session.endedAt}<div class="history-tools">
-			{#if data.allowEndedSessionEdit}
+	{#if data.capabilities.phase === 'ended'}<div class="history-tools">
+			{#if data.capabilities.editEnded}
 				<a href="/sessions/{data.session.id}">Done editing</a>
 				<TrashAction
 					action="?/deleteSession"
@@ -201,7 +197,7 @@
 				>{/if}
 		</p>
 	{/if}
-	{#if data.saveAsProgram && !data.session.deletedAt}
+	{#if data.saveAsProgram && data.capabilities.canSaveAsProgram}
 		<section class="save-program" data-testid="save-as-program">
 			<h2>{workoutUi.saveAsProgram}</h2>
 			<p class="muted">{workoutUi.saveAsProgramNote}</p>
@@ -253,7 +249,7 @@
 							: ''}
 					</p>
 				</div>
-				{#if !data.session.endedAt && group.occurrenceId}
+				{#if data.capabilities.canEditLive && group.occurrenceId}
 					<ExerciseMenu
 						{group}
 						occurrenceId={group.occurrenceId}
@@ -277,11 +273,11 @@
 					occurrenceId={group.occurrenceId}
 					block={data.photoBlocks[group.occurrenceId]}
 					named={data.namedPhotoBlocks[group.occurrenceId]}
-					live={!data.session.endedAt}
+					live={data.capabilities.canEditLive}
 					{photos}
 				/>
 			{/if}
-			{#if !data.session.endedAt && group.occurrenceId && !data.photoBlocks[group.occurrenceId] && !FREE_WEIGHT_UI.has(group.equipmentType) && !group.sets.some((x) => x.executedLoad != null || x.executedReps != null || x.executedRir != null || x.notes)}
+			{#if data.capabilities.canEditLive && group.occurrenceId && !data.photoBlocks[group.occurrenceId] && !FREE_WEIGHT_UI.has(group.equipmentType) && !group.sets.some(isTouched)}
 				<!-- The machine for a planned exercise (0.8.1): the add sheet in bind mode,
 				     with a confirm step. Refused by the server once a set is logged. -->
 				<button
@@ -303,10 +299,7 @@
 						value={currentSet(group)}
 						onchange={(event) => (guidedSets[group.key] = event.currentTarget.value)}
 						>{#each group.sets as set}<option value={set.id}
-								>Set {set.position} · {set.setRole}{set.executedLoad != null &&
-								set.executedReps != null
-									? ' · saved'
-									: ''}</option
+								>Set {set.position} · {set.setRole}{isCompleted(set) ? ' · saved' : ''}</option
 							>{/each}</select
 					></label
 				>{/if}
@@ -328,13 +321,13 @@
 						steppers={preferences.steppers}
 						hidden={preferences.layout === 'guided' && !editing && set.id !== currentSet(group)}
 						onstartsave={() => timer?.prepare()}
-						sessionEnded={data.session.endedAt != null}
-						allowEndedSessionEdit={data.allowEndedSessionEdit}
+						sessionEnded={data.capabilities.phase === 'ended'}
+						allowEndedSessionEdit={data.capabilities.editEnded}
 						{ondirty}
 						onsaved={savedSet}
 					/>{/each}
 			</ul>
-			{#if !data.session.endedAt}<form
+			{#if data.capabilities.canEditLive}<form
 					class="add-set"
 					class:tool-hidden={!editing}
 					method="POST"
@@ -378,7 +371,7 @@
 					>
 				</form>
 				{@const last = group.sets.at(-1)!}
-				{#if group.sets.length > 1 && last.executedLoad == null && last.executedReps == null && last.executedRir == null && !last.notes}
+				{#if group.sets.length > 1 && !isTouched(last)}
 					<form
 						method="POST"
 						action="?/removeSet"
@@ -414,7 +407,7 @@
 		</section>
 	{/each}
 	{#if appendError}<p role="alert" class="error">{appendError}</p>{/if}
-	{#if !data.session.endedAt && data.picker}
+	{#if data.capabilities.canEditLive && data.picker}
 		<!-- The add sheet (0.8.0, machines spec Parts I and J). -->
 		<button
 			class="add-trigger"
@@ -449,7 +442,7 @@
 		{/if}
 	{/if}
 </main>
-{#if !data.session.endedAt}<footer>
+{#if data.capabilities.canFinish}<footer>
 		<div class="footer-inner">
 			{#if data.photoEnabled}<WorkoutPhotoUpload
 					{photos}

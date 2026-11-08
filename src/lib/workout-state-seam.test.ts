@@ -48,8 +48,12 @@ export const ANY_FILE_PATTERNS: RegExp[] = [
 	// isNull(sessions.endedAt), isNotNull(s.deletedAt), ...
 	// (`isNot?Null` would not match `isNull`: the `?` binds only to the `t`.)
 	/is(Not)?Null\(\w+\.(endedAt|deletedAt)\)/,
+	// The same through a namespace import: isNull(s.sessions.deletedAt).
+	/is(Not)?Null\(\w+(\.\w+)+\.(endedAt|deletedAt)\)/,
 	// `... ended_at IS NOT NULL ...` in raw SQL.
 	/(ended_at|deleted_at)\s+IS\s+(NOT\s+)?NULL/,
+	// The same with an interpolated column: sql`${sessions.endedAt} IS NOT NULL`.
+	/\$\{\w+\.(endedAt|deletedAt)\}\s+IS\s+(NOT\s+)?NULL/,
 	// Inline touched / completed chains.
 	/executedLoad\s*!==?\s*null\s*(\|\||&&)/
 ];
@@ -102,6 +106,9 @@ describe('the workout-state seam', () => {
 		expect(any('isNull(sess.deletedAt)')).toBe(true);
 		expect(any('sql`and ended_at IS NOT NULL`')).toBe(true);
 		expect(any("'WHERE deleted_at IS NULL'")).toBe(true);
+		expect(any('sql`${sessions.endedAt} IS NOT NULL`')).toBe(true);
+		expect(any('count(sql`CASE WHEN ${sessions.endedAt} IS NULL THEN 1 END`)')).toBe(true);
+		expect(any('isNull(s.sessions.deletedAt)')).toBe(true);
 		expect(any('set.executedLoad !== null || set.executedReps !== null')).toBe(true);
 		expect(any('s.executedLoad != null && s.executedReps != null')).toBe(true);
 		expect(svelte('{#if data.session.endedAt}')).toBe(true);
@@ -112,6 +119,8 @@ describe('the workout-state seam', () => {
 
 		expect(any('.where(sessionIs.open())')).toBe(false);
 		expect(any('isNull(sets.executedLoad)')).toBe(false);
+		expect(any('sql`CASE WHEN ${sessionIs.ended()} THEN 1 END`')).toBe(false);
+		expect(any('isNull(s.programs.systemKind)')).toBe(false);
 		expect(svelte('{formatDate(session.endedAt)}')).toBe(false);
 		expect(svelte('{#if data.capabilities.canFinish}')).toBe(false);
 	});

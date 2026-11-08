@@ -1,6 +1,7 @@
-import { and, count, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { days, exercises, programs, sessionExercises, sessions, sets } from './db/schema';
 import type { Database } from './progression';
+import { historyFilter, sessionIs } from './workout-state-sql';
 export async function topExerciseIdentities(db: Database, userId: string) {
 	const exerciseName = sql<string>`coalesce(${sessionExercises.exerciseName}, ${exercises.name})`;
 	return db
@@ -22,10 +23,7 @@ export async function topExerciseIdentities(db: Database, userId: string) {
 				// `sets` carries its own user_id, so it filters directly rather
 				// than relying on the joined session being scoped.
 				eq(sets.userId, userId),
-				isNull(sessions.deletedAt),
-				isNotNull(sessions.endedAt),
-				isNotNull(sets.executedLoad),
-				isNotNull(sets.executedReps)
+				historyFilter()
 			)
 		)
 		.groupBy(
@@ -49,11 +47,13 @@ export async function reportSnapshot(db: Database, userId: string) {
 	const [sessionCounts] = await db
 		.select({
 			totalNotDeleted: count(sessions.id),
-			endedNotDeleted: count(sql`CASE WHEN ${sessions.endedAt} IS NOT NULL THEN 1 END`),
-			openNotDeleted: count(sql`CASE WHEN ${sessions.endedAt} IS NULL THEN 1 END`)
+			// Counted over not-trashed rows only (the WHERE), so these are exactly
+			// the ended and open phases.
+			endedNotDeleted: count(sql`CASE WHEN ${sessionIs.ended()} THEN 1 END`),
+			openNotDeleted: count(sql`CASE WHEN ${sessionIs.open()} THEN 1 END`)
 		})
 		.from(sessions)
-		.where(and(eq(sessions.userId, userId), isNull(sessions.deletedAt)));
+		.where(and(eq(sessions.userId, userId), sessionIs.notTrashed()));
 
 	const [setCounts] = await db
 		.select({
@@ -64,7 +64,7 @@ export async function reportSnapshot(db: Database, userId: string) {
 		})
 		.from(sets)
 		.innerJoin(sessions, eq(sessions.id, sets.sessionId))
-		.where(and(eq(sets.userId, userId), isNull(sessions.deletedAt), isNotNull(sessions.endedAt)));
+		.where(and(eq(sets.userId, userId), sessionIs.ended()));
 
 	const completed = setCounts.completedInEndedSessions ?? 0;
 	const totalEndedSetRows = setCounts.totalInEndedSessions ?? 0;
@@ -88,9 +88,7 @@ export async function reportSnapshot(db: Database, userId: string) {
 		.innerJoin(days, eq(days.id, sessions.dayId))
 		.innerJoin(programs, eq(programs.id, sessions.programId))
 		.leftJoin(sets, eq(sets.sessionId, sessions.id))
-		.where(
-			and(eq(sessions.userId, userId), isNull(sessions.deletedAt), isNotNull(sessions.endedAt))
-		)
+		.where(and(eq(sessions.userId, userId), sessionIs.ended()))
 		.groupBy(sessions.id, days.name, programs.systemKind)
 		.orderBy(desc(sessions.startedAt))
 		.limit(10);
@@ -123,8 +121,7 @@ export async function reportSnapshot(db: Database, userId: string) {
 		.where(
 			and(
 				eq(sessions.userId, userId),
-				isNull(sessions.deletedAt),
-				isNotNull(sessions.endedAt),
+				sessionIs.ended(),
 				sql`${sessions.startedAt} >= now() - interval '14 days'`
 			)
 		)
@@ -142,9 +139,7 @@ export async function reportSnapshot(db: Database, userId: string) {
 			last28: count(sql`CASE WHEN ${sessions.startedAt} >= now() - interval '28 days' THEN 1 END`)
 		})
 		.from(sessions)
-		.where(
-			and(eq(sessions.userId, userId), isNull(sessions.deletedAt), isNotNull(sessions.endedAt))
-		);
+		.where(and(eq(sessions.userId, userId), sessionIs.ended()));
 
 	return {
 		overview: {

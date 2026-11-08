@@ -2055,7 +2055,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			userId,
 			started.sessionId,
 			other.programId,
-			'deleted-only'
+			'trashed'
 		);
 		expect(scoped).toBeNull();
 
@@ -2087,7 +2087,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			userId,
 			started.sessionId,
 			other.programId,
-			'deleted-only'
+			'trashed'
 		);
 		expect(scoped).toBeNull();
 
@@ -2670,7 +2670,7 @@ describe('soft-delete and hard-delete session guards', () => {
 		// Simulate the race: hardDeleteSession's loadSession pre-check runs
 		// first, then a restore commits before the DELETE. We can't interleave
 		// real callbacks without hooks, so we assert the DELETE-side guard
-		// directly: clear deleted_at AFTER a loadSession('deleted-only') read
+		// directly: clear deleted_at AFTER a loadSession('trashed') read
 		// would succeed but BEFORE the delete — approximated by restoring and
 		// verifying the in-transaction isNotNull guard makes it a 409 no-op.
 		// Path A (normal): soft-deleted → hard delete succeeds. Done first.
@@ -2825,7 +2825,7 @@ describe('cross-tenant isolation', () => {
 		const started = await startSessionForDay(db, alice, (await dayFor(alice)).id);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
-		expect(await loadSession(db, alice, started.sessionId, 'active')).not.toBeNull();
-		expect(await loadSession(db, bob, started.sessionId, 'active')).toBeNull();
+		expect(await loadSession(db, alice, started.sessionId, 'not-trashed')).not.toBeNull();
+		expect(await loadSession(db, bob, started.sessionId, 'not-trashed')).toBeNull();
 	});
 });

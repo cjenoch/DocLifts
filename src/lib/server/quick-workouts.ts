@@ -13,6 +13,7 @@ import type { Database } from './progression';
 import { startSessionForDay, type StartSessionResult } from './sessions';
 import { createGym } from './machines';
 import { workoutUi } from '../workout-ui';
+import { sessionIs } from './workout-state-sql';
 
 export const QUICK = 'quick' as const;
 // The partial index's predicate, repeated so ON CONFLICT can infer that index.
@@ -103,8 +104,7 @@ export async function openQuickSessionId(db: Database, userId: string): Promise<
 				eq(sessions.userId, userId),
 				eq(programs.userId, userId),
 				eq(programs.systemKind, QUICK),
-				isNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
+				sessionIs.open()
 			)
 		)
 		.orderBy(desc(sessions.startedAt))
@@ -127,7 +127,7 @@ export async function lastUsedGymId(db: Database, userId: string): Promise<strin
 				eq(sessions.userId, userId),
 				eq(gyms.userId, userId),
 				isNull(gyms.archivedAt),
-				isNull(sessions.deletedAt)
+				sessionIs.notTrashed()
 			)
 		)
 		.orderBy(desc(sessions.startedAt))

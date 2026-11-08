@@ -6,6 +6,7 @@
 	import type { WorkoutLayout, FieldChoice } from '$lib/workout-layout.svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { workoutUi as ui } from '$lib/workout-ui';
+	import { isCompleted } from '$lib/workout-state';
 	type Set = PageData['groups'][number]['sets'][number];
 	let {
 		set,
@@ -74,7 +75,7 @@
 		rirChoice === 'show' || (rirChoice === 'program' && set.prescribedRir != null)
 	);
 	const dirty = $derived(values() !== baseline);
-	const completed = $derived(set.executedLoad != null && set.executedReps != null);
+	const completed = $derived(isCompleted(set));
 	const editable = $derived(!sessionEnded || allowEndedSessionEdit);
 	const seconds = $derived(set.targetMetric === 'seconds');
 	// One tap moves weight by the machine's own increment when it is known.

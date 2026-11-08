@@ -57,6 +57,7 @@ import { photoStore } from '$lib/server/photos/store';
 import { clientMeasurement, logUpload, type UploadLogLine } from '$lib/server/photos/upload-log';
 import { emptyTimings, msSince } from '$lib/server/photos/timings';
 import { workoutMachinePhotos } from '$lib/server/workout-photos';
+import { sessionPhase, workoutCapabilities } from '$lib/workout-state';
 
 const uuidParamSchema = z.string().uuid();
 
@@ -66,7 +67,12 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 		error(400, 'Invalid session id');
 	}
 
-	const session = await loadSession(db, requireUser(locals).id, parsedSessionId.data, 'active');
+	const session = await loadSession(
+		db,
+		requireUser(locals).id,
+		parsedSessionId.data,
+		'not-trashed'
+	);
 	if (!session) {
 		error(404, 'Session not found');
 	}
@@ -162,12 +168,16 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 	const groups = [...groupMap.values()].sort((a, b) => a.position - b.position);
 	for (const g of groups) g.sets.sort((a, b) => a.position - b.position);
 
-	const allowEndedSessionEdit = session.endedAt != null && url.searchParams.get('edit') === '1';
+	// What the page may do, decided once from the session's phase. The load
+	// excludes trashed rows ('not-trashed'), so phase is 'open' or 'ended'.
+	const capabilities = workoutCapabilities(session, {
+		editEnded: url.searchParams.get('edit') === '1'
+	});
 	// After finishing (Part L): whether a "From now on" swap reached the program.
 	const programParam = url.searchParams.get('program');
 	const toParam = url.searchParams.get('to');
 	const programUpdate =
-		session.endedAt == null
+		capabilities.phase !== 'ended'
 			? null
 			: programParam === 'updated' && toParam && isUuid(toParam)
 				? ({ kind: 'updated', programId: toParam } as const)
@@ -188,23 +198,26 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 			requireUser(locals).id,
 			sessionSets.flatMap((s) => (s.gymEquipmentId ? [s.gymEquipmentId] : []))
 		),
-		allowEndedSessionEdit,
+		capabilities,
+		allowEndedSessionEdit: capabilities.editEnded,
 		programUpdate,
 		// A finished workout can become a program, or a day of one (Part M).
-		saveAsProgram: session.endedAt
+		saveAsProgram: capabilities.canSaveAsProgram
 			? { programs: await programsToAddTo(db, requireUser(locals).id) }
 			: null,
 		// The add sheet's data (0.8.0); only an open workout adds exercises.
-		picker: session.endedAt ? null : await pickerData(db, requireUser(locals).id, session.gymId),
+		picker: capabilities.canEditLive
+			? await pickerData(db, requireUser(locals).id, session.gymId)
+			: null,
 		// An open workout shows its own bottom bar (Pause, Add exercise, Finish),
 		// and the layout hides the tabs for it: one bar at a time (0.5.5).
-		workoutBar: session.endedAt == null,
+		workoutBar: capabilities.canFinish,
 		// Photo in the workout (0.6.0): what each unidentified photo block shows,
 		// and whether the photo button is offered (an open workout with a gym).
 		photoBlocks: await photoBlocksForSession(db, requireUser(locals).id, session.id),
 		// Blocks named from a photo (0.6.1), for the Undo line on an open workout.
 		namedPhotoBlocks: await namedPhotoBlocks(db, requireUser(locals).id, session.id),
-		photoEnabled: session.endedAt == null && session.gymId != null
+		photoEnabled: capabilities.photoEnabled
 	};
 };
 
@@ -329,8 +342,10 @@ export const actions: Actions = {
 			return fail(400, { message: 'Invalid session id', setId: null });
 		}
 		const userId = requireUser(locals).id;
-		const session = await loadSession(db, userId, params.id, 'active');
-		if (!session || session.endedAt)
+		const session = await loadSession(db, userId, params.id, 'not-trashed');
+		// 'not-trashed' already excludes trashed rows, so refusing every phase but
+		// 'open' refuses exactly what the old `session.endedAt` check refused.
+		if (!session || sessionPhase(session) !== 'open')
 			return fail(404, { message: 'Session not found', setId: null });
 		if (!session.gymId) return fail(400, { message: 'This workout has no gym', setId: null });
 		if (!(await hasPhotoNotice(db, userId)))
@@ -512,7 +527,7 @@ export const actions: Actions = {
 		// workout's page lists them (0.6.0). A quick workout also lands there,
 		// where it can be saved as a program (Part M). Otherwise Home.
 		const toName = await photoBlocksForSession(db, userId, parsedSessionId.data);
-		const session = await loadSession(db, userId, parsedSessionId.data, 'ended-active');
+		const session = await loadSession(db, userId, parsedSessionId.data, 'ended');
 		const quick = session
 			? (await loadSessionDay(db, userId, session.dayId)).systemKind === 'quick'
 			: false;
@@ -586,7 +601,7 @@ export const actions: Actions = {
 			db,
 			requireUser(locals).id,
 			parsedSessionId.data,
-			'ended-active'
+			'ended'
 		);
 		if (!activeSession) {
 			return fail(404, { message: 'Session not found' });

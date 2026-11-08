@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, gte, isNull, lt, sql } from 'drizzle-orm';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
+import { sessionIs } from '../workout-state-sql';
 export type ReadArgs = { id?: string; after?: string; limit?: number; from?: string; to?: string };
 const dictionary = {
 	schemaVersion: 'doclifts-context-v2',
@@ -149,7 +150,7 @@ export async function readMcpData(
 						and(
 							eq(s.sessions.userId, userId),
 							eq(s.programs.userId, userId),
-							isNull(s.sessions.deletedAt),
+							sessionIs.notTrashed(),
 							args.after ? gt(s.sessions.id, args.after) : undefined,
 							args.from ? gte(s.sessions.startedAt, new Date(args.from)) : undefined,
 							args.to ? lt(s.sessions.startedAt, new Date(args.to)) : undefined
@@ -197,7 +198,7 @@ export async function readMcpData(
 							eq(s.sets.userId, userId),
 							eq(s.programs.userId, userId),
 							eq(s.exercises.userId, userId),
-							isNull(s.sessions.deletedAt),
+							sessionIs.notTrashed(),
 							args.after ? gt(s.sets.id, args.after) : undefined,
 							args.from ? gte(s.sessions.startedAt, new Date(args.from)) : undefined,
 							args.to ? lt(s.sessions.startedAt, new Date(args.to)) : undefined
@@ -227,11 +228,7 @@ export async function readMcpData(
 					})
 					.from(s.sessions)
 					.where(
-						and(
-							eq(s.sessions.id, args.id!),
-							eq(s.sessions.userId, userId),
-							isNull(s.sessions.deletedAt)
-						)
+						and(eq(s.sessions.id, args.id!), eq(s.sessions.userId, userId), sessionIs.notTrashed())
 					)
 					.limit(1);
 				if (!workout) return { notFound: true };

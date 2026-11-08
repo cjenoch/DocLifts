@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gte, isNull, lt, sql } from 'drizzle-orm';
 import { days, importedWorkouts, programs, sessions, workoutLogImports } from './db/schema';
 import type { Database } from './progression';
+import { sessionIs } from './workout-state-sql';
 
 /**
  * Reads behind `/history` and `/imported-history`.
@@ -45,7 +46,7 @@ export async function historyForMonth(
 		.where(
 			and(
 				eq(sessions.userId, userId),
-				isNull(sessions.deletedAt),
+				sessionIs.notTrashed(),
 				gte(sessions.startedAt, rangeStart),
 				lt(sessions.startedAt, rangeEnd)
 			)

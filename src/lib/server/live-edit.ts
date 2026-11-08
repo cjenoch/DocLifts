@@ -22,7 +22,7 @@
  * where an exercise was skipped never counts as a backwards session for the
  * positions it did not log.
  */
-import { and, asc, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	dayExercises,
@@ -36,6 +36,8 @@ import {
 	sets
 } from './db/schema';
 import { lockActive, prefillOccurrence } from './machines';
+import { sessionIs } from './workout-state-sql';
+import { isTouched } from '../workout-state';
 import { loadProgramDraft, saveProgramDraft } from './program-builder';
 import { FREE_WEIGHT_TYPES, type Database } from './progression';
 
@@ -48,9 +50,8 @@ export class WorkoutEditError extends Error {
 
 const STALE = 'Please reload and try again.';
 
-type Row = typeof sets.$inferSelect;
-const logged = (r: Row) =>
-	r.executedLoad != null || r.executedReps != null || r.executedRir != null || !!r.notes;
+/** A set with any saved value or note (`isTouched`). */
+const logged = isTouched;
 
 /** The occurrence and its sets, found through the (already locked) session. */
 async function occurrenceOf(db: Database, sessionId: string, occurrenceId: unknown) {
@@ -248,14 +249,7 @@ export async function applyProgramSwaps(
 	const [session] = await db
 		.select()
 		.from(sessions)
-		.where(
-			and(
-				eq(sessions.id, sessionId),
-				eq(sessions.userId, userId),
-				isNotNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
-			)
-		);
+		.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId), sessionIs.ended()));
 	if (!session) return { kind: 'none' };
 	const swapped = await db
 		.selectDistinct({ dayExerciseId: dayExercises.id, exerciseId: sets.exerciseId })
@@ -288,14 +282,7 @@ export async function applyProgramSwaps(
 	const [open] = await db
 		.select({ id: sessions.id })
 		.from(sessions)
-		.where(
-			and(
-				eq(sessions.programId, program.id),
-				eq(sessions.userId, userId),
-				isNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
-			)
-		)
+		.where(and(eq(sessions.programId, program.id), eq(sessions.userId, userId), sessionIs.open()))
 		.limit(1);
 	if (open) return { kind: 'failed', reason: 'open' };
 

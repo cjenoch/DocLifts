@@ -7,7 +7,6 @@ import {
 	gymEquipment,
 	gyms,
 	sessionExercises,
-	sessions,
 	sets
 } from './db/schema';
 import { dayExercises } from './db/schema';
@@ -27,6 +26,8 @@ import {
 import { snapForEquipment } from './plates';
 import { mainPrefills } from './main-prefill';
 import { modelReadableBy, modelVisibleTo } from './catalog';
+import { lockSession } from './session-lock';
+import { isTouched, sessionPhase } from '../workout-state';
 import { defaultMachineLabel } from '../catalog-labels';
 
 const name = z.string().trim().min(1).max(120);
@@ -309,14 +310,10 @@ export async function machineChoices(db: Database, userId: string) {
 // one — no 403, no different message (D6).
 export async function lockActive(db: Database, userId: string, sessionId: string) {
 	z.string().uuid().parse(sessionId);
-	const [session] = await db
-		.select()
-		.from(sessions)
-		.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
-		.for('update');
-	if (!session || session.deletedAt) throw new MachineInputError('Session not found');
-	if (session.endedAt) throw new MachineInputError('Session has ended');
-	return session;
+	const s = await lockSession(db, userId, sessionId);
+	if (!s || sessionPhase(s) === 'trashed') throw new MachineInputError('Session not found');
+	if (sessionPhase(s) === 'ended') throw new MachineInputError('Session has ended');
+	return s;
 }
 async function machineSnapshot(db: Database, userId: string, input: unknown) {
 	const value = identitySchema.parse(input);
@@ -460,11 +457,7 @@ export async function prefillOccurrence(
 	for (let i = 0; i < rows.length; i++) {
 		const r = rows[i],
 			h = histories[i];
-		if (
-			opts.onlyUntouched &&
-			(r.executedLoad != null || r.executedReps != null || r.executedRir != null || r.notes)
-		)
-			continue;
+		if (opts.onlyUntouched && isTouched(r)) continue;
 		let load = h?.executedLoad ?? null;
 		let reasoning: string | null = null;
 		if (main) {
@@ -530,11 +523,7 @@ export async function bindSessionMachine(
 			.where(and(eq(sessionExercises.id, occurrenceId), eq(sessionExercises.sessionId, sessionId)));
 		if (!occurrence) throw new MachineInputError('Exercise not found in this session');
 		const rows = await tx.select().from(sets).where(eq(sets.sessionExerciseId, occurrence.id));
-		if (
-			rows.some(
-				(r) => r.executedLoad != null || r.executedReps != null || r.executedRir != null || r.notes
-			)
-		)
+		if (rows.some(isTouched))
 			throw new MachineInputError(
 				'Cannot change machine after any values are logged; add a separate exercise instead'
 			);

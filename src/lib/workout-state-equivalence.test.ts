@@ -188,9 +188,7 @@ describe('set status vs. the old chains', () => {
 
 	describe('old 4-field "touched" chain vs isTouched', () => {
 		const oldTouched = (s: SetLike) =>
-			Boolean(
-				s.executedLoad != null || s.executedReps != null || s.executedRir != null || s.notes
-			);
+			Boolean(s.executedLoad != null || s.executedReps != null || s.executedRir != null || s.notes);
 
 		it.each(SETS)('$label', ({ set }) => {
 			expect(isTouched(set)).toBe(oldTouched(set));
@@ -254,7 +252,11 @@ describe('SQL fragments render the literal predicates CLAUDE.md names', () => {
 	};
 
 	it.each([
-		['sessionIs.open', sessionIs.open, '("sessions"."ended_at" is null and "sessions"."deleted_at" is null)'],
+		[
+			'sessionIs.open',
+			sessionIs.open,
+			'("sessions"."ended_at" is null and "sessions"."deleted_at" is null)'
+		],
 		[
 			'sessionIs.ended',
 			sessionIs.ended,

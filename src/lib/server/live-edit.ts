@@ -35,7 +35,8 @@ import {
 	sessions,
 	sets
 } from './db/schema';
-import { isPhotoBlock, lockActive, PHOTO_BLOCK_REFUSAL, prefillOccurrence } from './machines';
+import { lockActive, PHOTO_BLOCK_REFUSAL, prefillOccurrence } from './machines';
+import { dropPhotoPlaceholderMachine, isPhotoBlock } from './photo-workout';
 import { sessionIs } from './workout-state-sql';
 import { isTouched } from '../workout-state';
 import { loadProgramDraft, saveProgramDraft } from './program-builder';
@@ -89,6 +90,7 @@ export async function removeSessionExercise(
 		if (count > 0 && Number(input.loggedCount) !== count) throw new WorkoutEditError(STALE);
 		await tx.delete(sets).where(eq(sets.sessionExerciseId, occurrence.id));
 		await tx.delete(sessionExercises).where(eq(sessionExercises.id, occurrence.id));
+		await dropPhotoPlaceholderMachine(tx, userId, occurrence, null);
 		return { removedSets: rows.length, removedLogged: count };
 	});
 }
@@ -184,8 +186,10 @@ export async function swapSessionExercise(
 	return db.transaction(async (tx) => {
 		await lockActive(tx, userId, sessionId);
 		const { occurrence, rows } = await occurrenceOf(tx, sessionId, value.occurrenceId);
-		// A photo block is named from its photo, never swapped (Phase 2a).
-		if (await isPhotoBlock(tx, userId, occurrence)) throw new WorkoutEditError(PHOTO_BLOCK_REFUSAL);
+		// A photo block is named from its photo, never swapped (Phase 2a). One
+		// whose photo was discarded is an ordinary block: it swaps like any other.
+		if (await isPhotoBlock(tx, userId, occurrence.id))
+			throw new WorkoutEditError(PHOTO_BLOCK_REFUSAL);
 		if (rows.some(logged))
 			throw new WorkoutEditError(
 				'This exercise has logged sets, so it cannot be swapped. Skip the rest and add the other exercise instead.'
@@ -229,6 +233,7 @@ export async function swapSessionExercise(
 			})
 			.where(eq(sets.sessionExerciseId, occurrence.id));
 		await prefillOccurrence(tx, userId, updated);
+		await dropPhotoPlaceholderMachine(tx, userId, occurrence, null);
 		return updated;
 	});
 }

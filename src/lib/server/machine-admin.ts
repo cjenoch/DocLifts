@@ -32,7 +32,7 @@ import {
 	type MachineMergeMoved
 } from './db/schema';
 import type { Database } from './progression';
-import { createMachine, MachineInputError } from './machines';
+import { createMachine, MachineInputError, machineIsReferenced } from './machines';
 import { modelReadableBy, modelVisibleTo } from './catalog';
 import { defaultMachineLabel } from '../catalog-labels';
 import { sessionIs } from './workout-state-sql';
@@ -86,17 +86,6 @@ async function machinesInOpenWorkout(db: Database, userId: string, machineIds: s
 			)
 		);
 	return row.n > 0;
-}
-
-/** Anything at all that points at this machine. */
-async function machineIsReferenced(db: Database, machineId: string) {
-	const [row] = await db.execute<{ used: boolean }>(sql`
-		SELECT EXISTS (SELECT 1 FROM ${sets} WHERE ${sets.gymEquipmentId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${sessionExercises} WHERE ${sessionExercises.gymEquipmentId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${equipmentPhotos} WHERE ${equipmentPhotos.gymEquipmentId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${machineMerges} WHERE ${machineMerges.droppedId} = ${machineId} OR ${machineMerges.keptId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${gymEquipment} WHERE ${gymEquipment.mergedIntoId} = ${machineId}) AS used`);
-	return Boolean(row?.used);
 }
 
 /** Anything at all that points at this gym: machines, workouts, photos. */

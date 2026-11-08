@@ -22,6 +22,7 @@ import {
 import * as s from '$lib/server/db/schema';
 import { FIXTURE_CANDIDATE, smallPng } from '$lib/server/photos/test-fixtures';
 import { workoutUi } from '$lib/workout-ui';
+import { pickerUi } from '$lib/picker-ui';
 
 const { run, executablePath } = browserSuite();
 
@@ -91,6 +92,11 @@ run('photo in the workout (production build, no model configured)', () => {
 				page.getByRole('heading', { name: workoutUi.placeholderExerciseName, exact: true }).count()
 			)
 			.toBe(1);
+	}
+
+	async function editWorkout(page: Page) {
+		const edit = page.getByRole('button', { name: 'Edit workout', exact: true });
+		if (await edit.isVisible()) await edit.click();
 	}
 
 	const photoRows = () =>
@@ -264,6 +270,75 @@ run('photo in the workout (production build, no model configured)', () => {
 		expect(
 			await harness.db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, machines[0].id))
 		).toHaveLength(1);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
+
+	it('owner review P2: Name it, Discard this photo, back to the workout: the block swaps like any other', async () => {
+		// The workout the last test left open is finished first, so this one
+		// starts clean with a single photo block.
+		const page = await signedInPage();
+		await page.goto(origin + '/workout/start', { waitUntil: 'networkidle' });
+		if (page.url().includes('/sessions/')) {
+			page.once('dialog', (d) => d.accept());
+			await page.getByRole('button', { name: 'Finish workout' }).click();
+			await page.waitForURL(/\/sessions\/[^/]+$/);
+		}
+		const [pulldown] = await harness.db
+			.insert(s.exercises)
+			.values({ name: 'P2 pulldown', equipmentType: 'machine-stack', userId })
+			.returning();
+		const sessionId = await startWorkout(page);
+		await photoNextMachine(page);
+		await expect.poll(() => page.getByText(workoutUi.photoReadFailed).count()).toBe(1);
+		const [block] = await harness.db
+			.select()
+			.from(s.sessionExercises)
+			.where(eq(s.sessionExercises.sessionId, sessionId));
+		const placeholderId = block.gymEquipmentId!;
+
+		// Positive first: while the photo is there, the menu offers no swap.
+		await editWorkout(page);
+		await page
+			.getByLabel(workoutUi.exerciseMenu(workoutUi.placeholderExerciseName), { exact: true })
+			.click();
+		expect(await page.getByText(workoutUi.photoBlockMenuNote).count()).toBe(1);
+		expect(await page.getByRole('button', { name: workoutUi.swap, exact: true }).count()).toBe(0);
+
+		// The owner's steps: Name it, then Discard this photo.
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		await page.getByRole('link', { name: workoutUi.photoNameIt }).click();
+		await page.waitForURL('**/photos/*/review');
+		await page.getByRole('button', { name: 'Discard this photo' }).click();
+		await page.waitForURL('**/photos/*/review');
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+
+		// An ordinary block now: no naming card, Swap and Change machine offered.
+		expect(await page.getByRole('link', { name: workoutUi.photoNameIt }).count()).toBe(0);
+		await editWorkout(page);
+		expect(await page.getByRole('button', { name: pickerUi.changeMachine }).count()).toBe(1);
+		await page
+			.getByLabel(workoutUi.exerciseMenu(workoutUi.placeholderExerciseName), { exact: true })
+			.click();
+		await page.getByRole('button', { name: workoutUi.swap, exact: true }).click();
+		const sheet = page.getByRole('dialog');
+		await sheet.getByTestId('exercise-row').filter({ hasText: 'P2 pulldown' }).first().click();
+		await sheet.getByRole('button', { name: workoutUi.swapGo, exact: true }).click();
+		await expect.poll(() => page.getByRole('dialog').count()).toBe(0);
+		await expect
+			.poll(() => page.getByRole('heading', { name: 'P2 pulldown', exact: true }).count())
+			.toBe(1);
+
+		// State: the block is the new exercise with no machine, and the
+		// placeholder machine is gone rather than left in the gym list.
+		const [swapped] = await harness.db
+			.select()
+			.from(s.sessionExercises)
+			.where(eq(s.sessionExercises.id, block.id));
+		expect(swapped).toMatchObject({ exerciseId: pulldown.id, gymEquipmentId: null });
+		expect(
+			await harness.db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, placeholderId))
+		).toHaveLength(0);
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});

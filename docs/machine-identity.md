@@ -60,6 +60,14 @@ narrower than `bindSessionMachine`, and different in two ways:
   hand, or a program's planned exercise, is "not found" to it, so the refusal
   to rebind a machine after values are saved stays exactly as it is.
 
+A photo block is a block on the placeholder exercise whose photo is not
+discarded (`waitingForPhotoName` / `isPhotoBlock` in `photo-workout.ts`, the
+one rule the page and the server both read). `bindSessionMachine` and
+`swapSessionExercise` refuse a photo block. Once its photo is discarded it is
+an ordinary unnamed block: both work under their usual gates, and its "Photo"
+placeholder machine is deleted when the block leaves it and nothing else points
+at it (`dropPhotoPlaceholderMachine`).
+
 One machine per model per gym: when the gym already has the model, the block
 joins that machine, its photos move with it, and the placeholder is deleted
 once nothing references it.

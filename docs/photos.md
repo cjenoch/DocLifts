@@ -520,8 +520,40 @@ finish goes to the finished workout's page, which says "N machines to name",
 and Home says it too. Identify works on a finished workout. The review page
 (`/photos/[id]/review`) is the full path: for a photo that opened a block,
 Link and Create name that block (no second machine) and return to the workout.
-A discarded photo leaves its block as "Unidentified machine" and drops it from
-the count.
+
+**What counts as a photo block (owner review P2, 2026-11-08).** A photo block is
+a block on the placeholder exercise **whose photo is not discarded**. One
+predicate says so, `waitingForPhotoName` in `photo-workout.ts` (with
+`isPhotoBlock` for one block), and everything reads it: the session page's
+`photoBlocks` (the naming card, and the hidden Swap, Remove and Change machine),
+the server's refusals in `bindSessionMachine` and `swapSessionExercise`, Home's
+count, the review page's `unidentifiedBlockOfPhoto`, `identifySessionExercise`
+and the repeat-visit naming. Before, the page left out a discarded photo's
+block while the server still refused it, so Swap and Change machine showed
+and answered 400 with no way to name the machine.
+
+A discarded (or erased) photo leaves its block as an ordinary unnamed block,
+"Unidentified machine" on its "Photo" machine, out of the count and with no
+naming card. Nothing names it from the discarded photo. With nothing logged,
+Swap replaces the exercise and clears the machine, Change machine works under
+its usual rules (same equipment type, nothing logged), and Remove drops it.
+With a set logged, swap is closed for the usual reason ("Logged sets: swap is
+closed"), and the block stays as logged.
+
+When such a block leaves its "Photo" machine (swap, change machine, remove),
+`dropPhotoPlaceholderMachine` deletes that machine if it is unmistakably the
+placeholder (this user's, no model, `machine-stack`, a "Photo" label, not
+archived) and nothing at all points at it any more, so no empty "Photo 14:32"
+row is left in the gym list or the add sheet. A placeholder that holds logged
+sets stays, as history.
+
+Discarding a photo does not remove its block, even an empty one on an open
+workout. A photo leaves through more than one path (the review page's Discard,
+which is `discardPhoto` or, with deletion enabled, the privacy deletion path;
+the review page's Remove; and the operator's `reconcileDeletions`), and the
+privacy ones also erase the photo row; removing the block in some of them only
+would make the outcome depend on which button was used. The block's own Remove
+does it in one tap.
 
 **Data.** Migration 0018: `equipment_photos.session_exercise_id`, nullable,
 `ON DELETE SET NULL`, indexed, so the photo stays with the workout record after

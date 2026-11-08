@@ -3,6 +3,10 @@
  * a photo block cannot be swapped or have its machine changed (2a), and a free
  * weight has no machine to bind (2b). Each refusal happens under the session
  * lock, before any write, so the block and its sets are exactly as they were.
+ *
+ * Owner review P2 (2026-11-08): a placeholder block whose photo was discarded
+ * is no longer a photo block, for the page and the server alike, so Swap and
+ * Change machine work on it and its "Photo" placeholder machine goes.
  */
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -18,8 +22,17 @@ import {
 	MachineInputError,
 	PHOTO_BLOCK_REFUSAL
 } from './machines';
-import { swapSessionExercise, WorkoutEditError } from './live-edit';
-import { openPhotoBlock, PLACEHOLDER_MOVEMENT } from './photo-workout';
+import { removeSessionExercise, swapSessionExercise, WorkoutEditError } from './live-edit';
+import {
+	identifySessionExercise,
+	isPhotoBlock,
+	machinesToName,
+	openPhotoBlock,
+	photoBlocksForSession,
+	PLACEHOLDER_MOVEMENT
+} from './photo-workout';
+import { discardPhoto } from './photos/confirm';
+import { MemoryPhotoStore } from './photos/store';
 import { startQuickSession } from './quick-workouts';
 
 let db: TestDb;
@@ -214,5 +227,167 @@ describe('a free weight has no machine to bind (2b)', () => {
 		await expect(bind).rejects.toThrow(FREE_WEIGHT_BIND_REFUSAL);
 		expect(await snapshot(squat.id)).toEqual(before);
 		expect(before.block.gymEquipmentId).toBeNull();
+	});
+});
+
+/** The machine row by id, or undefined once deleted. */
+async function machineRow(id: string) {
+	const [row] = await db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, id));
+	return row;
+}
+
+describe('a placeholder block whose photo is discarded is an ordinary block (P2)', () => {
+	it('page data and server guards agree; swap then works and the placeholder machine goes', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-swap');
+		const [pulldown] = await db
+			.insert(s.exercises)
+			.values({ name: 'Lat pulldown', equipmentType: 'machine-stack', userId })
+			.returning();
+		const livePhoto = await photo(userId, gymId);
+		const live = await openPhotoBlock(db, userId, sessionId, livePhoto.id);
+		const goneP = await photo(userId, gymId);
+		const orphan = await openPhotoBlock(db, userId, sessionId, goneP.id);
+		const placeholderId = orphan.gymEquipmentId!;
+
+		// Positive first: both are photo blocks, on the page and on the server.
+		expect(Object.keys(await photoBlocksForSession(db, userId, sessionId)).sort()).toEqual(
+			[live.id, orphan.id].sort()
+		);
+		expect(await isPhotoBlock(db, userId, orphan.id)).toBe(true);
+		await expect(
+			swapSessionExercise(db, userId, sessionId, {
+				occurrenceId: orphan.id,
+				exerciseId: pulldown.id
+			})
+		).rejects.toThrow(PHOTO_BLOCK_REFUSAL);
+
+		// "Discard this photo" on the review page (deletion not enabled).
+		expect(await discardPhoto(db, userId, goneP.id, new MemoryPhotoStore())).toBe(true);
+
+		// One rule: the page drops the block, the server stops refusing it, Home stops counting it.
+		const blocks = await photoBlocksForSession(db, userId, sessionId);
+		expect(Object.keys(blocks)).toEqual([live.id]);
+		expect(await isPhotoBlock(db, userId, orphan.id)).toBe(false);
+		expect(await isPhotoBlock(db, userId, live.id)).toBe(true);
+		expect((await machinesToName(db, userId)).count).toBe(1);
+		// Nothing names it from a discarded photo, and the photo stays discarded.
+		expect(
+			await identifySessionExercise(db, userId, sessionId, orphan.id, { modelId: randomUUID() })
+		).toBeNull();
+		const [still] = await db
+			.select()
+			.from(s.equipmentPhotos)
+			.where(eq(s.equipmentPhotos.id, goneP.id));
+		expect(still.status).toBe('discarded');
+
+		const swapped = await swapSessionExercise(db, userId, sessionId, {
+			occurrenceId: orphan.id,
+			exerciseId: pulldown.id
+		});
+		expect(swapped.exerciseId).toBe(pulldown.id);
+		expect(swapped.gymEquipmentId).toBeNull();
+		const after = await snapshot(orphan.id);
+		expect(after.rows.every((r) => r.exerciseId === pulldown.id && r.gymEquipmentId === null)).toBe(
+			true
+		);
+		expect(await machineRow(placeholderId)).toBeUndefined();
+
+		// The block with a live photo is still refused, and keeps its placeholder.
+		const stack = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Pulldown by the door',
+			equipmentType: 'machine-stack'
+		});
+		const before = await snapshot(live.id);
+		await expect(
+			swapSessionExercise(db, userId, sessionId, { occurrenceId: live.id, exerciseId: pulldown.id })
+		).rejects.toThrow(PHOTO_BLOCK_REFUSAL);
+		await expect(
+			bindSessionMachine(db, userId, sessionId, live.id, {
+				gymId,
+				gymEquipmentId: stack.id,
+				loadConvention: 'displayed',
+				confirm: 'CHANGE'
+			})
+		).rejects.toThrow(PHOTO_BLOCK_REFUSAL);
+		expect(await snapshot(live.id)).toEqual(before);
+		expect(await machineRow(live.gymEquipmentId!)).toBeDefined();
+	});
+
+	it('change machine works on it under bind rules, also when the photo row is erased', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-bind');
+		const stack = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Extension by the mirror',
+			equipmentType: 'machine-stack'
+		});
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		// Positive first: refused while the photo is there.
+		await expect(
+			bindSessionMachine(db, userId, sessionId, block.id, {
+				gymId,
+				gymEquipmentId: stack.id,
+				loadConvention: 'displayed',
+				confirm: 'CHANGE'
+			})
+		).rejects.toThrow(PHOTO_BLOCK_REFUSAL);
+		// Erased, as the privacy path leaves it after the object is gone.
+		await db.delete(s.equipmentPhotos).where(eq(s.equipmentPhotos.id, p.id));
+
+		const bound = await bindSessionMachine(db, userId, sessionId, block.id, {
+			gymId,
+			gymEquipmentId: stack.id,
+			loadConvention: 'displayed',
+			confirm: 'CHANGE'
+		});
+		expect(bound.gymEquipmentId).toBe(stack.id);
+		expect(await machineRow(placeholderId)).toBeUndefined();
+		// The machine it moved to is the user's own: changing again keeps it.
+		const other = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Extension by the door',
+			equipmentType: 'machine-stack'
+		});
+		await bindSessionMachine(db, userId, sessionId, block.id, {
+			gymId,
+			gymEquipmentId: other.id,
+			loadConvention: 'displayed',
+			confirm: 'CHANGE'
+		});
+		expect(await machineRow(stack.id)).toBeDefined();
+	});
+
+	it('with a logged set, swap is still refused for logged sets and the placeholder stays as history; remove drops it', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-touched');
+		const [pulldown] = await db
+			.insert(s.exercises)
+			.values({ name: 'Lat pulldown', equipmentType: 'machine-stack', userId })
+			.returning();
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
+		const [first] = (await snapshot(block.id)).rows;
+		await db
+			.update(s.sets)
+			.set({ executedLoad: 50, executedReps: 10 })
+			.where(eq(s.sets.id, first.id));
+
+		await expect(
+			swapSessionExercise(db, userId, sessionId, {
+				occurrenceId: block.id,
+				exerciseId: pulldown.id
+			})
+		).rejects.toThrow('This exercise has logged sets');
+		expect(await machineRow(placeholderId)).toBeDefined();
+
+		const removed = await removeSessionExercise(db, userId, sessionId, {
+			occurrenceId: block.id,
+			loggedCount: 1
+		});
+		expect(removed.removedLogged).toBe(1);
+		expect(await machineRow(placeholderId)).toBeUndefined();
 	});
 });

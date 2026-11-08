@@ -37,6 +37,7 @@ import {
 	addSessionExercise,
 	createMachine,
 	MachineInputError,
+	machineIsReferenced,
 	prefillOccurrence
 } from './machines';
 import { modelVisibleTo } from './catalog';
@@ -50,6 +51,89 @@ import { historyFilter, sessionIs } from './workout-state-sql';
 
 /** Marks the per-user placeholder exercise, whatever its display name. */
 export const PLACEHOLDER_MOVEMENT = 'unidentified-machine';
+
+/**
+ * The one rule for "this block is still waiting to be named from its photo"
+ * (owner review P2, 2026-11-08): the block is on this user's placeholder
+ * exercise AND a photo it opened is not discarded. The workout page's
+ * `photoBlocks` (which hides Swap and Change machine), the server's refusals
+ * (`isPhotoBlock` in bind and swap), Home's count and every naming path all
+ * read it, so the page and the server cannot disagree.
+ *
+ * A placeholder block whose photo was discarded, or erased, is an ordinary
+ * unnamed block: Swap, Change machine and Remove work on it under their own
+ * rules, because there is no photo left to name it from.
+ *
+ * The query must join `exercises` on the block's exercise and
+ * `equipment_photos` on `equipment_photos.session_exercise_id` = the block.
+ */
+export const waitingForPhotoName = (userId: string) =>
+	and(
+		eq(exercises.userId, userId),
+		eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT),
+		eq(equipmentPhotos.userId, userId),
+		ne(equipmentPhotos.status, 'discarded')
+	);
+
+/** True when this block is still waiting to be named from its photo (`waitingForPhotoName`). */
+export async function isPhotoBlock(
+	db: Database,
+	userId: string,
+	occurrenceId: string
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: sessionExercises.id })
+		.from(sessionExercises)
+		.innerJoin(exercises, eq(exercises.id, sessionExercises.exerciseId))
+		.innerJoin(equipmentPhotos, eq(equipmentPhotos.sessionExerciseId, sessionExercises.id))
+		.where(and(eq(sessionExercises.id, occurrenceId), waitingForPhotoName(userId)))
+		.limit(1);
+	return !!row;
+}
+
+/**
+ * After a block on the placeholder exercise leaves its machine (swap, change
+ * machine, remove: possible only once its photo is discarded, or never named),
+ * the machine `openPhotoBlock` made for it goes too, so no "Photo 14:32" row
+ * with nothing on it is left in the gym list or the add sheet. Deleted only
+ * when it is unmistakably that placeholder (this user's, no model, the
+ * placeholder type, a photo label, not archived) and nothing at all points at
+ * it any more; a placeholder that holds logged sets stays, as history.
+ */
+export async function dropPhotoPlaceholderMachine(
+	db: Database,
+	userId: string,
+	before: { exerciseId: string; gymEquipmentId: string | null },
+	nowMachineId: string | null
+) {
+	if (!before.gymEquipmentId || before.gymEquipmentId === nowMachineId) return;
+	const [onPlaceholder] = await db
+		.select({ id: exercises.id })
+		.from(exercises)
+		.where(
+			and(
+				eq(exercises.id, before.exerciseId),
+				eq(exercises.userId, userId),
+				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
+			)
+		);
+	if (!onPlaceholder) return;
+	const [machine] = await db
+		.select({ machine: gymEquipment })
+		.from(gymEquipment)
+		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
+		.where(and(eq(gymEquipment.id, before.gymEquipmentId), eq(gyms.userId, userId)));
+	if (
+		!machine ||
+		machine.machine.equipmentModelId ||
+		machine.machine.archivedAt ||
+		machine.machine.equipmentType !== workoutUi.photoPlaceholderType ||
+		!machine.machine.localLabel.startsWith(workoutUi.photoMachineLabel(''))
+	)
+		return;
+	if (await machineIsReferenced(db, machine.machine.id)) return;
+	await db.delete(gymEquipment).where(eq(gymEquipment.id, machine.machine.id));
+}
 
 const convention = z.enum(['unknown', 'plates_per_side', 'total_plates', 'per_arm', 'displayed']);
 type Convention = z.infer<typeof convention>;
@@ -227,28 +311,21 @@ export async function identifySessionExercise(
 		// Serialises with set updates and quick-add, like every block change.
 		const session = await lockSession(tx, userId, sessionId);
 		if (!session || sessionPhase(session) === 'trashed') return null;
+		// Only a block still waiting for its photo: a discarded photo names nothing.
 		const [block] = await tx
 			.select({ occurrence: sessionExercises, exercise: exercises })
 			.from(sessionExercises)
 			.innerJoin(exercises, eq(exercises.id, sessionExercises.exerciseId))
+			.innerJoin(equipmentPhotos, eq(equipmentPhotos.sessionExerciseId, sessionExercises.id))
 			.where(
 				and(
 					eq(sessionExercises.id, occurrenceId),
 					eq(sessionExercises.sessionId, sessionId),
-					eq(exercises.userId, userId),
-					eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
+					waitingForPhotoName(userId)
 				)
-			);
-		if (!block) return null;
-		const [photo] = await tx
-			.select()
-			.from(equipmentPhotos)
-			.where(
-				and(eq(equipmentPhotos.sessionExerciseId, occurrenceId), eq(equipmentPhotos.userId, userId))
 			)
-			.orderBy(desc(equipmentPhotos.createdAt))
 			.limit(1);
-		if (!photo) return null;
+		if (!block) return null;
 		const placeholderId = block.occurrence.gymEquipmentId;
 		const [placeholder] = placeholderId
 			? await tx.select().from(gymEquipment).where(eq(gymEquipment.id, placeholderId))
@@ -338,7 +415,12 @@ export async function identifySessionExercise(
 		await tx
 			.update(equipmentPhotos)
 			.set({ status: 'confirmed', matchedModelId: model.id, gymEquipmentId: machine.id })
-			.where(eq(equipmentPhotos.sessionExerciseId, occurrenceId));
+			.where(
+				and(
+					eq(equipmentPhotos.sessionExerciseId, occurrenceId),
+					ne(equipmentPhotos.status, 'discarded')
+				)
+			);
 
 		if (machine.id !== placeholder.id) {
 			// Merged: anything else still on the placeholder moves too, then it goes.
@@ -411,15 +493,7 @@ export async function photoBlocksForSession(
 			llmCalls,
 			and(eq(llmCalls.id, equipmentPhotos.llmCallId), eq(llmCalls.userId, userId))
 		)
-		.where(
-			and(
-				eq(equipmentPhotos.userId, userId),
-				ne(equipmentPhotos.status, 'discarded'),
-				eq(sessionExercises.sessionId, sessionId),
-				eq(exercises.userId, userId),
-				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
-			)
-		)
+		.where(and(eq(sessionExercises.sessionId, sessionId), waitingForPhotoName(userId)))
 		.orderBy(desc(equipmentPhotos.createdAt));
 	const out: Record<string, PhotoBlockState> = {};
 	for (const { photo, occurrenceId, readStatus } of rows) {
@@ -474,16 +548,7 @@ export async function machinesToName(
 		.innerJoin(sessions, eq(sessions.id, sessionExercises.sessionId))
 		.innerJoin(exercises, eq(exercises.id, sessionExercises.exerciseId))
 		.innerJoin(equipmentPhotos, eq(equipmentPhotos.sessionExerciseId, sessionExercises.id))
-		.where(
-			and(
-				eq(sessions.userId, userId),
-				sessionIs.notTrashed(),
-				eq(equipmentPhotos.userId, userId),
-				ne(equipmentPhotos.status, 'discarded'),
-				eq(exercises.userId, userId),
-				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
-			)
-		)
+		.where(and(eq(sessions.userId, userId), sessionIs.notTrashed(), waitingForPhotoName(userId)))
 		.orderBy(desc(sessions.startedAt));
 	return { count: rows.length, latestSessionId: rows[0]?.sessionId ?? null };
 }
@@ -506,11 +571,9 @@ export async function unidentifiedBlockOfPhoto(
 		.where(
 			and(
 				eq(equipmentPhotos.id, photoId),
-				eq(equipmentPhotos.userId, userId),
 				eq(sessions.userId, userId),
 				sessionIs.notTrashed(),
-				eq(exercises.userId, userId),
-				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
+				waitingForPhotoName(userId)
 			)
 		);
 	return row ?? null;
@@ -542,13 +605,11 @@ export async function autoIdentifyRepeatVisit(
 		.where(
 			and(
 				eq(equipmentPhotos.id, photoId),
-				eq(equipmentPhotos.userId, userId),
 				eq(equipmentPhotos.status, 'analyzed'),
 				eq(sessions.id, sessionId),
 				eq(sessions.userId, userId),
 				sessionIs.open(),
-				eq(exercises.userId, userId),
-				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
+				waitingForPhotoName(userId)
 			)
 		);
 	if (!row) return null;

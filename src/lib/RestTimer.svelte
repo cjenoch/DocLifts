@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { workoutUi as ui } from '$lib/workout-ui';
 	let { sessionId, userId }: { sessionId: string; userId: string } = $props();
-	type Rest = { startedAt: number; seconds: number };
+	/** `setId`: the set whose save started this rest; absent for a rest started by hand. */
+	type Rest = { startedAt: number; seconds: number; setId?: string };
 	let rest = $state<Rest | null>(null),
 		now = $state(Date.now()),
 		settings = $state(false);
@@ -49,9 +50,16 @@
 			status = 'Sound is unavailable; visual alerts still work.';
 		}
 	}
-	export function start() {
+	/**
+	 * Start a rest. From a set save, `setId` is that set: re-saving the set that
+	 * started a rest still counting down (a correction) keeps it, with any +30 s;
+	 * any other save, or the Start button, begins a fresh rest (owner decision,
+	 * 2026-11-08).
+	 */
+	export function start(setId?: string) {
 		if (!ui.restTimerEnabled) return;
-		keep({ startedAt: Date.now(), seconds: duration });
+		if (setId && rest?.setId === setId && left > 0) return;
+		keep({ startedAt: Date.now(), seconds: duration, ...(setId ? { setId } : {}) });
 		status = '';
 	}
 	/** The end of a rest: the line under the clock, then the visual and the chime. */
@@ -102,7 +110,11 @@
 				saved.seconds > 0 &&
 				saved.seconds <= 86400
 			) {
-				rest = saved;
+				rest = {
+					startedAt: saved.startedAt,
+					seconds: saved.seconds,
+					...(typeof saved.setId === 'string' ? { setId: saved.setId } : {})
+				};
 				alerted = Date.now() >= saved.startedAt + saved.seconds * 1000;
 			}
 		} catch {

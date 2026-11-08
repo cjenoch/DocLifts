@@ -1,11 +1,13 @@
-import { and, asc, eq, inArray, isNull, max } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	equipmentModels,
+	equipmentPhotos,
 	exerciseEquipmentMap,
 	exercises,
 	gymEquipment,
 	gyms,
+	machineMerges,
 	sessionExercises,
 	sets
 } from './db/schema';
@@ -29,9 +31,9 @@ import { modelReadableBy, modelVisibleTo } from './catalog';
 import { lockSession } from './session-lock';
 import { isTouched, sessionPhase } from '../workout-state';
 import { defaultMachineLabel } from '../catalog-labels';
-// A cycle (photo-workout imports this module too), safe because the constant
-// is read only inside functions, never while either module is evaluated.
-import { PLACEHOLDER_MOVEMENT } from './photo-workout';
+// A cycle (photo-workout imports this module too), safe because these are
+// called only inside functions, never while either module is evaluated.
+import { dropPhotoPlaceholderMachine, isPhotoBlock } from './photo-workout';
 
 const name = z.string().trim().min(1).max(120);
 const optionalText = z.preprocess((v) => (v === '' || v == null ? undefined : v), name.optional());
@@ -512,23 +514,27 @@ export async function prefillOccurrence(
 /**
  * A photo block's machine is named from its photo (`identifySessionExercise`),
  * never chosen or swapped here. The page hides both controls; the server
- * refuses a direct POST too (plan 2026-11-08, Phase 2a).
+ * refuses a direct POST too (plan 2026-11-08, Phase 2a). Both sides ask the
+ * same question, `isPhotoBlock` / `waitingForPhotoName` in photo-workout.ts:
+ * a block whose photo was discarded is an ordinary block again.
  */
 export const PHOTO_BLOCK_REFUSAL = 'Name this machine from its photo first.';
 /** A free weight has no machine to choose (0.8.0); the page hides the control (Phase 2b). */
 export const FREE_WEIGHT_BIND_REFUSAL = 'Free weights need no machine.';
 
-/** True when the block is a photo block still on this user's placeholder exercise. */
-export async function isPhotoBlock(
-	db: Database,
-	userId: string,
-	occurrence: { exerciseId: string }
-): Promise<boolean> {
-	const [exercise] = await db
-		.select({ canonicalMovement: exercises.canonicalMovement })
-		.from(exercises)
-		.where(and(eq(exercises.id, occurrence.exerciseId), eq(exercises.userId, userId)));
-	return exercise?.canonicalMovement === PLACEHOLDER_MOVEMENT;
+/**
+ * Anything at all that points at this machine: sets, workout blocks, photos,
+ * merges. A machine with none of these is deleted rather than archived
+ * (machine-admin's Remove, and a photo's placeholder once its block leaves it).
+ */
+export async function machineIsReferenced(db: Database, machineId: string) {
+	const [row] = await db.execute<{ used: boolean }>(sql`
+		SELECT EXISTS (SELECT 1 FROM ${sets} WHERE ${sets.gymEquipmentId} = ${machineId})
+			OR EXISTS (SELECT 1 FROM ${sessionExercises} WHERE ${sessionExercises.gymEquipmentId} = ${machineId})
+			OR EXISTS (SELECT 1 FROM ${equipmentPhotos} WHERE ${equipmentPhotos.gymEquipmentId} = ${machineId})
+			OR EXISTS (SELECT 1 FROM ${machineMerges} WHERE ${machineMerges.droppedId} = ${machineId} OR ${machineMerges.keptId} = ${machineId})
+			OR EXISTS (SELECT 1 FROM ${gymEquipment} WHERE ${gymEquipment.mergedIntoId} = ${machineId}) AS used`);
+	return Boolean(row?.used);
 }
 
 export async function bindSessionMachine(
@@ -547,7 +553,7 @@ export async function bindSessionMachine(
 			.from(sessionExercises)
 			.where(and(eq(sessionExercises.id, occurrenceId), eq(sessionExercises.sessionId, sessionId)));
 		if (!occurrence) throw new MachineInputError('Exercise not found in this session');
-		if (await isPhotoBlock(tx, userId, occurrence))
+		if (await isPhotoBlock(tx, userId, occurrence.id))
 			throw new MachineInputError(PHOTO_BLOCK_REFUSAL);
 		if (FREE_WEIGHT_TYPES.has(occurrence.equipmentType))
 			throw new MachineInputError(FREE_WEIGHT_BIND_REFUSAL);
@@ -565,6 +571,8 @@ export async function bindSessionMachine(
 			.where(eq(sessionExercises.id, occurrence.id))
 			.returning();
 		await prefillOccurrence(tx, userId, updated);
+		// A block whose photo was discarded leaves its "Photo 14:32" placeholder.
+		await dropPhotoPlaceholderMachine(tx, userId, occurrence, updated.gymEquipmentId);
 		return updated;
 	});
 }

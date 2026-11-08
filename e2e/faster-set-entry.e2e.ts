@@ -340,4 +340,49 @@ run('faster set entry (production build)', () => {
 		expect(await page.getByText(ui.restFinished, { exact: true }).count()).toBe(0);
 		await page.close();
 	});
+	it('re-saving the set that started a rest keeps it, +30 s included; saving another set starts a fresh one', async () => {
+		const page = await signedInPage();
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		await page.getByLabel('Workout layout', { exact: true }).selectOption('table');
+		const stored = () =>
+			page.evaluate(
+				(id) =>
+					JSON.parse(localStorage.getItem(`doclifts:rest:${id}`) ?? 'null') as {
+						startedAt: number;
+						seconds: number;
+					} | null,
+				sessionId
+			);
+		const rows = page.locator('li[id^="set-"]');
+		const first = rows.nth(0);
+		const second = rows.nth(1);
+
+		await first.getByRole('spinbutton', { name: 'Reps', exact: true }).fill('9');
+		await first.getByRole('button', { name: ui.saveSet(1), exact: true }).click();
+		await expect.poll(async () => (await stored())?.seconds).toBe(ui.defaultRestSeconds);
+		await page.getByRole('button', { name: ui.restAdd, exact: true }).click();
+		const extended = (await stored())!;
+		expect(extended.seconds).toBe(ui.defaultRestSeconds + ui.restAddSeconds);
+
+		// A correction to the same set: the rest and its +30 s stay.
+		await page.waitForTimeout(1100);
+		await first.getByRole('spinbutton', { name: 'Reps', exact: true }).fill('10');
+		await first.getByRole('button', { name: ui.saveSet(1), exact: true }).click();
+		await expect
+			.poll(async () => {
+				const r = await harness.db.select().from(s.sets).where(eq(s.sets.sessionId, sessionId));
+				return r.some((x) => x.executedReps === 10);
+			})
+			.toBe(true);
+		expect(await stored()).toMatchObject({
+			startedAt: extended.startedAt,
+			seconds: ui.defaultRestSeconds + ui.restAddSeconds
+		});
+
+		// The next set: a fresh rest, without the old +30 s.
+		await second.getByRole('button', { name: ui.saveSet(2), exact: true }).click();
+		await expect.poll(async () => (await stored())?.startedAt).toBeGreaterThan(extended.startedAt);
+		expect((await stored())!.seconds).toBe(ui.defaultRestSeconds);
+		await page.close();
+	});
 });

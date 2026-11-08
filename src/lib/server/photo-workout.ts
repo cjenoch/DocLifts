@@ -262,9 +262,34 @@ export async function ensurePlaceholderExercise(db: Database, userId: string) {
  * plain time is accepted from the form.
  */
 export const photoTimeLabel = (fromClient: unknown, now = new Date()): string =>
-	typeof fromClient === 'string' && /^[0-9]{1,2}:[0-9]{2}( ?[AaPp][Mm])?$/.test(fromClient.trim())
+	typeof fromClient === 'string' && CLIENT_TIME.test(fromClient.trim())
 		? fromClient.trim()
 		: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+
+/** The phone's time as `photoTimeLabel` accepts it ("2:32 PM", "14:32"). */
+const CLIENT_TIME = /^[0-9]{1,2}:[0-9]{2}( ?[AaPp][Mm])?$/;
+/**
+ * Every time `photoTimeLabel` can return: the phone's (CLIENT_TIME), or the
+ * server's UTC fallback, which is the same shape except that some ICU builds
+ * put U+202F (narrow no-break space) before AM/PM. Group 1 is the minute.
+ */
+const ANY_PHOTO_TIME = '[0-9]{1,2}:([0-9]{2})(?:[ \\u202F]?[AaPp][Mm])?';
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Exactly the labels `openPhotoBlock` (and `undoPhotoIdentify`) give a
+ * placeholder machine: `workoutUi.photoMachineLabel(photoTimeLabel(...))`.
+ * Built from `photoMachineLabel` itself, so a change to the label's wording
+ * changes this too; `photo-placeholder-label.test.ts` checks it against the
+ * function's own output. Used only by the one-time legacy cleanup
+ * (`legacyPhotoPlaceholders`): the label is never evidence on its own for a
+ * delete (see `photoPlaceholderOf`).
+ */
+export const photoMachineLabelPattern: RegExp = (() => {
+	const slot = '\u0000';
+	const [before, after] = workoutUi.photoMachineLabel(slot).split(slot);
+	return new RegExp(`^${escapeRegExp(before)}${ANY_PHOTO_TIME}${escapeRegExp(after ?? '')}$`);
+})();
 
 /**
  * Step 1: the stored photo opens a block. Idempotent per photo: a photo that

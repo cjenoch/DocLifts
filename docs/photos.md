@@ -554,6 +554,21 @@ it, a placeholder made before this rule, and a photo confirmed onto another
 machine. A placeholder that holds logged sets, or anything else pointing at
 it, stays, as history.
 
+**Legacy placeholders (one-time cleanup, 2026-11-08).** Placeholders made
+before the photo carried the machine link have no evidence, so the rule above
+keeps them once their block has left them. `pnpm photo:placeholders`
+(`scripts/photo-placeholders-prod.sh` in production) lists, per user, the
+unmodeled `machine-stack` machines with exactly the placeholder label
+(`photoMachineLabelPattern`), no stack or increment typed in, not archived or
+merged, on no open workout and with nothing pointing at them, and archives
+them with `--apply`; it never deletes, and Restore on the gym page brings one
+back. `gym_equipment` has no `created_at`, so the machine cannot be paired
+with its photo by time; the dry run marks a candidate "strong" when a photo
+of that user at that gym, linked to no machine, was created 0-2 minutes after
+the label's minute (the label is the phone's local time, so the hour is not
+compared), and "weak" (label only) otherwise. A machine the user typed in as
+"Photo 7:15 PM" is listed as weak; read the dry run before confirming.
+
 The cleanup is best-effort and never fails the edit. It locks the machine with
 `FOR UPDATE SKIP LOCKED` before counting references, so a machine another
 transaction is still writing a reference to (its FK check holds `FOR KEY

@@ -20,6 +20,11 @@
     It was anchored to the workout bar, so its lower half — "Try alert"
     included — sat below the screen.
 
+- Operator tool: `pnpm photo:placeholders` (production:
+  `scripts/photo-placeholders-prod.sh`) archives the unused "Photo 2:32 PM"
+  placeholder machines left by workouts before this release. Dry run by
+  default; archive only, restorable from the gym page.
+
 - No user-visible change. Internal: `sessionPhase`, `setStatus` and
   `workoutCapabilities` (`src/lib/workout-state.ts`) and the SQL fragments in
   `workout-state-sql.ts` replace 87 hand-spelled session predicates and 25 set

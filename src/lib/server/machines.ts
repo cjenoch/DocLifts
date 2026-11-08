@@ -29,6 +29,9 @@ import { modelReadableBy, modelVisibleTo } from './catalog';
 import { lockSession } from './session-lock';
 import { isTouched, sessionPhase } from '../workout-state';
 import { defaultMachineLabel } from '../catalog-labels';
+// A cycle (photo-workout imports this module too), safe because the constant
+// is read only inside functions, never while either module is evaluated.
+import { PLACEHOLDER_MOVEMENT } from './photo-workout';
 
 const name = z.string().trim().min(1).max(120);
 const optionalText = z.preprocess((v) => (v === '' || v == null ? undefined : v), name.optional());
@@ -506,6 +509,28 @@ export async function prefillOccurrence(
 			.where(eq(sets.id, r.id));
 	}
 }
+/**
+ * A photo block's machine is named from its photo (`identifySessionExercise`),
+ * never chosen or swapped here. The page hides both controls; the server
+ * refuses a direct POST too (plan 2026-11-08, Phase 2a).
+ */
+export const PHOTO_BLOCK_REFUSAL = 'Name this machine from its photo first.';
+/** A free weight has no machine to choose (0.8.0); the page hides the control (Phase 2b). */
+export const FREE_WEIGHT_BIND_REFUSAL = 'Free weights need no machine.';
+
+/** True when the block is a photo block still on this user's placeholder exercise. */
+export async function isPhotoBlock(
+	db: Database,
+	userId: string,
+	occurrence: { exerciseId: string }
+): Promise<boolean> {
+	const [exercise] = await db
+		.select({ canonicalMovement: exercises.canonicalMovement })
+		.from(exercises)
+		.where(and(eq(exercises.id, occurrence.exerciseId), eq(exercises.userId, userId)));
+	return exercise?.canonicalMovement === PLACEHOLDER_MOVEMENT;
+}
+
 export async function bindSessionMachine(
 	db: Database,
 	userId: string,
@@ -522,6 +547,10 @@ export async function bindSessionMachine(
 			.from(sessionExercises)
 			.where(and(eq(sessionExercises.id, occurrenceId), eq(sessionExercises.sessionId, sessionId)));
 		if (!occurrence) throw new MachineInputError('Exercise not found in this session');
+		if (await isPhotoBlock(tx, userId, occurrence))
+			throw new MachineInputError(PHOTO_BLOCK_REFUSAL);
+		if (FREE_WEIGHT_TYPES.has(occurrence.equipmentType))
+			throw new MachineInputError(FREE_WEIGHT_BIND_REFUSAL);
 		const rows = await tx.select().from(sets).where(eq(sets.sessionExerciseId, occurrence.id));
 		if (rows.some(isTouched))
 			throw new MachineInputError(

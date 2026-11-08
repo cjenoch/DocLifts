@@ -7,6 +7,14 @@ import type { Database } from './progression';
 // Session quick-add deliberately does not call this or alter any template row.
 export type ProgramTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
+/** The program was replaced by a newer version: edit its active successor. */
+export class ProgramInactiveError extends Error {
+	constructor() {
+		super('Program is inactive; edit its active successor');
+		this.name = 'ProgramInactiveError';
+	}
+}
+
 // Caller owns the transaction: copy, archive and edits must commit or roll back together.
 export async function duplicateProgramForEditInTransaction(
 	tx: ProgramTransaction,
@@ -25,7 +33,7 @@ export async function duplicateProgramForEditInTransaction(
 		)
 		.for('update');
 	if (!source) throw new Error('Program not found');
-	if (!source.isActive) throw new Error('Program is inactive; edit its active successor');
+	if (!source.isActive) throw new ProgramInactiveError();
 	const [copy] = await tx
 		.insert(programs)
 		.values({

@@ -638,6 +638,15 @@ export async function softDeleteEndedSession(
 	return { ok: true };
 }
 
+/**
+ * Restoring a workout that was trashed before it ended would bring back an
+ * open workout, which can collide with another open one on the same day
+ * (`sessions_one_open_per_day`). The app only trashes ended workouts, so such
+ * a row is legacy or hand-made; it is refused, not restored (Phase 2c).
+ */
+export const RESTORE_UNFINISHED_REFUSAL =
+	'This workout was never finished, so it cannot be restored.';
+
 export async function restoreSoftDeletedSession(
 	db: Database,
 	userId: string,
@@ -646,6 +655,10 @@ export async function restoreSoftDeletedSession(
 	const session = await loadSession(db, userId, sessionId, 'trashed');
 	if (!session) {
 		return { ok: false, status: 404, message: 'Session not found in trash' };
+	}
+	// The phase the row returns to once out of Trash.
+	if (sessionPhase({ ...session, deletedAt: null }) === 'open') {
+		return { ok: false, status: 409, message: RESTORE_UNFINISHED_REFUSAL };
 	}
 
 	await db

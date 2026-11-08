@@ -35,10 +35,11 @@ import {
 	sessions,
 	sets
 } from './db/schema';
-import { lockActive, prefillOccurrence } from './machines';
+import { isPhotoBlock, lockActive, PHOTO_BLOCK_REFUSAL, prefillOccurrence } from './machines';
 import { sessionIs } from './workout-state-sql';
 import { isTouched } from '../workout-state';
 import { loadProgramDraft, saveProgramDraft } from './program-builder';
+import { ProgramInactiveError, type ProgramTransaction } from './programs';
 import { FREE_WEIGHT_TYPES, type Database } from './progression';
 
 export class WorkoutEditError extends Error {
@@ -183,6 +184,8 @@ export async function swapSessionExercise(
 	return db.transaction(async (tx) => {
 		await lockActive(tx, userId, sessionId);
 		const { occurrence, rows } = await occurrenceOf(tx, sessionId, value.occurrenceId);
+		// A photo block is named from its photo, never swapped (Phase 2a).
+		if (await isPhotoBlock(tx, userId, occurrence)) throw new WorkoutEditError(PHOTO_BLOCK_REFUSAL);
 		if (rows.some(logged))
 			throw new WorkoutEditError(
 				'This exercise has logged sets, so it cannot be swapped. Skip the rest and add the other exercise instead.'
@@ -235,6 +238,9 @@ export type ProgramSwapResult =
 	| { kind: 'updated'; programId: string }
 	| { kind: 'failed'; reason: 'open' | 'changed' | 'invalid' };
 
+/** Thrown inside the save transaction when another workout of the program is open. */
+class ProgramHasOpenWorkout extends Error {}
+
 /**
  * After a workout ends: carry its "From now on" swaps into the program, as a
  * new version through `saveProgramDraft` (duplicate-on-edit, validated). A
@@ -279,12 +285,6 @@ export async function applyProgramSwaps(
 		.where(and(eq(programs.id, session.programId), eq(programs.userId, userId)));
 	if (!program || !program.isActive || program.systemKind)
 		return { kind: 'failed', reason: 'changed' };
-	const [open] = await db
-		.select({ id: sessions.id })
-		.from(sessions)
-		.where(and(eq(sessions.programId, program.id), eq(sessions.userId, userId), sessionIs.open()))
-		.limit(1);
-	if (open) return { kind: 'failed', reason: 'open' };
 
 	// Where each planned exercise sits in the draft: days and exercises in order.
 	const places = new Map<string, [number, number]>();
@@ -310,14 +310,32 @@ export async function applyProgramSwaps(
 			row.exerciseId = swap.exerciseId;
 			row.newExercise = null;
 		}
-		const saved = await saveProgramDraft(db, userId, {
-			requestId: sessionId,
-			sourceProgramId: program.id,
-			draft
-		});
+		const saved = await saveProgramDraft(
+			db,
+			userId,
+			{ requestId: sessionId, sourceProgramId: program.id, draft },
+			{
+				// Inside the save transaction, after the program row is locked: a
+				// workout of this program that started (or is still starting)
+				// after the checks above is seen here, and the save rolls back.
+				beforeSave: async (tx: ProgramTransaction) => {
+					const [open] = await tx
+						.select({ id: sessions.id })
+						.from(sessions)
+						.where(
+							and(eq(sessions.programId, program.id), eq(sessions.userId, userId), sessionIs.open())
+						)
+						.limit(1);
+					if (open) throw new ProgramHasOpenWorkout();
+				}
+			}
+		);
 		return { kind: 'updated', programId: saved.id };
 	} catch (e) {
+		if (e instanceof ProgramHasOpenWorkout) return { kind: 'failed', reason: 'open' };
 		if (e instanceof z.ZodError) return { kind: 'failed', reason: 'invalid' };
+		// Retired by another save between the read above and the save's lock.
+		if (e instanceof ProgramInactiveError) return { kind: 'failed', reason: 'changed' };
 		if (e instanceof Error && /not found|archived|already|conflict/i.test(e.message))
 			return { kind: 'failed', reason: 'changed' };
 		throw e;

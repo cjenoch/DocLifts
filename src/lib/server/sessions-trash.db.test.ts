@@ -16,6 +16,7 @@ import {
 	hardDeleteSession,
 	listDeletedSessionsForProgram,
 	listDeletedSessionsForUser,
+	RESTORE_UNFINISHED_REFUSAL,
 	restoreSoftDeletedSession,
 	softDeleteEndedSession,
 	startSessionForDay
@@ -205,6 +206,37 @@ describe('restore by id from History', () => {
 			.where(and(eq(s.sessions.userId, user), isNull(s.sessions.deletedAt)));
 		expect(live.map((r) => r.id).sort()).toEqual([trashed, open.sessionId].sort());
 		expect(live.filter((r) => r.endedAt === null).map((r) => r.id)).toEqual([open.sessionId]);
+	});
+
+	it('refuses (409) a workout trashed before it ended, and writes nothing (Phase 2c)', async () => {
+		const user = await createTestUser(db, 'restore-unfinished');
+		// Positive first: an ended workout in Trash comes back.
+		const ended = await quickWorkout(user);
+		await trash(user, ended);
+		expect(await restoreSoftDeletedSession(db, user, ended)).toEqual({ ok: true });
+		expect((await sessionRow(ended)).deletedAt).toBeNull();
+
+		// An open workout trashed by hand (the app only trashes ended ones):
+		// restoring it would make an open workout again.
+		const [gym] = await db.select().from(s.gyms).where(eq(s.gyms.userId, user));
+		const open = await startQuickSession(db, user, gym.id);
+		if (!open.ok) throw new Error(open.message);
+		await db
+			.update(s.sessions)
+			.set({ deletedAt: new Date() })
+			.where(eq(s.sessions.id, open.sessionId));
+		const before = await sessionRow(open.sessionId);
+		expect(before.endedAt).toBeNull();
+
+		expect(await restoreSoftDeletedSession(db, user, open.sessionId)).toEqual({
+			ok: false,
+			status: 409,
+			message: RESTORE_UNFINISHED_REFUSAL
+		});
+		expect(await sessionRow(open.sessionId)).toEqual(before);
+		expect((await listDeletedSessionsForUser(db, user)).sessions.map((t) => t.id)).toEqual([
+			open.sessionId
+		]);
 	});
 
 	it('refuses (404) a workout that is not in Trash, and writes nothing', async () => {

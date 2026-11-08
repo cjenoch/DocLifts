@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { createTestUser, setupTestDb, resetTestDb, withTwoUsers } from './test-db';
 import * as s from './db/schema';
 import { blankSetDraft, type ProgramDraft } from '../program-draft';
@@ -460,5 +460,156 @@ describe('rules', () => {
 			.where(and(eq(s.sessions.id, sessionId)));
 		expect(ended[0].endedAt).toBeNull();
 		expect(WorkoutEditError).toBeDefined();
+	});
+});
+
+describe('applyProgramSwaps: the failure outcomes (Phase 2e)', () => {
+	/** A "From now on" swap of DB row to DB fly, logged and finished. */
+	async function swappedAndEnded() {
+		const f = await fixture();
+		const sessionId = await start(f.userId, f.dayId);
+		const row = await occurrenceNamed(sessionId, 'DB row');
+		await swapSessionExercise(h.db, f.userId, sessionId, {
+			occurrenceId: row.id,
+			exerciseId: f.fly.id,
+			scope: 'program'
+		});
+		await log(row.id, 30, 10);
+		await endSession(h.db, f.userId, sessionId);
+		return { ...f, sessionId };
+	}
+	async function programRow(id: string) {
+		const [row] = await h.db.select().from(s.programs).where(eq(s.programs.id, id));
+		return row;
+	}
+	const programsOf = (userId: string) =>
+		h.db.select({ id: s.programs.id }).from(s.programs).where(eq(s.programs.userId, userId));
+	/** Wait until some connection in this database is blocked on a lock. */
+	async function untilALockIsAwaited() {
+		for (let i = 0; i < 400; i++) {
+			const [r] = await h.db.execute(
+				sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`
+			);
+			if (Number(r.n) > 0) return;
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+		throw new Error('no connection waited on a lock');
+	}
+
+	it("'changed' when the program was replaced by a new version between the swap and the finish", async () => {
+		const { userId, programId, sessionId } = await swappedAndEnded();
+		// Someone saved an edit in the editor: programId is retired.
+		const edited = await saveProgramDraft(h.db, userId, {
+			requestId: randomUUID(),
+			sourceProgramId: programId,
+			draft: await loadProgramDraft(h.db, userId, programId)
+		});
+		const before = await loadProgramDraft(h.db, userId, edited.id);
+		expect(await applyProgramSwaps(h.db, userId, sessionId)).toEqual({
+			kind: 'failed',
+			reason: 'changed'
+		});
+		// Nothing was written: the successor is unchanged and still the active one.
+		expect(await loadProgramDraft(h.db, userId, edited.id)).toEqual(before);
+		expect((await programRow(edited.id)).isActive).toBe(true);
+		expect(await programsOf(userId)).toHaveLength(2);
+	});
+
+	it("'changed', not a thrown error, when the program is retired while the save waits for its lock", async () => {
+		const { userId, programId, sessionId } = await swappedAndEnded();
+		// Connection A retires the program and holds the row until released.
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		let retired!: () => void;
+		const retiredSignal = new Promise<void>((resolve) => (retired = resolve));
+		const txA = h.db.transaction(async (tx) => {
+			await tx.update(s.programs).set({ isActive: false }).where(eq(s.programs.id, programId));
+			retired();
+			await gate;
+		});
+		txA.catch(() => retired());
+		let applying: Promise<unknown> | undefined;
+		try {
+			await retiredSignal;
+			// B reads the program as active (A has not committed), then blocks on
+			// the save's FOR UPDATE until A commits, and re-reads it as inactive.
+			applying = applyProgramSwaps(h.db, userId, sessionId).then(
+				(value) => ({ value }),
+				(error: unknown) => ({ error })
+			);
+			await untilALockIsAwaited();
+		} finally {
+			release();
+		}
+		await txA;
+		expect(await applying).toEqual({ value: { kind: 'failed', reason: 'changed' } });
+		// Rolled back: no new version, no receipt.
+		expect(await programsOf(userId)).toEqual([{ id: programId }]);
+		const receipts = await h.db
+			.select()
+			.from(s.programDraftRequests)
+			.where(eq(s.programDraftRequests.requestId, sessionId));
+		expect(receipts).toEqual([]);
+	});
+
+	it("'open' when another workout of the program starts while the save waits for its lock", async () => {
+		const { userId, programId, sessionId } = await swappedAndEnded();
+		const [otherDay] = await h.db
+			.insert(s.days)
+			.values({ programId, name: 'Other', position: 2 })
+			.returning();
+		const before = await loadProgramDraft(h.db, userId, programId);
+		// Connection A starts a workout of the program and holds it uncommitted:
+		// its session insert holds FOR KEY SHARE on the program row.
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		let started!: () => void;
+		const startedSignal = new Promise<void>((resolve) => (started = resolve));
+		const txA = h.db.transaction(async (tx) => {
+			const result = await startSessionForDay(tx, userId, otherDay.id);
+			if (!result.ok) throw new Error(result.message);
+			started();
+			await gate;
+		});
+		txA.catch(() => started());
+		let applying: Promise<unknown> | undefined;
+		try {
+			await startedSignal;
+			// B sees no open workout yet (A is uncommitted), then blocks on the
+			// save's FOR UPDATE. Checked only before the save, it would go through.
+			applying = applyProgramSwaps(h.db, userId, sessionId).then(
+				(value) => ({ value }),
+				(error: unknown) => ({ error })
+			);
+			await untilALockIsAwaited();
+		} finally {
+			release();
+		}
+		await txA;
+		expect(await applying).toEqual({ value: { kind: 'failed', reason: 'open' } });
+		expect((await programRow(programId)).isActive).toBe(true);
+		expect(await loadProgramDraft(h.db, userId, programId)).toEqual(before);
+		expect(await programsOf(userId)).toEqual([{ id: programId }]);
+	});
+
+	it("'invalid' when the program's own draft does not validate (a legacy NULL target)", async () => {
+		const { userId, programId, sessionId } = await swappedAndEnded();
+		const [legacy] = await h.db
+			.select({ id: s.prescribedSets.id })
+			.from(s.prescribedSets)
+			.innerJoin(s.dayExercises, eq(s.dayExercises.id, s.prescribedSets.dayExerciseId))
+			.innerJoin(s.days, eq(s.days.id, s.dayExercises.dayId))
+			.where(eq(s.days.programId, programId))
+			.limit(1);
+		await h.db
+			.update(s.prescribedSets)
+			.set({ targetRepsMin: null })
+			.where(eq(s.prescribedSets.id, legacy.id));
+		expect(await applyProgramSwaps(h.db, userId, sessionId)).toEqual({
+			kind: 'failed',
+			reason: 'invalid'
+		});
+		expect((await programRow(programId)).isActive).toBe(true);
+		expect(await programsOf(userId)).toEqual([{ id: programId }]);
 	});
 });

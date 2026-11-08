@@ -171,7 +171,17 @@ const saveSchema = z
 export async function saveProgramDraft(
 	db: Database,
 	userId: string,
-	input: { requestId: string; sourceProgramId: string | null; draft: unknown }
+	input: { requestId: string; sourceProgramId: string | null; draft: unknown },
+	opts: {
+		/**
+		 * Runs inside the save transaction, after the source program's row is
+		 * locked `FOR UPDATE` and before any day is written. Throwing rolls the
+		 * whole save back. `applyProgramSwaps` uses it for its open-workout
+		 * check: a session insert takes `FOR KEY SHARE` on its program row, so
+		 * one in flight is committed (and visible here) before this runs.
+		 */
+		beforeSave?: (tx: ProgramTransaction) => Promise<void>;
+	} = {}
 ): Promise<{ id: string }> {
 	const { requestId, sourceProgramId, draft } = saveSchema.parse(input);
 	// userId is inside the fingerprint as well as the receipt lookup: two users
@@ -227,6 +237,7 @@ export async function saveProgramDraft(
 				.returning();
 			id = program.id;
 		}
+		await opts.beforeSave?.(tx);
 		for (const [dayIndex, day] of draft.days.entries()) {
 			const [savedDay] = await tx
 				.insert(days)

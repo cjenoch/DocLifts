@@ -484,9 +484,20 @@ describe('applyProgramSwaps: the failure outcomes (Phase 2e)', () => {
 	}
 	const programsOf = (userId: string) =>
 		h.db.select({ id: s.programs.id }).from(s.programs).where(eq(s.programs.userId, userId));
-	/** Wait until some connection in this database is blocked on a lock. */
-	async function untilALockIsAwaited() {
-		for (let i = 0; i < 400; i++) {
+	/**
+	 * Wait until some connection in this database is blocked on a lock. Fails
+	 * fast, naming the outcome, if `settled` finishes first (B never reached the
+	 * lock), and well inside the test timeout otherwise.
+	 */
+	async function untilALockIsAwaited(settled?: Promise<unknown>) {
+		let finished = false;
+		let done: unknown;
+		void settled?.then((v) => {
+			finished = true;
+			done = v;
+		});
+		for (let i = 0; i < 120; i++) {
+			if (finished) throw new Error(`finished before waiting on a lock: ${JSON.stringify(done)}`);
 			const [r] = await h.db.execute(
 				sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`
 			);
@@ -537,7 +548,7 @@ describe('applyProgramSwaps: the failure outcomes (Phase 2e)', () => {
 				(value) => ({ value }),
 				(error: unknown) => ({ error })
 			);
-			await untilALockIsAwaited();
+			await untilALockIsAwaited(applying);
 		} finally {
 			release();
 		}
@@ -553,20 +564,19 @@ describe('applyProgramSwaps: the failure outcomes (Phase 2e)', () => {
 	});
 
 	it("'open' when another workout of the program starts while the save waits for its lock", async () => {
-		const { userId, programId, sessionId } = await swappedAndEnded();
-		const [otherDay] = await h.db
-			.insert(s.days)
-			.values({ programId, name: 'Other', position: 2 })
-			.returning();
+		const { userId, programId, dayId, sessionId } = await swappedAndEnded();
 		const before = await loadProgramDraft(h.db, userId, programId);
-		// Connection A starts a workout of the program and holds it uncommitted:
+		// Connection A starts a workout of the program (the same day: the
+		// swapped workout has ended, so a new one may open; an empty extra day
+		// would make the draft invalid and B would stop before the lock) and
+		// holds it uncommitted:
 		// its session insert holds FOR KEY SHARE on the program row.
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => (release = resolve));
 		let started!: () => void;
 		const startedSignal = new Promise<void>((resolve) => (started = resolve));
 		const txA = h.db.transaction(async (tx) => {
-			const result = await startSessionForDay(tx, userId, otherDay.id);
+			const result = await startSessionForDay(tx, userId, dayId);
 			if (!result.ok) throw new Error(result.message);
 			started();
 			await gate;
@@ -581,7 +591,7 @@ describe('applyProgramSwaps: the failure outcomes (Phase 2e)', () => {
 				(value) => ({ value }),
 				(error: unknown) => ({ error })
 			);
-			await untilALockIsAwaited();
+			await untilALockIsAwaited(applying);
 		} finally {
 			release();
 		}

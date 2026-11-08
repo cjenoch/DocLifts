@@ -286,6 +286,16 @@ export async function applyProgramSwaps(
 	if (!program || !program.isActive || program.systemKind)
 		return { kind: 'failed', reason: 'changed' };
 
+	// Fast path, before the draft is loaded and validated: an open workout
+	// wins over an invalid draft, as it did before Phase 2. The check inside
+	// the save below catches a workout that starts after this read.
+	const [openNow] = await db
+		.select({ id: sessions.id })
+		.from(sessions)
+		.where(and(eq(sessions.programId, program.id), eq(sessions.userId, userId), sessionIs.open()))
+		.limit(1);
+	if (openNow) return { kind: 'failed', reason: 'open' };
+
 	// Where each planned exercise sits in the draft: days and exercises in order.
 	const places = new Map<string, [number, number]>();
 	const dayRows = await db

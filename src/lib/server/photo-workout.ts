@@ -18,7 +18,7 @@
  * Every function takes the owner's id (D5); another user's session, block,
  * photo or model is "not found" (D6).
  */
-import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	equipmentModels,
@@ -91,48 +91,130 @@ export async function isPhotoBlock(
 	return !!row;
 }
 
+/** The machine `openPhotoBlock` made for a block, and the photos that prove it. */
+export type PhotoPlaceholder = { machineId: string; photoIds: string[] };
+
 /**
- * After a block on the placeholder exercise leaves its machine (swap, change
- * machine, remove: possible only once its photo is discarded, or never named),
- * the machine `openPhotoBlock` made for it goes too, so no "Photo 14:32" row
- * with nothing on it is left in the gym list or the add sheet. Deleted only
- * when it is unmistakably that placeholder (this user's, no model, the
- * placeholder type, a photo label, not archived) and nothing at all points at
- * it any more; a placeholder that holds logged sets stays, as history.
+ * Positive evidence that the block's current machine is the placeholder the
+ * app made for THIS block (owner review P2, 2026-11-08). `openPhotoBlock` (and
+ * `undoPhotoIdentify`) record it on the photo: `equipment_photos.session_exercise_id`
+ * = the block AND `equipment_photos.gym_equipment_id` = the machine it created,
+ * in the same transaction. Evidence is a photo of this user with both links
+ * (any status, discarded included), the block on this user's placeholder
+ * exercise, and the machine still placeholder-shaped (this user's gym, no
+ * model, the placeholder type, not archived or merged). The label is not
+ * evidence: a user may name a machine "Photo Finish".
+ *
+ * Read it BEFORE the block changes: removing the block sets the photo's
+ * `session_exercise_id` to null. No evidence (an erased photo, a photo from
+ * before 0.10.x, a photo confirmed onto another machine) means null, and the
+ * machine is kept.
  */
-export async function dropPhotoPlaceholderMachine(
+export async function photoPlaceholderOf(
 	db: Database,
 	userId: string,
-	before: { exerciseId: string; gymEquipmentId: string | null },
-	nowMachineId: string | null
-) {
-	if (!before.gymEquipmentId || before.gymEquipmentId === nowMachineId) return;
-	const [onPlaceholder] = await db
-		.select({ id: exercises.id })
-		.from(exercises)
+	block: { id: string; exerciseId: string; gymEquipmentId: string | null }
+): Promise<PhotoPlaceholder | null> {
+	if (!block.gymEquipmentId) return null;
+	const rows = await db
+		.select({ photoId: equipmentPhotos.id })
+		.from(equipmentPhotos)
+		.innerJoin(gymEquipment, eq(gymEquipment.id, equipmentPhotos.gymEquipmentId))
+		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
+		.innerJoin(exercises, eq(exercises.id, block.exerciseId))
 		.where(
 			and(
-				eq(exercises.id, before.exerciseId),
+				eq(equipmentPhotos.userId, userId),
+				eq(equipmentPhotos.sessionExerciseId, block.id),
+				eq(equipmentPhotos.gymEquipmentId, block.gymEquipmentId),
+				eq(equipmentPhotos.gymId, gymEquipment.gymId),
+				eq(gyms.userId, userId),
+				isNull(gymEquipment.equipmentModelId),
+				isNull(gymEquipment.archivedAt),
+				isNull(gymEquipment.mergedIntoId),
+				eq(gymEquipment.equipmentType, workoutUi.photoPlaceholderType),
 				eq(exercises.userId, userId),
 				eq(exercises.canonicalMovement, PLACEHOLDER_MOVEMENT)
 			)
 		);
-	if (!onPlaceholder) return;
-	const [machine] = await db
-		.select({ machine: gymEquipment })
-		.from(gymEquipment)
-		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
-		.where(and(eq(gymEquipment.id, before.gymEquipmentId), eq(gyms.userId, userId)));
-	if (
-		!machine ||
-		machine.machine.equipmentModelId ||
-		machine.machine.archivedAt ||
-		machine.machine.equipmentType !== workoutUi.photoPlaceholderType ||
-		!machine.machine.localLabel.startsWith(workoutUi.photoMachineLabel(''))
-	)
-		return;
-	if (await machineIsReferenced(db, machine.machine.id)) return;
-	await db.delete(gymEquipment).where(eq(gymEquipment.id, machine.machine.id));
+	return rows.length
+		? { machineId: block.gymEquipmentId, photoIds: rows.map((r) => r.photoId) }
+		: null;
+}
+
+/** SQLSTATEs a best-effort cleanup absorbs: a reference, a lock, a deadlock. */
+const CLEANUP_CONTAINED = new Set(['23503', '55P03', '40P01']);
+function sqlState(err: unknown): string | undefined {
+	// Drizzle wraps the driver's PostgresError in DrizzleQueryError (`.cause`).
+	for (let e = err; typeof e === 'object' && e !== null; e = (e as { cause?: unknown }).cause) {
+		const code = (e as { code?: unknown }).code;
+		if (typeof code === 'string') return code;
+	}
+	return undefined;
+}
+
+/**
+ * After a block leaves its machine (swap, change machine, remove: possible
+ * only once its photo is discarded, or erased), delete the placeholder that
+ * `photoPlaceholderOf` proved was made for it, so no "Photo 14:32" row with
+ * nothing on it is left in the gym list. Best-effort, never a reason for the
+ * edit it follows to fail:
+ *
+ * - The machine is locked `FOR UPDATE SKIP LOCKED` before references are
+ *   counted. Another transaction writing a reference holds `FOR KEY SHARE` on
+ *   it, so the lock is skipped and the machine kept: no wait, no 23503.
+ * - Anything pointing at it other than the evidence photos (logged sets, a
+ *   merge, another photo) keeps it, as history.
+ * - It runs in a SAVEPOINT (a nested transaction). A reference, lock or
+ *   deadlock error rolls back only the cleanup and keeps the machine; any
+ *   other error is a programming error and is thrown.
+ *
+ * Returns true when the machine was deleted.
+ */
+export async function dropPhotoPlaceholderMachine(
+	db: Database,
+	userId: string,
+	placeholder: PhotoPlaceholder | null,
+	nowMachineId: string | null
+): Promise<boolean> {
+	if (!placeholder || placeholder.machineId === nowMachineId) return false;
+	const { machineId, photoIds } = placeholder;
+	try {
+		return await db.transaction(async (sp) => {
+			const [locked] = await sp
+				.select({ id: gymEquipment.id })
+				.from(gymEquipment)
+				.where(
+					and(
+						eq(gymEquipment.id, machineId),
+						inArray(
+							gymEquipment.gymId,
+							sp.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
+						),
+						isNull(gymEquipment.equipmentModelId),
+						isNull(gymEquipment.archivedAt)
+					)
+				)
+				.for('update', { skipLocked: true });
+			if (!locked) return false;
+			if (await machineIsReferenced(sp, machineId, { ignoringPhotoIds: photoIds })) return false;
+			await sp
+				.update(equipmentPhotos)
+				.set({ gymEquipmentId: null })
+				.where(
+					and(
+						inArray(equipmentPhotos.id, photoIds),
+						eq(equipmentPhotos.userId, userId),
+						eq(equipmentPhotos.gymEquipmentId, machineId)
+					)
+				);
+			await sp.delete(gymEquipment).where(eq(gymEquipment.id, machineId));
+			return true;
+		});
+	} catch (err) {
+		if (CLEANUP_CONTAINED.has(sqlState(err) ?? '')) return false;
+		throw err;
+	}
 }
 
 const convention = z.enum(['unknown', 'plates_per_side', 'total_plates', 'per_arm', 'displayed']);
@@ -238,9 +320,12 @@ export async function openPhotoBlock(
 			tier: 'secondary',
 			progressionPolicy: 'standard'
 		});
+		// Both links, in this transaction: the evidence `photoPlaceholderOf` reads
+		// that this machine was made for this block. Thumbnails and lists read
+		// only confirmed photos, so an open photo's machine link shows nowhere.
 		await tx
 			.update(equipmentPhotos)
-			.set({ sessionExerciseId: occurrence.id })
+			.set({ sessionExerciseId: occurrence.id, gymEquipmentId: machine.id })
 			.where(and(eq(equipmentPhotos.id, photo.id), eq(equipmentPhotos.userId, userId)));
 		return occurrence;
 	});
@@ -720,7 +805,8 @@ export async function undoPhotoIdentify(
 			.set({
 				status: parseCandidate(block.photo.candidate) ? 'analyzed' : 'uploaded',
 				matchedModelId: null,
-				gymEquipmentId: null
+				// The new placeholder, as openPhotoBlock records it (photoPlaceholderOf).
+				gymEquipmentId: machine.id
 			})
 			.where(eq(equipmentPhotos.sessionExerciseId, occurrenceId));
 		// The new placeholder has no history: untouched sets go back to blank.

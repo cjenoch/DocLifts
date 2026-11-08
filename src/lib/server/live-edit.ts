@@ -36,7 +36,7 @@ import {
 	sets
 } from './db/schema';
 import { lockActive, PHOTO_BLOCK_REFUSAL, prefillOccurrence } from './machines';
-import { dropPhotoPlaceholderMachine, isPhotoBlock } from './photo-workout';
+import { dropPhotoPlaceholderMachine, isPhotoBlock, photoPlaceholderOf } from './photo-workout';
 import { sessionIs } from './workout-state-sql';
 import { isTouched } from '../workout-state';
 import { loadProgramDraft, saveProgramDraft } from './program-builder';
@@ -88,9 +88,11 @@ export async function removeSessionExercise(
 		const { occurrence, rows } = await occurrenceOf(tx, sessionId, input.occurrenceId);
 		const count = rows.filter(logged).length;
 		if (count > 0 && Number(input.loggedCount) !== count) throw new WorkoutEditError(STALE);
+		// Read before the delete: it sets the photo's session_exercise_id to null.
+		const placeholder = await photoPlaceholderOf(tx, userId, occurrence);
 		await tx.delete(sets).where(eq(sets.sessionExerciseId, occurrence.id));
 		await tx.delete(sessionExercises).where(eq(sessionExercises.id, occurrence.id));
-		await dropPhotoPlaceholderMachine(tx, userId, occurrence, null);
+		await dropPhotoPlaceholderMachine(tx, userId, placeholder, null);
 		return { removedSets: rows.length, removedLogged: count };
 	});
 }
@@ -208,6 +210,7 @@ export async function swapSessionExercise(
 			free && value.loadConvention && value.loadConvention !== 'plates_per_side'
 				? value.loadConvention
 				: ('legacy' as const);
+		const placeholder = await photoPlaceholderOf(tx, userId, occurrence);
 		const [updated] = await tx
 			.update(sessionExercises)
 			.set({
@@ -233,7 +236,7 @@ export async function swapSessionExercise(
 			})
 			.where(eq(sets.sessionExerciseId, occurrence.id));
 		await prefillOccurrence(tx, userId, updated);
-		await dropPhotoPlaceholderMachine(tx, userId, occurrence, null);
+		await dropPhotoPlaceholderMachine(tx, userId, placeholder, null);
 		return updated;
 	});
 }

@@ -541,11 +541,25 @@ With a set logged, swap is closed for the usual reason ("Logged sets: swap is
 closed"), and the block stays as logged.
 
 When such a block leaves its "Photo" machine (swap, change machine, remove),
-`dropPhotoPlaceholderMachine` deletes that machine if it is unmistakably the
-placeholder (this user's, no model, `machine-stack`, a "Photo" label, not
-archived) and nothing at all points at it any more, so no empty "Photo 14:32"
-row is left in the gym list or the add sheet. A placeholder that holds logged
-sets stays, as history.
+`dropPhotoPlaceholderMachine` deletes that machine only on positive evidence
+that the app made it for that block: a photo of this user whose
+`session_exercise_id` is the block and whose `gym_equipment_id` is the machine
+(`openPhotoBlock` and `undoPhotoIdentify` write both links; any status,
+discarded included), the block on the placeholder exercise, and the machine
+still placeholder-shaped (no model, `machine-stack`, not archived or merged).
+The label is not evidence: a machine the user named "Photo Finish" is never
+deleted. Without that evidence the machine is kept, and the user can remove it
+from the gym page; that is the case for a photo erased before the block left
+it, a placeholder made before this rule, and a photo confirmed onto another
+machine. A placeholder that holds logged sets, or anything else pointing at
+it, stays, as history.
+
+The cleanup is best-effort and never fails the edit. It locks the machine with
+`FOR UPDATE SKIP LOCKED` before counting references, so a machine another
+transaction is still writing a reference to (its FK check holds `FOR KEY
+SHARE`) is skipped and kept instead of waited on and then failing with 23503.
+It runs in a savepoint: a reference, lock or deadlock error rolls back only
+the cleanup.
 
 Discarding a photo does not remove its block, even an empty one on an open
 workout. A photo leaves through more than one path (the review page's Discard,

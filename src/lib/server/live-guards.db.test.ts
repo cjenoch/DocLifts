@@ -314,7 +314,7 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 		expect(await machineRow(live.gymEquipmentId!)).toBeDefined();
 	});
 
-	it('change machine works on it under bind rules, also when the photo row is erased', async () => {
+	it('change machine works on it under bind rules, also when the photo row is erased; then its placeholder stays', async () => {
 		const { userId, gymId, sessionId } = await setup('p2-bind');
 		const stack = await createMachine(db, userId, {
 			gymId,
@@ -343,7 +343,9 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 			confirm: 'CHANGE'
 		});
 		expect(bound.gymEquipmentId).toBe(stack.id);
-		expect(await machineRow(placeholderId)).toBeUndefined();
+		// The erased row was the only evidence the app made that machine for this
+		// block, so it is kept; the user can remove it from the gym page.
+		expect(await machineRow(placeholderId)).toBeDefined();
 		// The machine it moved to is the user's own: changing again keeps it.
 		const other = await createMachine(db, userId, {
 			gymId,
@@ -389,5 +391,141 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 		});
 		expect(removed.removedLogged).toBe(1);
 		expect(await machineRow(placeholderId)).toBeUndefined();
+	});
+});
+
+/** The photo row by id. */
+async function photoRow(id: string) {
+	const [row] = await db.select().from(s.equipmentPhotos).where(eq(s.equipmentPhotos.id, id));
+	return row;
+}
+
+const changeTo = (gymId: string, gymEquipmentId: string) => ({
+	gymId,
+	gymEquipmentId,
+	loadConvention: 'displayed',
+	confirm: 'CHANGE'
+});
+
+describe('the placeholder cleanup needs evidence, and never fails the edit (owner review P2)', () => {
+	it('a machine the user named "Photo Finish" is never deleted; only the placeholder made for the block is', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-photo-finish');
+		const finish = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Photo Finish',
+			equipmentType: 'machine-stack',
+			incrementLb: 10
+		});
+		const door = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Press by the door',
+			equipmentType: 'machine-stack'
+		});
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		expect((await photoRow(p.id)).gymEquipmentId).toBe(placeholderId);
+		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
+
+		// Positive first: binding the orphan block away drops the placeholder
+		// openPhotoBlock made for it, and unlinks the discarded photo from it.
+		const onFinish = await bindSessionMachine(
+			db,
+			userId,
+			sessionId,
+			block.id,
+			changeTo(gymId, finish.id)
+		);
+		expect(onFinish.gymEquipmentId).toBe(finish.id);
+		expect(await machineRow(placeholderId)).toBeUndefined();
+		expect((await photoRow(p.id)).gymEquipmentId).toBeNull();
+
+		// The block is still on the placeholder exercise and its label starts
+		// "Photo ", but nothing says the app made Photo Finish for it: kept.
+		const onDoor = await bindSessionMachine(
+			db,
+			userId,
+			sessionId,
+			block.id,
+			changeTo(gymId, door.id)
+		);
+		expect(onDoor.gymEquipmentId).toBe(door.id);
+		expect(await machineRow(finish.id)).toMatchObject({
+			localLabel: 'Photo Finish',
+			equipmentType: 'machine-stack',
+			incrementLb: 10,
+			archivedAt: null
+		});
+	});
+
+	it('a reference another transaction has not committed keeps the placeholder, and the rebind still succeeds without waiting', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-concurrent');
+		const target = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Press by the window',
+			equipmentType: 'machine-stack'
+		});
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
+
+		// Connection A: a photo confirmed onto the placeholder (as linkPhoto
+		// writes it), held uncommitted. Its FK check holds FOR KEY SHARE on the
+		// machine row until A ends.
+		const claimId = randomUUID();
+		let releaseA!: () => void;
+		const gateA = new Promise<void>((resolve) => (releaseA = resolve));
+		let claimedA!: () => void;
+		const claimed = new Promise<void>((resolve) => (claimedA = resolve));
+		const txA = db.transaction(async (tx) => {
+			await tx.insert(s.equipmentPhotos).values({
+				id: claimId,
+				userId,
+				gymId,
+				storageKey: `users/${userId}/equipment-photos/${claimId}.jpg`,
+				contentType: 'image/jpeg',
+				bytes: 1000,
+				width: 1200,
+				height: 1600,
+				sha256: 'y'.repeat(64),
+				status: 'confirmed',
+				gymEquipmentId: placeholderId
+			});
+			claimedA();
+			await gateA;
+		});
+		// If A fails before signalling, unblock the wait below instead of hanging.
+		txA.catch(() => claimedA());
+
+		let bindB: Promise<unknown> | undefined;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await claimed;
+			// Connection B: rebind the block off the placeholder, raced against a
+			// timer while A is still open. A cleanup that waits on A loses.
+			bindB = bindSessionMachine(db, userId, sessionId, block.id, changeTo(gymId, target.id)).then(
+				(value) => ({ value }),
+				(error: unknown) => ({ error })
+			);
+			const waited = new Promise<'waited for A'>((resolve) => {
+				timer = setTimeout(() => resolve('waited for A'), 1500);
+			});
+			const outcome = await Promise.race([bindB, waited]);
+			expect(outcome).toMatchObject({ value: { id: block.id, gymEquipmentId: target.id } });
+		} finally {
+			if (timer) clearTimeout(timer);
+			releaseA();
+			await txA.catch(() => undefined);
+			await bindB;
+		}
+
+		// A committed, nothing failed: its photo points at the kept placeholder,
+		// and B's rebind persisted.
+		expect(await machineRow(placeholderId)).toBeDefined();
+		expect((await photoRow(claimId)).gymEquipmentId).toBe(placeholderId);
+		const after = await snapshot(block.id);
+		expect(after.block.gymEquipmentId).toBe(target.id);
+		expect(after.rows.every((r) => r.gymEquipmentId === target.id)).toBe(true);
 	});
 });

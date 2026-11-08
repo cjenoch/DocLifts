@@ -33,7 +33,7 @@ import { isTouched, sessionPhase } from '../workout-state';
 import { defaultMachineLabel } from '../catalog-labels';
 // A cycle (photo-workout imports this module too), safe because these are
 // called only inside functions, never while either module is evaluated.
-import { dropPhotoPlaceholderMachine, isPhotoBlock } from './photo-workout';
+import { dropPhotoPlaceholderMachine, isPhotoBlock, photoPlaceholderOf } from './photo-workout';
 
 const name = z.string().trim().min(1).max(120);
 const optionalText = z.preprocess((v) => (v === '' || v == null ? undefined : v), name.optional());
@@ -527,11 +527,23 @@ export const FREE_WEIGHT_BIND_REFUSAL = 'Free weights need no machine.';
  * merges. A machine with none of these is deleted rather than archived
  * (machine-admin's Remove, and a photo's placeholder once its block leaves it).
  */
-export async function machineIsReferenced(db: Database, machineId: string) {
+export async function machineIsReferenced(
+	db: Database,
+	machineId: string,
+	opts: { ignoringPhotoIds?: string[] } = {}
+) {
+	// The photo cleanup (`dropPhotoPlaceholderMachine`) passes the photos that
+	// are its own evidence; they are unlinked in the same savepoint.
+	const ignoring = opts.ignoringPhotoIds?.length
+		? sql` AND ${equipmentPhotos.id} NOT IN (${sql.join(
+				opts.ignoringPhotoIds.map((id) => sql`${id}`),
+				sql`, `
+			)})`
+		: sql``;
 	const [row] = await db.execute<{ used: boolean }>(sql`
 		SELECT EXISTS (SELECT 1 FROM ${sets} WHERE ${sets.gymEquipmentId} = ${machineId})
 			OR EXISTS (SELECT 1 FROM ${sessionExercises} WHERE ${sessionExercises.gymEquipmentId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${equipmentPhotos} WHERE ${equipmentPhotos.gymEquipmentId} = ${machineId})
+			OR EXISTS (SELECT 1 FROM ${equipmentPhotos} WHERE ${equipmentPhotos.gymEquipmentId} = ${machineId}${ignoring})
 			OR EXISTS (SELECT 1 FROM ${machineMerges} WHERE ${machineMerges.droppedId} = ${machineId} OR ${machineMerges.keptId} = ${machineId})
 			OR EXISTS (SELECT 1 FROM ${gymEquipment} WHERE ${gymEquipment.mergedIntoId} = ${machineId}) AS used`);
 	return Boolean(row?.used);
@@ -565,14 +577,16 @@ export async function bindSessionMachine(
 		const snapshot = await machineSnapshot(tx, userId, input);
 		if (snapshot.equipmentType !== occurrence.equipmentType)
 			throw new MachineInputError('Machine equipment type must match exercise');
+		// Read before the block moves: the evidence names the block's machine now.
+		const placeholder = await photoPlaceholderOf(tx, userId, occurrence);
 		const [updated] = await tx
 			.update(sessionExercises)
 			.set(snapshot)
 			.where(eq(sessionExercises.id, occurrence.id))
 			.returning();
 		await prefillOccurrence(tx, userId, updated);
-		// A block whose photo was discarded leaves its "Photo 14:32" placeholder.
-		await dropPhotoPlaceholderMachine(tx, userId, occurrence, updated.gymEquipmentId);
+		// A block whose photo was discarded leaves the placeholder its photo made.
+		await dropPhotoPlaceholderMachine(tx, userId, placeholder, updated.gymEquipmentId);
 		return updated;
 	});
 }

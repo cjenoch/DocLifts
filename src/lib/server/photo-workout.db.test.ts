@@ -105,6 +105,8 @@ describe('openPhotoBlock (a photo opens a block at once)', () => {
 			.from(s.equipmentPhotos)
 			.where(eq(s.equipmentPhotos.id, p.id));
 		expect(linked.sessionExerciseId).toBe(block.id);
+		// The evidence the placeholder cleanup reads: this photo made that machine.
+		expect(linked.gymEquipmentId).toBe(block.gymEquipmentId);
 		expect(linked.status).toBe('uploaded');
 	});
 
@@ -540,6 +542,11 @@ describe('repeat visits and undo (0.6.1)', () => {
 			modelName: null
 		});
 		expect(reverted!.gymEquipmentId).not.toBe(machine.id);
+		const [relinked] = await db
+			.select()
+			.from(s.equipmentPhotos)
+			.where(eq(s.equipmentPhotos.id, photoId));
+		expect(relinked.gymEquipmentId).toBe(reverted!.gymEquipmentId);
 		const [first, second] = await setsOf(block.id);
 		expect(first).toMatchObject({ executedLoad: 80, executedReps: 8 });
 		expect(second.prescribedLoad).toBeNull();

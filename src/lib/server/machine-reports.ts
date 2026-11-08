@@ -1,7 +1,7 @@
 import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { days, exercises, programs, sessionExercises, sessions, sets } from './db/schema';
 import type { Database } from './progression';
-import { historyFilter, sessionIs } from './workout-state-sql';
+import { historyFilter, sessionIs, setIs } from './workout-state-sql';
 export async function topExerciseIdentities(db: Database, userId: string) {
 	const exerciseName = sql<string>`coalesce(${sessionExercises.exerciseName}, ${exercises.name})`;
 	return db
@@ -58,9 +58,7 @@ export async function reportSnapshot(db: Database, userId: string) {
 	const [setCounts] = await db
 		.select({
 			totalInEndedSessions: count(sets.id),
-			completedInEndedSessions: count(
-				sql`CASE WHEN ${sets.executedLoad} IS NOT NULL AND ${sets.executedReps} IS NOT NULL THEN 1 END`
-			)
+			completedInEndedSessions: count(sql`CASE WHEN ${setIs.completed()} THEN 1 END`)
 		})
 		.from(sets)
 		.innerJoin(sessions, eq(sessions.id, sets.sessionId))
@@ -79,9 +77,7 @@ export async function reportSnapshot(db: Database, userId: string) {
 			dayName: days.name,
 			systemKind: programs.systemKind,
 			totalSets: count(sets.id),
-			completedSets: count(
-				sql`CASE WHEN ${sets.executedLoad} IS NOT NULL AND ${sets.executedReps} IS NOT NULL THEN 1 END`
-			)
+			completedSets: count(sql`CASE WHEN ${setIs.completed()} THEN 1 END`)
 		})
 		.from(sessions)
 		// Joined for the label only: the session's own user_id scopes the read.

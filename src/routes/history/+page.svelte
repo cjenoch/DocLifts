@@ -7,10 +7,7 @@
 
 	let { data }: { data: PageData } = $props();
 
-	// historyForMonth returns only sessions not in the Trash, so it does not
-	// select deletedAt; null is the truth for every row here.
-	const phaseOf = (s: Pick<SessionLike, 'endedAt'>) =>
-		sessionPhase({ endedAt: s.endedAt, deletedAt: null });
+	const phaseOf = (s: SessionLike) => sessionPhase({ endedAt: s.endedAt, deletedAt: s.deletedAt });
 
 	const monthLabel = $derived.by(() => {
 		const [y, m] = data.month.split('-').map(Number);

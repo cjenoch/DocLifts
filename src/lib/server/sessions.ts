@@ -38,7 +38,7 @@ import {
 import { snapForEquipment } from './plates';
 import { mainPrefills } from './main-prefill';
 import { lockSession } from './session-lock';
-import { historyFilter, sessionIs } from './workout-state-sql';
+import { historyFilter, sessionIs, setIs } from './workout-state-sql';
 import { sessionPhase } from '../workout-state';
 
 export type StartSessionResult =
@@ -603,7 +603,7 @@ export async function listDeletedSessionsForUser(
 				dayName: days.name,
 				programName: programs.name,
 				systemKind: programs.systemKind,
-				loggedSets: sql<number>`count(${sets.id}) filter (where ${sets.executedLoad} is not null and ${sets.executedReps} is not null)::int`
+				loggedSets: sql<number>`count(${sets.id}) filter (where ${setIs.completed()})::int`
 			})
 			.from(sessions)
 			.innerJoin(days, eq(days.id, sessions.dayId))

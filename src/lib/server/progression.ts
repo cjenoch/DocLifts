@@ -15,7 +15,7 @@
  * (via `snapForEquipment`).
  */
 
-import { and, desc, eq, isNotNull, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import * as schema from './db/schema';
 import { sessions, sets } from './db/schema';

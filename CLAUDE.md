@@ -83,10 +83,11 @@ the exercise menu and the finish warning disagreed about a notes-only set.
 `src/lib/workout-state-seam.test.ts` fails the server project if a raw
 `isNull(sessions.endedAt)`, an `ended_at IS NULL` string, a boolean
 `.endedAt` in a `.svelte` file, or an `executedLoad != null ||` chain appears
-outside the allowlist; the allowlist names its reasons. Two files keep their
+outside the allowlist; the allowlist names its reasons. Three files keep their
 own variants pending an owner decision (plan §5): `workout-to-program.ts`
-(notes-only is not "saved" for templating) and `exports/formats.ts` (Strong
-CSV needs `reps > 0`). Do not widen the allowlist to avoid the test.
+(notes-only is not "saved" for templating), `picker.ts` ("done on this
+machine" counts a logged load alone) and `exports/formats.ts` (Strong CSV
+needs `reps > 0`). Do not widen the allowlist to avoid the test.
 
 ### No prescribed loads in the program template
 
@@ -394,7 +395,7 @@ Every function that reads or writes application data takes the owner's id as a
 required second argument, after the db handle:
 
 ```ts
-loadSession(db, userId, sessionId, 'active');
+loadSession(db, userId, sessionId, 'not-trashed');
 createGym(db, userId, formData);
 ```
 

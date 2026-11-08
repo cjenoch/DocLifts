@@ -36,6 +36,9 @@ const ALLOWLIST: Record<string, string> = {
 	'src/lib/server/exports/formats.ts': 'owner decision §5.3 pending',
 	// Owner decision §5.1 pending: a notes-only set is not "saved" for templating.
 	'src/lib/server/workout-to-program.ts': 'owner decision §5.1 pending',
+	// Owner decision §5.2 pending: "exercises done on each machine" counts a logged
+	// load alone (picker.ts doneOn). Every other predicate in the file is a fragment.
+	'src/lib/server/picker.ts': 'owner decision §5.2 pending',
 	// Test fixtures write raw rows.
 	'src/lib/server/exports/test-fixtures.ts': 'test fixtures write raw rows'
 };
@@ -43,25 +46,43 @@ const ALLOWLIST: Record<string, string> = {
 /** Tests legitimately write and assert raw rows. */
 const ALLOWED_SUFFIX = /\.(test|db\.test|spec)\.ts$/;
 
-/** Patterns forbidden in every scanned file. */
+/** Patterns forbidden in every scanned file. SQL keywords match in any case. */
 export const ANY_FILE_PATTERNS: RegExp[] = [
 	// isNull(sessions.endedAt), isNotNull(s.deletedAt), ...
 	// (`isNot?Null` would not match `isNull`: the `?` binds only to the `t`.)
 	/is(Not)?Null\(\w+\.(endedAt|deletedAt)\)/,
 	// The same through a namespace import: isNull(s.sessions.deletedAt).
 	/is(Not)?Null\(\w+(\.\w+)+\.(endedAt|deletedAt)\)/,
-	// `... ended_at IS NOT NULL ...` in raw SQL.
-	/(ended_at|deleted_at)\s+IS\s+(NOT\s+)?NULL/,
-	// The same with an interpolated column: sql`${sessions.endedAt} IS NOT NULL`.
-	/\$\{\w+\.(endedAt|deletedAt)\}\s+IS\s+(NOT\s+)?NULL/,
-	// Inline touched / completed chains.
-	/executedLoad\s*!==?\s*null\s*(\|\||&&)/
+	// `... ended_at IS NOT NULL ...` / `deleted_at is null` in raw SQL.
+	/(ended_at|deleted_at)\s+is\s+(not\s+)?null/i,
+	// The same with an interpolated column: sql`${sessions.endedAt} is not null`.
+	/\$\{\w+(\.\w+)*\.(endedAt|deletedAt)\}\s+is\s+(not\s+)?null/i,
+	// Set side in raw SQL: `executed_load is not null and executed_reps is not null`.
+	/executed_(load|reps)\s+is\s+(not\s+)?null/i,
+	// Set side with an interpolated column: sql`${sets.executedLoad} is not null`.
+	/\$\{\w+(\.\w+)*\.executed(Load|Reps)\}\s+is\s+(not\s+)?null/i,
+	// Inline touched / completed chains, either column first, any operator.
+	/executed(Load|Reps)\s*[!=]==?\s*null\s*(\|\||&&)/
 ];
 
-/** Boolean reads of a session timestamp in a component. */
-export const SVELTE_PATTERNS: RegExp[] = [
-	/(\{#if\s+!?[^}]*\.(endedAt|deletedAt)\b|!\w+(\.\w+)*\.(endedAt|deletedAt)\b|\.(endedAt|deletedAt)\s*[!=]==?\s*null)/
+/**
+ * Boolean reads of a session timestamp, in `.ts` and `.svelte` alike. Passing
+ * the column as a value (a select projection, a date to format, a method call
+ * on it) is not a read of the phase and must not match.
+ */
+export const STATE_READ_PATTERNS: RegExp[] = [
+	// Negated: !session.endedAt, ! s.deletedAt.
+	/!\s*\w+(\.\w+)*\.(endedAt|deletedAt)\b/,
+	// Ternary on the column: s.endedAt ? a : b (not `?.` or `??`).
+	/\.(endedAt|deletedAt)\s*\?(?![.?])/,
+	// Truthy operand: if (s.endedAt), a && s.deletedAt, x || s.endedAt ? ...
+	/(\|\||&&|if\s*\(|\?\s*)\s*\w+(\.\w+)*\.(endedAt|deletedAt)\s*(\)|&&|\|\||\?|:)/,
+	// Compared with null: session.endedAt === null, s.deletedAt != null.
+	/\.(endedAt|deletedAt)\s*[!=]==?\s*null/
 ];
+
+/** Svelte-only: a template block branching on the column. */
+export const SVELTE_PATTERNS: RegExp[] = [/\{#if\s+!?[^}]*\.(endedAt|deletedAt)\b/];
 
 function* sourceFiles(dir: string): Generator<string> {
 	for (const name of readdirSync(dir)) {
@@ -85,8 +106,8 @@ export function workoutStateOffenders(root: string = ROOT, base: string = '.'): 
 		const rel = relative(base, file).split(sep).join('/');
 		if (isAllowed(rel)) continue;
 		const patterns = file.endsWith('.svelte')
-			? [...ANY_FILE_PATTERNS, ...SVELTE_PATTERNS]
-			: ANY_FILE_PATTERNS;
+			? [...ANY_FILE_PATTERNS, ...STATE_READ_PATTERNS, ...SVELTE_PATTERNS]
+			: [...ANY_FILE_PATTERNS, ...STATE_READ_PATTERNS];
 		readFileSync(file, 'utf8')
 			.split('\n')
 			.forEach((line, i) => {
@@ -100,7 +121,8 @@ describe('the workout-state seam', () => {
 	it('recognises a raw state predicate when it sees one', () => {
 		// Positive first: a pattern that matches nothing would pass the real check.
 		const any = (s: string) => ANY_FILE_PATTERNS.some((p) => p.test(s));
-		const svelte = (s: string) => SVELTE_PATTERNS.some((p) => p.test(s));
+		const read = (s: string) => STATE_READ_PATTERNS.some((p) => p.test(s));
+		const svelte = (s: string) => read(s) || SVELTE_PATTERNS.some((p) => p.test(s));
 		expect(any('.where(isNull(sessions.endedAt))')).toBe(true);
 		expect(any('isNotNull(s.deletedAt)')).toBe(true);
 		expect(any('isNull(sess.deletedAt)')).toBe(true);
@@ -116,6 +138,23 @@ describe('the workout-state seam', () => {
 		expect(svelte('disabled={!data.session.endedAt}')).toBe(true);
 		expect(svelte('const open = session.endedAt === null;')).toBe(true);
 		expect(svelte('session.deletedAt != null')).toBe(true);
+		// Lowercase / mixed-case SQL, both sides.
+		expect(any('sql`and ended_at is not null`')).toBe(true);
+		expect(any("'where deleted_at Is Null'")).toBe(true);
+		expect(any('sql`${sessions.endedAt} is null`')).toBe(true);
+		expect(any('sql`${s.sessions.deletedAt} Is Not Null`')).toBe(true);
+		expect(
+			any('count(*) filter (where executed_load is not null and executed_reps is not null)')
+		).toBe(true);
+		expect(any('sql`${sets.executedLoad} is not null`')).toBe(true);
+		// Inline chains: `== null ||`, executedReps first.
+		expect(any('s.executedLoad == null || s.executedReps == null')).toBe(true);
+		expect(any('s.executedReps !== null && s.executedLoad !== null')).toBe(true);
+		// Truthy / ternary reads in a .ts file.
+		expect(read('if (s.endedAt) return;')).toBe(true);
+		expect(read("const label = row.deletedAt ? 'trashed' : 'live';")).toBe(true);
+		expect(read('return !session.endedAt;')).toBe(true);
+		expect(read('ok && s.deletedAt && x')).toBe(true);
 
 		expect(any('.where(sessionIs.open())')).toBe(false);
 		expect(any('isNull(sets.executedLoad)')).toBe(false);
@@ -123,6 +162,10 @@ describe('the workout-state seam', () => {
 		expect(any('isNull(s.programs.systemKind)')).toBe(false);
 		expect(svelte('{formatDate(session.endedAt)}')).toBe(false);
 		expect(svelte('{#if data.capabilities.canFinish}')).toBe(false);
+		// Passing the column as a value is not a state read.
+		expect(read('.select({ id: sessions.id, endedAt: sessions.endedAt })')).toBe(false);
+		expect(svelte('<td>{row.endedAt}</td>')).toBe(false);
+		expect(read('const iso = s.endedAt.toISOString();')).toBe(false);
 	});
 
 	it('reports an offending .svelte and .ts file with line numbers', () => {

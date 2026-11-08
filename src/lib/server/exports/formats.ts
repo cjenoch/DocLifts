@@ -241,7 +241,7 @@ function localDate(date: Date, timeZone: string) {
 
 /** A set Strong can import: load and a positive rep count. */
 const strongCsvSet = (row: ReturnType<typeof workoutRows>[number]) =>
-	// workout-state-seam: allow — plan §5.3 pending — Strong CSV needs reps > 0
+	// workout-state-seam: allow — owner decision 2026-11-08 (plan §5.3): Strong CSV format needs reps > 0; the native archive keeps every set
 	row.executedLoad !== null && row.executedReps !== null && row.executedReps > 0;
 
 /** A lossy adapter, never a replacement for the native account archive. */

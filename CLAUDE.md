@@ -90,11 +90,12 @@ starts on. The file allowlist is structural only (the vocabulary modules,
 expression is exempted by a marker on the line immediately above it,
 `// workout-state-seam: allow — <reason>` (`-- …` inside a SQL template); it
 covers only a match that starts on the next line, and a marker with no reason
-after the dash is ignored. Three expressions carry one, pending an owner
-decision (plan §5): the `saved` rule in `workout-to-program.ts` (notes-only is
-not "saved" for templating), `doneOn` in `picker.ts` ("done on this machine"
-counts a logged load alone) and `strongCsvSet` in `exports/formats.ts` (Strong
-CSV needs `reps > 0`); the rest of those files is scanned. Do not widen the
+after the dash is ignored. Three expressions carry one, each an owner
+decision (2026-11-08, plan §5, all "keep"): the `saved` rule in `workout-to-program.ts` (notes-only is
+not "saved" for templating — the draft drops set notes), `doneOn` in `picker.ts` ("done on this machine"
+counts a logged load alone as evidence of use; numeric top-set history still
+needs load and reps) and `strongCsvSet` in `exports/formats.ts` (Strong
+CSV needs `reps > 0`; the native archive keeps every set); the rest of those files is scanned. Do not widen the
 allowlist, or add a marker, to avoid the test.
 
 ### No prescribed loads in the program template

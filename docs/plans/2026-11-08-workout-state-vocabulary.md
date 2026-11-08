@@ -270,7 +270,7 @@ before and passes after.
 
 ---
 
-## 5. Owner decisions required before Phase 1 ships
+## 5. Owner decisions (decided 2026-11-08: keep, keep, keep)
 
 Answer each with "keep" or "unify". Default if unanswered: **keep** (allowlist
 the site, no behavior change).
@@ -286,6 +286,19 @@ the site, no behavior change).
 
 My read, low confidence: 1 keep, 2 unify, 3 keep. Each is a product choice
 and I have no usage data to support it.
+
+**Owner decision, 2026-11-08 — keep all three:**
+
+1. Keep notes-only sets out of the program draft. The draft drops set notes,
+   so including one would create a prescribed set without the only thing the
+   user logged.
+2. Keep load-only entries as evidence an exercise was used on a machine; that
+   drives the chooser and the remembered machine. Numeric top-set history
+   still requires load and reps.
+3. Keep positive reps (or seconds) as a Strong CSV requirement. That preserves
+   the documented format; the native archive retains the original data.
+
+Each site carries a `workout-state-seam: allow` marker citing this decision.
 
 ---
 

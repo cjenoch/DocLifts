@@ -41,7 +41,7 @@ export const workoutProgramName = (startedAt: Date) =>
 	`Workout · ${startedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`;
 
 const saved = (r: SetRow) =>
-	// workout-state-seam: allow — plan §5.1 pending — a notes-only set is not saved for templating
+	// workout-state-seam: allow — owner decision 2026-11-08 (plan §5.1): the draft drops set notes, so a notes-only set is not saved for templating
 	r.executedLoad != null || r.executedReps != null || r.executedRir != null;
 
 /** One day built from an ended workout of this owner. */

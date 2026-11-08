@@ -1688,26 +1688,33 @@ describe('updateSetInSession', () => {
 		expect(s.notes).toBeNull();
 	});
 
+	const staleEdit = {
+		executedLoad: '210',
+		executedReps: '8',
+		executedRir: '2',
+		notes: 'stale tab'
+	};
+
+	// Positive first (CLAUDE.md): the race test below asserts a refusal, so
+	// this pins that the very same call succeeds on a plain ended session.
+	it('saves on a plain ended session with allowEndedSession', async () => {
+		const plain = await setupOpenSet();
+		await endSession(db, userId, plain.sessionId);
+		const allowed = await updateSetInSession(db, userId, plain.sessionId, plain.setId, staleEdit, {
+			allowEndedSession: true
+		});
+		expect(allowed).toEqual({ ok: true, setId: plain.setId });
+		const [s] = await db.select().from(sets).where(eq(sets.id, plain.setId));
+		expect(s.executedLoad).toBe(210);
+	});
+
 	it('returns 404 at once, without waiting, while a restore from Trash holds the row', async () => {
 		// Review of PR #61: an unfiltered FOR UPDATE matches the trashed row,
 		// waits for the restore to commit, re-reads the row as ended and lets an
 		// allowEndedSession save through. With the phase in the locking WHERE the
 		// snapshot excludes the row, so the save is refused immediately.
-		const edit = {
-			executedLoad: '210',
-			executedReps: '8',
-			executedRir: '2',
-			notes: 'stale tab'
-		};
-
-		// Positive first: the same call on a plain ended session saves.
-		const plain = await setupOpenSet();
-		await endSession(db, userId, plain.sessionId);
-		const allowed = await updateSetInSession(db, userId, plain.sessionId, plain.setId, edit, {
-			allowEndedSession: true
-		});
-		expect(allowed).toEqual({ ok: true, setId: plain.setId });
-
+		// (setupOpenSet seeds a named exercise, so one fixture per test.)
+		const edit = staleEdit;
 		const { sessionId, setId } = await setupOpenSet();
 		await endSession(db, userId, sessionId);
 		const trashed = await softDeleteEndedSession(db, userId, sessionId);

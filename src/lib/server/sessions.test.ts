@@ -1688,6 +1688,76 @@ describe('updateSetInSession', () => {
 		expect(s.notes).toBeNull();
 	});
 
+	it('returns 404 at once, without waiting, while a restore from Trash holds the row', async () => {
+		// Review of PR #61: an unfiltered FOR UPDATE matches the trashed row,
+		// waits for the restore to commit, re-reads the row as ended and lets an
+		// allowEndedSession save through. With the phase in the locking WHERE the
+		// snapshot excludes the row, so the save is refused immediately.
+		const edit = {
+			executedLoad: '210',
+			executedReps: '8',
+			executedRir: '2',
+			notes: 'stale tab'
+		};
+
+		// Positive first: the same call on a plain ended session saves.
+		const plain = await setupOpenSet();
+		await endSession(db, userId, plain.sessionId);
+		const allowed = await updateSetInSession(db, userId, plain.sessionId, plain.setId, edit, {
+			allowEndedSession: true
+		});
+		expect(allowed).toEqual({ ok: true, setId: plain.setId });
+
+		const { sessionId, setId } = await setupOpenSet();
+		await endSession(db, userId, sessionId);
+		const trashed = await softDeleteEndedSession(db, userId, sessionId);
+		expect(trashed.ok).toBe(true);
+
+		// Connection A: restore inside a transaction and hold it open.
+		let releaseA!: () => void;
+		const gateA = new Promise<void>((resolve) => (releaseA = resolve));
+		let restoredA!: () => void;
+		const restored = new Promise<void>((resolve) => (restoredA = resolve));
+		const txA = db.transaction(async (tx) => {
+			const r = await restoreSoftDeletedSession(tx, userId, sessionId);
+			expect(r).toEqual({ ok: true });
+			restoredA();
+			await gateA;
+		});
+		// If A fails before signalling, unblock the wait below instead of hanging.
+		txA.catch(() => restoredA());
+
+		let saveB: Promise<unknown> | undefined;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await restored;
+			// Connection B: the stale save, raced against a timer. A is still
+			// uncommitted here, so a B that waits on the row lock loses the race.
+			saveB = updateSetInSession(db, userId, sessionId, setId, edit, {
+				allowEndedSession: true
+			});
+			const waited = new Promise<'waited for the restore'>((resolve) => {
+				timer = setTimeout(() => resolve('waited for the restore'), 1500);
+			});
+			const outcome = await Promise.race([saveB, waited]);
+			expect(outcome).toEqual({ ok: false, setId, status: 404, message: 'Session not found' });
+		} finally {
+			if (timer) clearTimeout(timer);
+			releaseA();
+			await txA.catch(() => undefined);
+			await saveB?.catch(() => undefined);
+		}
+
+		// The restore committed; the stale save wrote nothing.
+		const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId));
+		expect(session.deletedAt).toBeNull();
+		expect(session.endedAt).not.toBeNull();
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.executedLoad).toBeNull();
+		expect(s.executedReps).toBeNull();
+		expect(s.notes).toBeNull();
+	});
+
 	it('returns 400 with fieldErrors on invalid input and does not mutate', async () => {
 		const { sessionId, setId } = await setupOpenSet();
 		const result = await updateSetInSession(db, userId, sessionId, setId, {

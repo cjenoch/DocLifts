@@ -836,7 +836,7 @@ export async function updateSetInSession(
 	options?: UpdateSetOptions
 ): Promise<UpdateSetResult> {
 	return db.transaction(async (tx) => {
-		const session = await lockSession(tx, userId, sessionId);
+		const session = await lockSession(tx, userId, sessionId, { within: 'not-trashed' });
 		if (!session || sessionPhase(session) === 'trashed') {
 			return { ok: false, setId, status: 404, message: 'Session not found' };
 		}

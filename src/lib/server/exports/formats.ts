@@ -239,15 +239,15 @@ function localDate(date: Date, timeZone: string) {
 	return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
+/** A set Strong can import: load and a positive rep count. */
+const strongCsvSet = (row: ReturnType<typeof workoutRows>[number]) =>
+	// workout-state-seam: allow — plan §5.3 pending — Strong CSV needs reps > 0
+	row.executedLoad !== null && row.executedReps !== null && row.executedReps > 0;
+
 /** A lossy adapter, never a replacement for the native account archive. */
 export function strongCsv(data: AccountExport, timeZone = 'UTC') {
 	const rows = workoutRows(data).filter(
-		(row) =>
-			row.workoutEndedAt &&
-			!row.workoutDeletedAt &&
-			row.executedLoad !== null &&
-			row.executedReps !== null &&
-			row.executedReps > 0
+		(row) => row.workoutEndedAt && !row.workoutDeletedAt && strongCsvSet(row)
 	);
 	const workoutKeys = new Map<string, Set<string>>();
 	for (const row of rows) {

@@ -155,6 +155,7 @@ export async function pickerData(
 		SELECT sets.gym_equipment_id AS machine_id, sets.exercise_id, max(sessions.started_at) AS at
 		FROM sets JOIN sessions ON sessions.id = sets.session_id
 		WHERE sets.user_id = ${userId} AND sessions.user_id = ${userId} AND sets.gym_equipment_id IS NOT NULL
+		  -- workout-state-seam: allow — plan §5.2 pending — done-on-machine counts a logged load alone
 		  AND ${sessionIs.notTrashed()} AND sets.executed_load IS NOT NULL
 		GROUP BY sets.gym_equipment_id, sets.exercise_id
 		ORDER BY at DESC`);

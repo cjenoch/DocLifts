@@ -83,11 +83,19 @@ the exercise menu and the finish warning disagreed about a notes-only set.
 `src/lib/workout-state-seam.test.ts` fails the server project if a raw
 `isNull(sessions.endedAt)`, an `ended_at IS NULL` string, a boolean
 `.endedAt` in a `.svelte` file, or an `executedLoad != null ||` chain appears
-outside the allowlist; the allowlist names its reasons. Three files keep their
-own variants pending an owner decision (plan §5): `workout-to-program.ts`
-(notes-only is not "saved" for templating), `picker.ts` ("done on this
-machine" counts a logged load alone) and `exports/formats.ts` (Strong CSV
-needs `reps > 0`). Do not widen the allowlist to avoid the test.
+outside the allowlist; the allowlist names its reasons. The scan reads each
+file whole, so a predicate split across lines is still found, at the line it
+starts on. The file allowlist is structural only (the vocabulary modules,
+`schema.ts`, the seam tests, test files and export fixtures). A single
+expression is exempted by a marker on the line immediately above it,
+`// workout-state-seam: allow — <reason>` (`-- …` inside a SQL template); it
+covers only a match that starts on the next line, and a marker with no reason
+after the dash is ignored. Three expressions carry one, pending an owner
+decision (plan §5): the `saved` rule in `workout-to-program.ts` (notes-only is
+not "saved" for templating), `doneOn` in `picker.ts` ("done on this machine"
+counts a logged load alone) and `strongCsvSet` in `exports/formats.ts` (Strong
+CSV needs `reps > 0`); the rest of those files is scanned. Do not widen the
+allowlist, or add a marker, to avoid the test.
 
 ### No prescribed loads in the program template
 
@@ -738,7 +746,7 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/server/workout-sets.ts` — in-session set mutation (append set, remove-empty-last-set) for the inline logging UX. Locks the session row, validates done/deleted state, uses a client-supplied `requestId` as the set PK for idempotency, tags appended sets as `machine`-sourced copies (provenance: "Copied from the previous set. Adjust to what you lift."). Never renumbers existing `position`s.
 - `src/lib/AddSheet.svelte` — the add sheet (0.8.0, machines spec Parts I and J), replacing the old add form: Machines and Exercises tabs, no dropdowns, free weights added with no gym or equipment, the weight format asked once per exercise and machine. Its data is `pickerData` in `src/lib/server/picker.ts` (owner-scoped; archived rows and the photo placeholder never appear); its strings and defaults are in `src/lib/picker-ui.ts`. The Exercises page (`/exercises`: rename, body region, hide) uses `src/lib/server/exercise-admin.ts`.
 - `src/lib/server/live-edit.ts` — editing a live workout (0.10.0, editor spec Part L): `removeSessionExercise` (a count of logged sets must match), `skipRestOfExercise`, `moveSessionExercise` (positions exchanged through a parking value in one transaction), `swapSessionExercise`, and `applyProgramSwaps` (after `endSession`; fails safe while another workout of the program is open). All under `lockActive` (in `machines.ts`, built on `lockSession`), the exercise found through the session. The page's strings are in `workoutUi`; the swap UI is `AddSheet.svelte`'s swap mode.
-- `src/lib/server/session-lock.ts` — `lockSession(db, userId, sessionId)`: the only place a session row is locked `FOR UPDATE`. Returns the row in any phase, or null; callers read `sessionPhase()` and refuse in their own words. `lockActive`, `workout-sets.ts`, `photo-workout.ts` and `updateSetInSession` all use it.
+- `src/lib/server/session-lock.ts` — `lockSession(db, userId, sessionId, { within? })`: the only place a session row is locked `FOR UPDATE`. Returns the row in any phase, or null; callers read `sessionPhase()` and refuse in their own words. `{ within: 'not-trashed' }` puts `sessionIs.notTrashed()` in the locking WHERE, so a row trashed in the statement's snapshot is skipped at once instead of waited on while a restore holds it; only `updateSetInSession` passes it (a stale ended-session save must 404 during a restore, as it did before PR #61). `lockActive`, `workout-sets.ts`, `photo-workout.ts` and `updateSetInSession` all use it.
 - `src/lib/request-id.ts` — idempotency token helpers (client generates a per-submit UUID; server keys on it so a double-submit can't double-append).
 - `src/lib/server/gym-config.ts` — plate inventory config (single-gym hardcoded; superseded for equipment picking by the shipped `gyms`/`gym_equipment` tables, but still the plate-snap inventory source)
 - `src/lib/server/test-db.ts` — integration-test DB bootstrap. Not imported by production code.

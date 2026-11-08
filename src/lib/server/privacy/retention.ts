@@ -70,6 +70,11 @@ export async function sweepRetention(
 		)
 		.orderBy(s.llmCalls.createdAt, s.llmCalls.id)
 		.limit(limit);
+	// Usage rows are what the daily photo-analysis cap counts (analysesInLastDay),
+	// and since photo erasure keeps them, they are what keeps that cap honest.
+	// recordsDays >= 1 already holds them past 24 h; this pins it to the database
+	// clock as well, so a caller clock up to a minute ahead cannot refund the cap.
+	const outsideAnalysisWindow = sql`${s.llmCalls.createdAt} < now() - interval '24 hours'`;
 	const records = await db
 		.select({ id: s.llmCalls.id })
 		.from(s.llmCalls)
@@ -77,6 +82,7 @@ export async function sweepRetention(
 			and(
 				eq(s.llmCalls.userId, userId),
 				lt(s.llmCalls.createdAt, before(policy.recordsDays)),
+				outsideAnalysisWindow,
 				sql`NOT EXISTS(SELECT 1 FROM equipment_photos WHERE llm_call_id=${s.llmCalls.id})`
 			)
 		)
@@ -106,6 +112,7 @@ export async function sweepRetention(
 					and(
 						eq(s.llmCalls.id, row.id),
 						eq(s.llmCalls.userId, userId),
+						outsideAnalysisWindow,
 						sql`NOT EXISTS(SELECT 1 FROM equipment_photos WHERE llm_call_id=${s.llmCalls.id})`
 					)
 				);

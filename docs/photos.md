@@ -67,11 +67,11 @@ Photos that were never decided are listed on the gym's photo page under
 
 ## Limits
 
-| Variable            | Default    | Meaning                                                                                                                                                      |
-| ------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `PHOTO_MAX_BYTES`   | `10485760` | Largest upload accepted (10 MB), checked before decoding.                                                                                                    |
-| `PHOTO_DAILY_LIMIT` | `20`       | Uploads per user per sliding 24 h (every photo row counts, discarded too). Analyses are counted separately against the same number. `0` refuses all.         |
-| `BODY_SIZE_LIMIT`   | `12M`      | adapter-node's request body ceiling. Its own default, 512K, refuses every phone photo before the app sees it. Keep it above `PHOTO_MAX_BYTES` plus a little. |
+| Variable            | Default    | Meaning                                                                                                                                                                                                                                             |
+| ------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PHOTO_MAX_BYTES`   | `10485760` | Largest upload accepted (10 MB), checked before decoding.                                                                                                                                                                                           |
+| `PHOTO_DAILY_LIMIT` | `20`       | Uploads per user per sliding 24 h (every photo row counts, discarded too). Analyses are counted separately against the same number, and still count after the photo is removed (privacy removal keeps the call as usage metadata). `0` refuses all. |
+| `BODY_SIZE_LIMIT`   | `12M`      | adapter-node's request body ceiling. Its own default, 512K, refuses every phone photo before the app sees it. Keep it above `PHOTO_MAX_BYTES` plus a little.                                                                                        |
 
 **Pixels and memory (0.5.3).** Two more limits are named constants in
 `photos/process.ts`, not env settings (no compose line):

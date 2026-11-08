@@ -48,8 +48,14 @@ A saved-photo review exposes a separate checked confirmation, including for
 confirmed images. The image is hidden immediately, then its private object and
 review row are removed. Machine identity, workout blocks, prescriptions, executed
 sets and notes are unchanged. A storage failure leaves the image hidden and the
-job pending. The linked model-call record is removed if no other photo references
-it; earlier model-call diagnostics follow the retention policy below.
+job pending. The linked model-call record is unlinked and reduced to usage
+metadata in the same step: its output, raw error text, optional prompt text, error
+code and image-derived prompt hash are cleared, so no image or model output
+remains. The usage row (purpose, status, model, token counts, time) stays because
+the daily photo-analysis limit counts it; deleting it would let a removal refund
+that limit. It then follows the usage-metadata retention below. A record another
+photo still references is left until that photo goes. During account deletion the
+record is deleted outright, with every other model-call row of the account.
 
 ## Durable objects and failures
 
@@ -99,8 +105,8 @@ strictly older-than cutoffs, a 1–100 row limit per category, counts and dry-ru
 | Gyms, machines, private models, merges, exercise mappings                                              | Equipment identity and history                 | No age purge; owner deletion only; global catalog remains                                                                                                                                   |
 | Confirmed and unconfirmed saved photos, candidates                                                     | User-selected equipment record                 | No age purge; explicit photo/account removal; confirmed-photo removal preserves lifting records                                                                                             |
 | Failed uploads, discarded objects and rows                                                             | Retryable cleanup                              | 30 days before retention cleanup; user-requested deletion is eligible immediately                                                                                                           |
-| Model-call output, raw schema-error text, optional prompt text and error codes                         | Troubleshooting                                | Clear after 30 days; photo candidate copies remain with their saved photo                                                                                                                   |
-| Model-call usage metadata                                                                              | Quotas and diagnostics                         | Remove after 90 days if no saved photo references the row; linked rows retain usage metadata until photo removal                                                                            |
+| Model-call output, raw schema-error text, optional prompt text and error codes                         | Troubleshooting                                | Clear after 30 days, or at once when the linked photo is removed; photo candidate copies remain with their saved photo                                                                      |
+| Model-call usage metadata                                                                              | Quotas and diagnostics                         | Remove after 90 days (never within 24 hours) if no saved photo references the row; linked rows retain usage metadata through photo removal, then follow the same 90 days                    |
 | Sessions, access and refresh tokens                                                                    | Authentication / revocation                    | Expiry plus 7-day grace; revoke immediately at account-deletion acceptance                                                                                                                  |
 | Authorization-code, verification and assertion records                                                 | Short-lived authentication handshakes          | Expiry plus 7-day grace; the `--all` sweep covers records with no surviving account                                                                                                         |
 | OAuth client registration and active consent                                                           | Connection continuity                          | Active records retained; revocation/account deletion removes owned grants. Shared client registrations need separate reviewed maintenance                                                   |

@@ -20,27 +20,27 @@ presence or a join, and the transitions are scattered functions with their
 own guards. Nineteen were found. Counts are non-test `src/` sites that
 re-derive the predicate, from grep, verified by reading.
 
-| # | Entity | How state is encoded | Sites | Representable-but-invalid (no constraint) | Hot path? |
-|---|---|---|---|---|---|
-| 1 | **Session** open / ended / trashed / gone (+ "ended but editable" via `?edit=1` echoed as a client hidden field) | `ended_at` NULL?, `deleted_at` NULL? — 3 spellings (Drizzle `isNull`, raw `` sql` ` ``, JS truthiness) | **87** (69 server, 18 UI) | open+trashed (tests create it: `sessions.test.ts:287`); restore of such a row collides with `sessions_one_open_per_day` with no catch | **yes** |
-| 2 | **Set** untouched / touched / completed | `executed_load/reps/rir`, `notes` NULL? — **2 variants of "touched"** (`workout-to-program.ts:42` omits `notes`) and **3 of "completed"** (`picker.ts:157` load-only; `exports/formats.ts:250` adds `reps > 0`) | **25** | load-only, reps-only, notes-only rows: "touched" for swap/bind gates, "not completed" for history, "Ready" in SetRow, "logged" in ExerciseMenu | **yes** |
-| 3 | **Block** planned / free / bound / photo-unidentified / photo-identified / added / swapped-today / swapped-forever | `gym_equipment_id` NULL?, `load_convention`, `prescribed_set_id` NULL?, join to `exercises.canonical_movement='unidentified-machine'`, join to `equipment_photos.status`; read-time enum `PhotoBlockState.kind` whose `failed` value is never produced | 13 placeholder + 3 planned + 4 identity-writers | swap/bind on a photo block: UI hides it, server accepts it (`live-edit.ts:173`, `machines.ts:516` have no photo check — CLAUDE.md:40 claims a refusal that does not exist); block/sets identity drift unconstrained | **yes** |
-| 4 | Open-session-per-(user, day) | existence of an open row; partial unique index | 5 queries | restore path has no 23505 catch | yes |
-| 5 | Session lock ("is this workout live?") | **4 hand-rolled copies** of `lockActive` (`machines.ts:310`, `workout-sets.ts:18-24`, `photo-workout.ts:114-120`, `sessions.ts:912-924`) with 4 error shapes (`MachineInputError`, `WorkoutEditError`, `{ok:false,status}`, `null`) | 4 | — | **yes** |
-| 6 | `SessionAccessMode` | `'active'` means *not trashed* (open **or** ended); `'ended-active'` means ended; there is no `'open'` | 7 callers | misnomer, not a data hole | yes |
-| 7 | Program active / retired / system | `is_active` bool × `system_kind` nullable | 25 | retired version still starts sessions (`programs/[id]/+page.server.ts:30` never filters `is_active`); quick program is `is_active=true`; `updated_at` never written | no |
-| 8 | Program lineage | `source_program_id` self-FK, write-once | 7 | cycles, duplicate successors, cross-user — app-only | no |
-| 9 | "From now on" swap intent / result | `prescribed_set_id` kept-vs-null + `exercise_id ≠ day_exercises.exercise_id` + transient return enum + `?program=` URL param | 3 | permanently "recorded, never applied" when `applyProgramSwaps` fails; TOCTOU vs open-session check; `'Program is inactive'` error → 500 not `changed` | no |
-| 10 | Gym active / archived; Machine active / archived / merged | `archived_at`, `merged_into_id` | **29** | archived gym's machines mutable by every admin fn; placeholder that was a merge party → FK 500 on identify-merge | partly |
-| 11 | Equipment model global / owned / retired | `owner_user_id` NULL?, `retired_at` NULL?; 3 independent owned-insert sites | 14 + 5 | owned+retired (doc says never, no CHECK) | no |
-| 12 | Photo | `status` CHECK + 6 nullable link cols + `photo_objects.state`; `'discarded'` overloaded as pre-publish | 23 (6 copies of `status IN ('uploaded','analyzed')`) | **discarded → confirmed** via `identifySessionExercise` / `?/link` (no status filter, `photo-workout.ts:246,341`); confirmed with no machine; analyzed with `created_model_id` after undo | partly |
-| 13 | Merge record | `undone_at` | 5 | undo after kept archived leaves kept archived | no |
-| 14 | Account deletion job | `user.deletion_requested_at` + `privacy_deletions(completed_at, last_error, attempts, owner_id)` | fence 10; job 5 with **3 different enum mappings** | `completed_at` AND `last_error` both set; `attempts` written, never read (unbounded) | no |
-| 15 | Photo object / removal job | `photo_objects.state` + `write_deadline` + receipt | 5 + 3 | crash window `photos/index.ts:170→171` leaves `uploaded`+`uploading` | no |
-| 16 | OAuth grant liveness | consent existence + `expires_at`/`revoked`/`session_id` on two tables + `client.disabled` | 6; full-validity predicate duplicated with different subsets (`access.ts:26-56` vs `refresh-session.ts:24-29`) | `revoked` never written; refresh path ignores it | no |
-| 17 | `llm_calls` | `status` CHECK; safety path borrows `refused`+`'pending'` as in-flight | 4 (four "counts" definitions) | permanent `pending` on crash; refusals count toward one cap and not the other | no |
-| 18 | Bootstrap / sentinel owner | fixed id + email literal + credential-row existence; 3 statements, no tx | 4 (1 dead export with a wrong column name) | re-run creates duplicate credential rows (no unique on `auth.account`) | no |
-| 19 | Client UI modes | SetRow 8 vars, page 4 overlay axes, RestTimer 6, AddSheet role×tab×view×2 contexts, WorkoutPhotoBlock | — | `failed` photo block renders no action; two sheets open; `start()` restarts a running rest; `TrashPurgeForm` keeps `PURGE` typed after Cancel | **yes** |
+| #   | Entity                                                                                                             | How state is encoded                                                                                                                                                                                                                                   | Sites                                                                                                          | Representable-but-invalid (no constraint)                                                                                                                                                                           | Hot path? |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 1   | **Session** open / ended / trashed / gone (+ "ended but editable" via `?edit=1` echoed as a client hidden field)   | `ended_at` NULL?, `deleted_at` NULL? — 3 spellings (Drizzle `isNull`, raw `` sql` ` ``, JS truthiness)                                                                                                                                                 | **87** (69 server, 18 UI)                                                                                      | open+trashed (tests create it: `sessions.test.ts:287`); restore of such a row collides with `sessions_one_open_per_day` with no catch                                                                               | **yes**   |
+| 2   | **Set** untouched / touched / completed                                                                            | `executed_load/reps/rir`, `notes` NULL? — **2 variants of "touched"** (`workout-to-program.ts:42` omits `notes`) and **3 of "completed"** (`picker.ts:157` load-only; `exports/formats.ts:250` adds `reps > 0`)                                        | **25**                                                                                                         | load-only, reps-only, notes-only rows: "touched" for swap/bind gates, "not completed" for history, "Ready" in SetRow, "logged" in ExerciseMenu                                                                      | **yes**   |
+| 3   | **Block** planned / free / bound / photo-unidentified / photo-identified / added / swapped-today / swapped-forever | `gym_equipment_id` NULL?, `load_convention`, `prescribed_set_id` NULL?, join to `exercises.canonical_movement='unidentified-machine'`, join to `equipment_photos.status`; read-time enum `PhotoBlockState.kind` whose `failed` value is never produced | 13 placeholder + 3 planned + 4 identity-writers                                                                | swap/bind on a photo block: UI hides it, server accepts it (`live-edit.ts:173`, `machines.ts:516` have no photo check — CLAUDE.md:40 claims a refusal that does not exist); block/sets identity drift unconstrained | **yes**   |
+| 4   | Open-session-per-(user, day)                                                                                       | existence of an open row; partial unique index                                                                                                                                                                                                         | 5 queries                                                                                                      | restore path has no 23505 catch                                                                                                                                                                                     | yes       |
+| 5   | Session lock ("is this workout live?")                                                                             | **4 hand-rolled copies** of `lockActive` (`machines.ts:310`, `workout-sets.ts:18-24`, `photo-workout.ts:114-120`, `sessions.ts:912-924`) with 4 error shapes (`MachineInputError`, `WorkoutEditError`, `{ok:false,status}`, `null`)                    | 4                                                                                                              | —                                                                                                                                                                                                                   | **yes**   |
+| 6   | `SessionAccessMode`                                                                                                | `'active'` means _not trashed_ (open **or** ended); `'ended-active'` means ended; there is no `'open'`                                                                                                                                                 | 7 callers                                                                                                      | misnomer, not a data hole                                                                                                                                                                                           | yes       |
+| 7   | Program active / retired / system                                                                                  | `is_active` bool × `system_kind` nullable                                                                                                                                                                                                              | 25                                                                                                             | retired version still starts sessions (`programs/[id]/+page.server.ts:30` never filters `is_active`); quick program is `is_active=true`; `updated_at` never written                                                 | no        |
+| 8   | Program lineage                                                                                                    | `source_program_id` self-FK, write-once                                                                                                                                                                                                                | 7                                                                                                              | cycles, duplicate successors, cross-user — app-only                                                                                                                                                                 | no        |
+| 9   | "From now on" swap intent / result                                                                                 | `prescribed_set_id` kept-vs-null + `exercise_id ≠ day_exercises.exercise_id` + transient return enum + `?program=` URL param                                                                                                                           | 3                                                                                                              | permanently "recorded, never applied" when `applyProgramSwaps` fails; TOCTOU vs open-session check; `'Program is inactive'` error → 500 not `changed`                                                               | no        |
+| 10  | Gym active / archived; Machine active / archived / merged                                                          | `archived_at`, `merged_into_id`                                                                                                                                                                                                                        | **29**                                                                                                         | archived gym's machines mutable by every admin fn; placeholder that was a merge party → FK 500 on identify-merge                                                                                                    | partly    |
+| 11  | Equipment model global / owned / retired                                                                           | `owner_user_id` NULL?, `retired_at` NULL?; 3 independent owned-insert sites                                                                                                                                                                            | 14 + 5                                                                                                         | owned+retired (doc says never, no CHECK)                                                                                                                                                                            | no        |
+| 12  | Photo                                                                                                              | `status` CHECK + 6 nullable link cols + `photo_objects.state`; `'discarded'` overloaded as pre-publish                                                                                                                                                 | 23 (6 copies of `status IN ('uploaded','analyzed')`)                                                           | **discarded → confirmed** via `identifySessionExercise` / `?/link` (no status filter, `photo-workout.ts:246,341`); confirmed with no machine; analyzed with `created_model_id` after undo                           | partly    |
+| 13  | Merge record                                                                                                       | `undone_at`                                                                                                                                                                                                                                            | 5                                                                                                              | undo after kept archived leaves kept archived                                                                                                                                                                       | no        |
+| 14  | Account deletion job                                                                                               | `user.deletion_requested_at` + `privacy_deletions(completed_at, last_error, attempts, owner_id)`                                                                                                                                                       | fence 10; job 5 with **3 different enum mappings**                                                             | `completed_at` AND `last_error` both set; `attempts` written, never read (unbounded)                                                                                                                                | no        |
+| 15  | Photo object / removal job                                                                                         | `photo_objects.state` + `write_deadline` + receipt                                                                                                                                                                                                     | 5 + 3                                                                                                          | crash window `photos/index.ts:170→171` leaves `uploaded`+`uploading`                                                                                                                                                | no        |
+| 16  | OAuth grant liveness                                                                                               | consent existence + `expires_at`/`revoked`/`session_id` on two tables + `client.disabled`                                                                                                                                                              | 6; full-validity predicate duplicated with different subsets (`access.ts:26-56` vs `refresh-session.ts:24-29`) | `revoked` never written; refresh path ignores it                                                                                                                                                                    | no        |
+| 17  | `llm_calls`                                                                                                        | `status` CHECK; safety path borrows `refused`+`'pending'` as in-flight                                                                                                                                                                                 | 4 (four "counts" definitions)                                                                                  | permanent `pending` on crash; refusals count toward one cap and not the other                                                                                                                                       | no        |
+| 18  | Bootstrap / sentinel owner                                                                                         | fixed id + email literal + credential-row existence; 3 statements, no tx                                                                                                                                                                               | 4 (1 dead export with a wrong column name)                                                                     | re-run creates duplicate credential rows (no unique on `auth.account`)                                                                                                                                              | no        |
+| 19  | Client UI modes                                                                                                    | SetRow 8 vars, page 4 overlay axes, RestTimer 6, AddSheet role×tab×view×2 contexts, WorkoutPhotoBlock                                                                                                                                                  | —                                                                                                              | `failed` photo block renders no action; two sheets open; `start()` restarts a running rest; `TrashPurgeForm` keeps `PURGE` typed after Cancel                                                                       | **yes**   |
 
 Well-encapsulated counter-examples worth copying: the login throttle returns a
 `ThrottleDecision` union and callers only branch on it (`login-throttle.ts`);
@@ -107,8 +107,10 @@ export function sessionPhase(s: SessionLike): SessionPhase; // trashed wins over
 
 export type SetStatus = 'untouched' | 'partial' | 'completed';
 export type SetLike = {
-	executedLoad: number | null; executedReps: number | null;
-	executedRir: number | null; notes: string | null;
+	executedLoad: number | null;
+	executedReps: number | null;
+	executedRir: number | null;
+	notes: string | null;
 };
 export function setStatus(s: SetLike): SetStatus;
 // untouched: all four null. completed: load != null && reps != null. else partial.
@@ -117,16 +119,17 @@ export const isCompleted = (s: SetLike) => setStatus(s) === 'completed';
 
 export type WorkoutCapabilities = {
 	phase: SessionPhase;
-	canLogSets: boolean;        // open, or ended with editEnded
-	canEditLive: boolean;       // open: add/remove/move/swap/bind/photo
-	canFinish: boolean;         // open
-	canTrash: boolean;          // ended
-	canSaveAsProgram: boolean;  // ended
-	photoEnabled: boolean;      // open && gymId != null
-	editEnded: boolean;         // ended && ?edit=1
+	canLogSets: boolean; // open, or ended with editEnded
+	canEditLive: boolean; // open: add/remove/move/swap/bind/photo
+	canFinish: boolean; // open
+	canTrash: boolean; // ended
+	canSaveAsProgram: boolean; // ended
+	photoEnabled: boolean; // open && gymId != null
+	editEnded: boolean; // ended && ?edit=1
 };
 export function workoutCapabilities(
-	s: SessionLike & { gymId: string | null }, opts: { editEnded: boolean }
+	s: SessionLike & { gymId: string | null },
+	opts: { editEnded: boolean }
 ): WorkoutCapabilities;
 ```
 
@@ -139,13 +142,13 @@ Drizzle fragments, the only place the SQL spelling lives:
 
 ```ts
 export const sessionIs = {
-	open:    () => and(isNull(sessions.endedAt), isNull(sessions.deletedAt)),
-	ended:   () => and(isNotNull(sessions.endedAt), isNull(sessions.deletedAt)),
+	open: () => and(isNull(sessions.endedAt), isNull(sessions.deletedAt)),
+	ended: () => and(isNotNull(sessions.endedAt), isNull(sessions.deletedAt)),
 	trashed: () => isNotNull(sessions.deletedAt),
-	notTrashed: () => isNull(sessions.deletedAt),
+	notTrashed: () => isNull(sessions.deletedAt)
 };
 export const setIs = {
-	completed: () => and(isNotNull(sets.executedLoad), isNotNull(sets.executedReps)),
+	completed: () => and(isNotNull(sets.executedLoad), isNotNull(sets.executedReps))
 };
 /** The locked history filter from CLAUDE.md, in one place. */
 export const historyFilter = () => and(sessionIs.ended(), setIs.completed());
@@ -254,16 +257,16 @@ Behavior changes, each one making the server refuse what the UI already hides
 or catching an error that is currently unhandled. Each gets a test that fails
 before and passes after.
 
-| # | Change | File | Test |
-|---|---|---|---|
-| 2a | `swapSessionExercise` and `bindSessionMachine` refuse a photo block (exercise is placeholder) | `live-edit.ts:173`, `machines.ts:516` | direct call on a placeholder block → refused; UI unchanged |
-| 2b | `bindSessionMachine` refuses a free-weight block (type in `FREE_WEIGHT_TYPES`) — matches `+page.svelte:284` | `machines.ts:542` | as above |
-| 2c | `restoreSoftDeletedSession` requires `endedAt != null` on the row, and catches 23505 → 409 "another workout is open for that day" | `sessions.ts:699` | restore an open+trashed row → 409; restore when another open → 409 |
-| 2d | `softDeleteEndedSession`/`hardDelete`/`restore`: use `lockNotTrashedSession` / `FOR UPDATE` like `purge` does | `sessions.ts:675-760` | concurrent restore+hard-delete already tested (`:2662`); add restore+trash |
-| 2e | `applyProgramSwaps`: map `'Program is inactive…'` to `changed`, not 500; extend the open-session check into the save transaction | `live-edit.ts:282-336` | `changed` and `invalid` outcomes (no test exists today) |
-| 2f | `WorkoutPhotoBlock`: render Name-it / Read-again for `kind === 'failed'`, and produce `failed` from a failed `llm_calls` row | `photo-workout.ts:412-440`, `WorkoutPhotoBlock.svelte:26-95` | component spec + e2e |
-| 2g | `ExerciseMenu`: branch for `loggedCount === 0 && photoBlock` (explain why swap is unavailable) | `ExerciseMenu.svelte:47-82` | spec |
-| 2h | `RestTimer.start()`: do not restart a running rest from `savedSet` without `keep`; "Try alert" must not overwrite a live `status` | `RestTimer.svelte:54`, `:200` | e2e |
+| #   | Change                                                                                                                            | File                                                         | Test                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| 2a  | `swapSessionExercise` and `bindSessionMachine` refuse a photo block (exercise is placeholder)                                     | `live-edit.ts:173`, `machines.ts:516`                        | direct call on a placeholder block → refused; UI unchanged                 |
+| 2b  | `bindSessionMachine` refuses a free-weight block (type in `FREE_WEIGHT_TYPES`) — matches `+page.svelte:284`                       | `machines.ts:542`                                            | as above                                                                   |
+| 2c  | `restoreSoftDeletedSession` requires `endedAt != null` on the row, and catches 23505 → 409 "another workout is open for that day" | `sessions.ts:699`                                            | restore an open+trashed row → 409; restore when another open → 409         |
+| 2d  | `softDeleteEndedSession`/`hardDelete`/`restore`: use `lockNotTrashedSession` / `FOR UPDATE` like `purge` does                     | `sessions.ts:675-760`                                        | concurrent restore+hard-delete already tested (`:2662`); add restore+trash |
+| 2e  | `applyProgramSwaps`: map `'Program is inactive…'` to `changed`, not 500; extend the open-session check into the save transaction  | `live-edit.ts:282-336`                                       | `changed` and `invalid` outcomes (no test exists today)                    |
+| 2f  | `WorkoutPhotoBlock`: render Name-it / Read-again for `kind === 'failed'`, and produce `failed` from a failed `llm_calls` row      | `photo-workout.ts:412-440`, `WorkoutPhotoBlock.svelte:26-95` | component spec + e2e                                                       |
+| 2g  | `ExerciseMenu`: branch for `loggedCount === 0 && photoBlock` (explain why swap is unavailable)                                    | `ExerciseMenu.svelte:47-82`                                  | spec                                                                       |
+| 2h  | `RestTimer.start()`: do not restart a running rest from `savedSet` without `keep`; "Try alert" must not overwrite a live `status` | `RestTimer.svelte:54`, `:200`                                | e2e                                                                        |
 
 ---
 
@@ -310,8 +313,8 @@ Attack list, in order of payoff:
    unless the caller then checked `endedAt` itself — in which case `'open'`
    is correct and the hand check must be gone. `endSession` is the known case.
 4. **History filter.** `historyFilter()` must be exactly `ended_at IS NOT NULL
-   AND deleted_at IS NULL AND executed_load IS NOT NULL AND executed_reps IS
-   NOT NULL`. Confirm `progression.ts:336-337, 423-424`,
+AND deleted_at IS NULL AND executed_load IS NOT NULL AND executed_reps IS
+NOT NULL`. Confirm `progression.ts:336-337, 423-424`,
    `sessions.ts:425-428`, `machine-reports.ts`, `picker.ts`, `mcp/reads.ts`
    now call it or an equivalent. Any site that dropped `deleted_at IS NULL`
    is a regression (trashed sessions would feed prefill).
@@ -360,7 +363,7 @@ ran that held, say what you tried.
 6. **`llm_calls` safety reservation**: use a real `'pending'` status (CHECK
    change) or sweep stale reservations.
 7. **Phase 3, optional DB CHECK** on `sessions`: `deleted_at IS NULL OR
-   ended_at IS NOT NULL`. Needs: pre-check query on a prod restore showing 0
+ended_at IS NOT NULL`. Needs: pre-check query on a prod restore showing 0
    violating rows, rewrite of `sessions.test.ts:287` fixture, migration
    rehearsal per CLAUDE.md. Do not ship with Phase 1.
 8. Client UI: two sheets open; `TrashPurgeForm` keeps `PURGE` after Cancel;

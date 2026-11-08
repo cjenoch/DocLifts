@@ -16,6 +16,9 @@
     missing.
   - The rest timer's "Try alert" no longer overwrites a running rest's status,
     and dismissing a finished rest clears its message.
+  - The rest timer's settings panel opens fully on screen during a workout.
+    It was anchored to the workout bar, so its lower half — "Try alert"
+    included — sat below the screen.
 
 - No user-visible change. Internal: `sessionPhase`, `setStatus` and
   `workoutCapabilities` (`src/lib/workout-state.ts`) and the SQL fragments in

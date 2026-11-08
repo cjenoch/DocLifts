@@ -37,7 +37,7 @@ These are locked from planning v2.1/v2.2 and reflect substantive design decision
 - When a session starts, prescribed values (`prescribed_load`, `prescribed_reps_min`, `prescribed_reps_max`, `prescribed_rir`, `set_role`, `target_metric`) are copied from `prescribed_sets` into the `sets` row. Once written, they don't change — even if the program template is later edited.
 - **One deliberate exception:** binding or rebinding a machine to an occurrence in a _live_ session (`prefillOccurrence` in `machines.ts`) rewrites `prescribed_load` and `suggestion_reasoning` on that occurrence's sets, because the prescription must come from that machine's own history. It is gated: refused once any executed value or note is saved on those sets, and never on an ended session. Rep range, RIR, role and metric are still never rewritten. Don't "fix" this path back to immutable (see `docs/machine-identity.md`).
 - **Swapping an exercise (0.10.0, editor spec Part L):** `swapSessionExercise` in `live-edit.ts` rewrites an untouched occurrence of a _live_ session to another exercise: `exercise_id` on the block and its sets, the machine cleared, and `prescribed_load` / `suggestion_reasoning` re-derived by `prefillOccurrence` from the new exercise's history. Set count, role, metric, rep range and RIR are never rewritten. Same gate as a machine change: refused once any set has a saved value or note, and never on an ended session. "Just today" also clears `prescribed_set_id`; "From now on" keeps it, and `applyProgramSwaps` carries it into the program only after the workout ends, through `saveProgramDraft` (a new version, never an in-place edit).
-- **Photo blocks (0.6.0):** `identifySessionExercise` names a block a photo opened while its machine was unknown. It moves only identity columns (exercise, machine, equipment type, load convention, on the block and its sets), also after values are logged and on an ended workout, and never writes an executed value or a note. On an open workout it prefills `prescribed_load` and `suggestion_reasoning` on the sets **not touched yet** only (`prefillOccurrence(..., { onlyUntouched: true })`, 0.6.1); a set with a saved value or note keeps its prescription. It refuses any block that is not a photo block still on the placeholder exercise, so `bindSessionMachine`'s refusal is unchanged. `autoIdentifyRepeatVisit` (exact code, name guard, a machine of that model logged on before in that gym) calls it without a tap, and `undoPhotoIdentify` reverses it on an open workout without touching a saved value or deleting a machine.
+- **Photo blocks (0.6.0):** `identifySessionExercise` names a block a photo opened while its machine was unknown. It moves only identity columns (exercise, machine, equipment type, load convention, on the block and its sets), also after values are logged and on an ended workout, and never writes an executed value or a note. On an open workout it prefills `prescribed_load` and `suggestion_reasoning` on the sets **not touched yet** only (`prefillOccurrence(..., { onlyUntouched: true })`, 0.6.1); a set with a saved value or note keeps its prescription. It refuses any block that is not a photo block still on the placeholder exercise. `bindSessionMachine` and `swapSessionExercise` have no photo-block refusal of their own: on a photo block the UI hides both controls, and the server would accept a direct POST (plan `docs/plans/2026-11-08-workout-state-vocabulary.md` Phase 2 adds the server guard). `autoIdentifyRepeatVisit` (exact code, name guard, a machine of that model logged on before in that gym) calls it without a tap, and `undoPhotoIdentify` reverses it on an open workout without touching a saved value or deleting a machine.
 
 ### Programs are duplicate-on-edit, not mutate-in-place
 
@@ -56,6 +56,37 @@ WHERE executed_load IS NOT NULL
 ```
 
 The blank-row poisoning bug is real: pre-created session rows with null executed values can be returned as "history" by naive `ORDER BY logged_at DESC LIMIT 1` queries. Don't reintroduce it. (See `planning_v2_2.md` §3.)
+
+### Workout state has one vocabulary
+
+A workout's state is never read off a raw column. Two modules own it:
+
+- `src/lib/workout-state.ts` (shared, no DB imports): `sessionPhase(row)` →
+  `'open' | 'ended' | 'trashed'` (trashed wins), `setStatus(row)` →
+  `'untouched' | 'partial' | 'completed'` with `isTouched` / `isCompleted`,
+  and `workoutCapabilities(session, { editEnded })` — the object the session
+  page branches on (`canLogSets`, `canEditLive`, `canFinish`, `canTrash`,
+  `canSaveAsProgram`, `photoEnabled`, `editEnded`).
+- `src/lib/server/workout-state-sql.ts`: `sessionIs.open() / ended() /
+trashed() / notTrashed()`, `setIs.completed()` and `historyFilter()` — the
+  one place the SQL spelling lives. `historyFilter()` is the rule in the
+  section above; a query that needs it calls it, never re-spells it.
+
+`loadSession` takes a `SessionAccessMode` of `'open' | 'not-trashed' |
+'ended' | 'trashed'`; `'not-trashed'` matches open **and** ended rows. The
+one session row lock is `lockSession` in `session-lock.ts`; callers read the
+phase and refuse in their own words.
+
+Before this rule the session lifecycle was re-derived at 87 sites in three
+spellings and the set predicate at 25 sites in five variants, and the row,
+the exercise menu and the finish warning disagreed about a notes-only set.
+`src/lib/workout-state-seam.test.ts` fails the server project if a raw
+`isNull(sessions.endedAt)`, an `ended_at IS NULL` string, a boolean
+`.endedAt` in a `.svelte` file, or an `executedLoad != null ||` chain appears
+outside the allowlist; the allowlist names its reasons. Two files keep their
+own variants pending an owner decision (plan §5): `workout-to-program.ts`
+(notes-only is not "saved" for templating) and `exports/formats.ts` (Strong
+CSV needs `reps > 0`). Do not widen the allowlist to avoid the test.
 
 ### No prescribed loads in the program template
 

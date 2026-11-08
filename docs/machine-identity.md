@@ -24,7 +24,7 @@ Missing/ambiguous top history or a zero top baseline cannot establish a backoff 
 
 ## User path and safety
 
-Home navigation → Gyms and machines → create gym → add named physical machine (model optional). Return to an active workout and select/change its machine before logging, or quick-add an existing/new exercise to this workout only. Gym and machine must match; exercise and machine equipment types must match. New exercises explicitly declare lower-body increment metadata. Quick-add does not modify days, day-exercises, prescriptions or program activation.
+Home navigation → Gyms and machines → create gym → add named physical machine (model optional). Return to an open workout and select/change its machine before logging, or quick-add an existing/new exercise to this workout only. Gym and machine must match; exercise and machine equipment types must match. New exercises explicitly declare lower-body increment metadata. Quick-add does not modify days, day-exercises, prescriptions or program activation.
 
 Machine selection requires an explicit confirmation: since 0.8.1 a planned exercise's "Choose machine" opens the add sheet in bind mode (machines of the exercise's type only), and a confirm step ("Use … for this exercise?", with the weight format) replaces the old checkbox; the sheet still sends `confirm=CHANGE`. Any saved execution field or note prevents rebinding; after logging, use a separate occurrence. Session-row locks serialize binding, quick-add and set updates. Every machine-bound set update includes an identity token captured with its mounted inputs; stale tabs get a reload error instead of storing old-machine values under a refreshed identity. Ended sessions cannot acquire or switch identities.
 
@@ -40,7 +40,7 @@ Use an isolated PostgreSQL instance. Existing `test-db.ts` can CREATE DATABASE a
 
 ## Intentional limits
 
-No catalog import, model equivalence, verified starting resistance data, inventory editing, persistent per-program gym defaults, template editor UI, authentication, deployment or production writes. Machine selection is explicit each workout; quick-add changes only that session. Unknown pre-existing active sessions retain legacy context (start a fresh workout for explicit occurrence binding). Reports split exercise counts by machine/convention and show historical snapshot names; differently named snapshots may appear as separate count rows after a rename.
+No catalog import, model equivalence, verified starting resistance data, inventory editing, persistent per-program gym defaults, template editor UI, authentication, deployment or production writes. Machine selection is explicit each workout; quick-add changes only that session. Unknown pre-existing open sessions retain legacy context (start a fresh workout for explicit occurrence binding). Reports split exercise counts by machine/convention and show historical snapshot names; differently named snapshots may appear as separate count rows after a rename.
 
 ## Photo blocks (0.6.0)
 

@@ -2,14 +2,6 @@ import { beforeNavigate, invalidateAll } from '$app/navigation';
 import { onMount } from 'svelte';
 import { workoutUi } from '$lib/workout-ui';
 import type { SubmitFunction } from '@sveltejs/kit';
-type SetLike = {
-	executedLoad: number | null;
-	executedReps: number | null;
-	executedRir: number | null;
-	notes: string | null;
-};
-export const isLogged = (x: SetLike) =>
-	x.executedLoad != null || x.executedReps != null || x.executedRir != null || !!x.notes;
 
 /** Page-owned removal state; menus may disappear without cancelling pending work. */
 export class WorkoutEdits {

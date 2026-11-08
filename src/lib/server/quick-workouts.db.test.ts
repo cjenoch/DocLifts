@@ -134,7 +134,7 @@ describe('startSessionForDay on a day with no prescribed sets', () => {
 		const result = await startSessionForDay(db, user, dayId);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
-		const session = await loadSession(db, user, result.sessionId, 'active');
+		const session = await loadSession(db, user, result.sessionId, 'not-trashed');
 		expect(session).toMatchObject({ programId, dayId, endedAt: null });
 		expect(await loadSessionSets(db, user, result.sessionId)).toEqual([]);
 	});
@@ -146,7 +146,7 @@ describe('startQuickSession', () => {
 		const gym = await createGym(db, user, { name: 'Main gym' });
 		const sessionId = await started(user, gym.id);
 		const { programId, dayId } = await ensureQuickProgram(db, user);
-		const session = await loadSession(db, user, sessionId, 'active');
+		const session = await loadSession(db, user, sessionId, 'not-trashed');
 		expect(session).toMatchObject({ programId, dayId, gymId: gym.id, endedAt: null });
 	});
 
@@ -158,7 +158,7 @@ describe('startQuickSession', () => {
 		const second = await started(user, other.id);
 		expect(second).toBe(first);
 		expect(await sessionsOf(user)).toHaveLength(1);
-		expect((await loadSession(db, user, first, 'active'))?.gymId).toBe(gym.id);
+		expect((await loadSession(db, user, first, 'not-trashed'))?.gymId).toBe(gym.id);
 	});
 
 	it('two concurrent taps open one workout', async () => {
@@ -211,7 +211,7 @@ describe('startQuickSessionFromForm (the gym step)', () => {
 		if (!result.ok) return;
 		const gyms = await db.select().from(s.gyms).where(eq(s.gyms.userId, user));
 		expect(gyms.map((g) => g.name)).toEqual(['Home garage']);
-		expect((await loadSession(db, user, result.sessionId, 'active'))?.gymId).toBe(gyms[0].id);
+		expect((await loadSession(db, user, result.sessionId, 'not-trashed'))?.gymId).toBe(gyms[0].id);
 	});
 
 	it('reuses a gym the user already has by that name instead of making a second', async () => {
@@ -221,7 +221,7 @@ describe('startQuickSessionFromForm (the gym step)', () => {
 		expect(result.ok).toBe(true);
 		expect(await db.select().from(s.gyms).where(eq(s.gyms.userId, user))).toHaveLength(1);
 		if (result.ok)
-			expect((await loadSession(db, user, result.sessionId, 'active'))?.gymId).toBe(gym.id);
+			expect((await loadSession(db, user, result.sessionId, 'not-trashed'))?.gymId).toBe(gym.id);
 	});
 
 	it('refuses an empty submission with 400, writing nothing', async () => {
@@ -356,7 +356,7 @@ describe('cross-tenant: user B never sees user A quick program, sessions or gym'
 
 		// Positive first.
 		expect(await openQuickSessionId(db, alice)).toBe(sessionId);
-		expect(await loadSession(db, alice, sessionId, 'active')).not.toBeNull();
+		expect(await loadSession(db, alice, sessionId, 'not-trashed')).not.toBeNull();
 		expect(await loadSessionSets(db, alice, sessionId)).toHaveLength(1);
 		expect((await quickStartChoices(db, alice)).gyms.map((g) => g.id)).toEqual([gym.id]);
 		const now = new Date();
@@ -367,7 +367,7 @@ describe('cross-tenant: user B never sees user A quick program, sessions or gym'
 		expect(await historyForMonth(db, alice, ...month)).toHaveLength(1);
 
 		expect(await openQuickSessionId(db, bob)).toBeNull();
-		expect(await loadSession(db, bob, sessionId, 'active')).toBeNull();
+		expect(await loadSession(db, bob, sessionId, 'not-trashed')).toBeNull();
 		expect(await loadSessionSets(db, bob, sessionId)).toEqual([]);
 		expect(await quickStartChoices(db, bob)).toEqual({ gyms: [], defaultGymId: null });
 		expect(await historyForMonth(db, bob, ...month)).toEqual([]);

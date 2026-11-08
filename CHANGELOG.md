@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — one workout-state vocabulary — not deployed
+
+- No user-visible change. Internal: `sessionPhase`, `setStatus` and
+  `workoutCapabilities` (`src/lib/workout-state.ts`) and the SQL fragments in
+  `workout-state-sql.ts` replace 87 hand-spelled session predicates and 25 set
+  predicates; one session row lock (`session-lock.ts`); `SessionAccessMode`
+  renamed (`'active'` → `'not-trashed'`, `'ended-active'` → `'ended'`,
+  `'deleted-only'` → `'trashed'`, new `'open'`). A seam test keeps raw
+  predicates out. Plan and audit: `docs/plans/2026-11-08-workout-state-vocabulary.md`.
+
 ## 0.20.0 Alpha — account exports — deployed; acceptance pending
 
 - Account → Export your data provides detailed JSON, spreadsheet CSV tables in

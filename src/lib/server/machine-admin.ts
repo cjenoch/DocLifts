@@ -35,6 +35,7 @@ import type { Database } from './progression';
 import { createMachine, MachineInputError } from './machines';
 import { modelReadableBy, modelVisibleTo } from './catalog';
 import { defaultMachineLabel } from '../catalog-labels';
+import { sessionIs } from './workout-state-sql';
 
 export const FINISH_WORKOUT_FIRST = 'Finish the open workout that uses it first.';
 
@@ -80,8 +81,7 @@ async function machinesInOpenWorkout(db: Database, userId: string, machineIds: s
 		.where(
 			and(
 				eq(sessions.userId, userId),
-				isNull(sessions.endedAt),
-				isNull(sessions.deletedAt),
+				sessionIs.open(),
 				inArray(sessionExercises.gymEquipmentId, machineIds)
 			)
 		);
@@ -112,14 +112,7 @@ async function gymInOpenWorkout(db: Database, userId: string, gymId: string) {
 	const [own] = await db
 		.select({ n: count() })
 		.from(sessions)
-		.where(
-			and(
-				eq(sessions.userId, userId),
-				eq(sessions.gymId, gymId),
-				isNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
-			)
-		);
+		.where(and(eq(sessions.userId, userId), eq(sessions.gymId, gymId), sessionIs.open()));
 	if (own.n > 0) return true;
 	const machineIds = (
 		await db.select({ id: gymEquipment.id }).from(gymEquipment).where(eq(gymEquipment.gymId, gymId))

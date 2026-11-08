@@ -1688,6 +1688,83 @@ describe('updateSetInSession', () => {
 		expect(s.notes).toBeNull();
 	});
 
+	const staleEdit = {
+		executedLoad: '210',
+		executedReps: '8',
+		executedRir: '2',
+		notes: 'stale tab'
+	};
+
+	// Positive first (CLAUDE.md): the race test below asserts a refusal, so
+	// this pins that the very same call succeeds on a plain ended session.
+	it('saves on a plain ended session with allowEndedSession', async () => {
+		const plain = await setupOpenSet();
+		await endSession(db, userId, plain.sessionId);
+		const allowed = await updateSetInSession(db, userId, plain.sessionId, plain.setId, staleEdit, {
+			allowEndedSession: true
+		});
+		expect(allowed).toEqual({ ok: true, setId: plain.setId });
+		const [s] = await db.select().from(sets).where(eq(sets.id, plain.setId));
+		expect(s.executedLoad).toBe(210);
+	});
+
+	it('returns 404 at once, without waiting, while a restore from Trash holds the row', async () => {
+		// Review of PR #61: an unfiltered FOR UPDATE matches the trashed row,
+		// waits for the restore to commit, re-reads the row as ended and lets an
+		// allowEndedSession save through. With the phase in the locking WHERE the
+		// snapshot excludes the row, so the save is refused immediately.
+		// (setupOpenSet seeds a named exercise, so one fixture per test.)
+		const edit = staleEdit;
+		const { sessionId, setId } = await setupOpenSet();
+		await endSession(db, userId, sessionId);
+		const trashed = await softDeleteEndedSession(db, userId, sessionId);
+		expect(trashed.ok).toBe(true);
+
+		// Connection A: restore inside a transaction and hold it open.
+		let releaseA!: () => void;
+		const gateA = new Promise<void>((resolve) => (releaseA = resolve));
+		let restoredA!: () => void;
+		const restored = new Promise<void>((resolve) => (restoredA = resolve));
+		const txA = db.transaction(async (tx) => {
+			const r = await restoreSoftDeletedSession(tx, userId, sessionId);
+			expect(r).toEqual({ ok: true });
+			restoredA();
+			await gateA;
+		});
+		// If A fails before signalling, unblock the wait below instead of hanging.
+		txA.catch(() => restoredA());
+
+		let saveB: Promise<unknown> | undefined;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await restored;
+			// Connection B: the stale save, raced against a timer. A is still
+			// uncommitted here, so a B that waits on the row lock loses the race.
+			saveB = updateSetInSession(db, userId, sessionId, setId, edit, {
+				allowEndedSession: true
+			});
+			const waited = new Promise<'waited for the restore'>((resolve) => {
+				timer = setTimeout(() => resolve('waited for the restore'), 1500);
+			});
+			const outcome = await Promise.race([saveB, waited]);
+			expect(outcome).toEqual({ ok: false, setId, status: 404, message: 'Session not found' });
+		} finally {
+			if (timer) clearTimeout(timer);
+			releaseA();
+			await txA.catch(() => undefined);
+			await saveB?.catch(() => undefined);
+		}
+
+		// The restore committed; the stale save wrote nothing.
+		const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId));
+		expect(session.deletedAt).toBeNull();
+		expect(session.endedAt).not.toBeNull();
+		const [s] = await db.select().from(sets).where(eq(sets.id, setId));
+		expect(s.executedLoad).toBeNull();
+		expect(s.executedReps).toBeNull();
+		expect(s.notes).toBeNull();
+	});
+
 	it('returns 400 with fieldErrors on invalid input and does not mutate', async () => {
 		const { sessionId, setId } = await setupOpenSet();
 		const result = await updateSetInSession(db, userId, sessionId, setId, {
@@ -2055,7 +2132,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			userId,
 			started.sessionId,
 			other.programId,
-			'deleted-only'
+			'trashed'
 		);
 		expect(scoped).toBeNull();
 
@@ -2087,7 +2164,7 @@ describe('soft-delete and hard-delete session guards', () => {
 			userId,
 			started.sessionId,
 			other.programId,
-			'deleted-only'
+			'trashed'
 		);
 		expect(scoped).toBeNull();
 
@@ -2670,7 +2747,7 @@ describe('soft-delete and hard-delete session guards', () => {
 		// Simulate the race: hardDeleteSession's loadSession pre-check runs
 		// first, then a restore commits before the DELETE. We can't interleave
 		// real callbacks without hooks, so we assert the DELETE-side guard
-		// directly: clear deleted_at AFTER a loadSession('deleted-only') read
+		// directly: clear deleted_at AFTER a loadSession('trashed') read
 		// would succeed but BEFORE the delete — approximated by restoring and
 		// verifying the in-transaction isNotNull guard makes it a 409 no-op.
 		// Path A (normal): soft-deleted → hard delete succeeds. Done first.
@@ -2825,7 +2902,7 @@ describe('cross-tenant isolation', () => {
 		const started = await startSessionForDay(db, alice, (await dayFor(alice)).id);
 		expect(started.ok).toBe(true);
 		if (!started.ok) return;
-		expect(await loadSession(db, alice, started.sessionId, 'active')).not.toBeNull();
-		expect(await loadSession(db, bob, started.sessionId, 'active')).toBeNull();
+		expect(await loadSession(db, alice, started.sessionId, 'not-trashed')).not.toBeNull();
+		expect(await loadSession(db, bob, started.sessionId, 'not-trashed')).toBeNull();
 	});
 });

@@ -23,6 +23,7 @@ import { blankSetDraft, type ProgramDraft } from '../program-draft';
 import { PLACEHOLDER_MOVEMENT } from './photo-workout';
 import { loadProgramDraft, ProgramNotFoundError } from './program-builder';
 import type { Database } from './progression';
+import { sessionIs } from './workout-state-sql';
 
 type DayDraft = ProgramDraft['days'][number];
 type ExerciseDraft = DayDraft['exercises'][number];
@@ -40,6 +41,7 @@ export const workoutProgramName = (startedAt: Date) =>
 	`Workout · ${startedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`;
 
 const saved = (r: SetRow) =>
+	// workout-state-seam: allow — owner decision 2026-11-08 (plan §5.1): the draft drops set notes, so a notes-only set is not saved for templating
 	r.executedLoad != null || r.executedReps != null || r.executedRir != null;
 
 /** One day built from an ended workout of this owner. */
@@ -52,14 +54,7 @@ export async function workoutDay(
 	const [session] = await db
 		.select()
 		.from(sessions)
-		.where(
-			and(
-				eq(sessions.id, sessionId),
-				eq(sessions.userId, userId),
-				isNotNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
-			)
-		);
+		.where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId), sessionIs.ended()));
 	if (!session) throw new WorkoutNotFoundError();
 	const blocks = await db
 		.select({ block: sessionExercises, movement: exercises.canonicalMovement })

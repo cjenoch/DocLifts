@@ -37,7 +37,7 @@ These are locked from planning v2.1/v2.2 and reflect substantive design decision
 - When a session starts, prescribed values (`prescribed_load`, `prescribed_reps_min`, `prescribed_reps_max`, `prescribed_rir`, `set_role`, `target_metric`) are copied from `prescribed_sets` into the `sets` row. Once written, they don't change — even if the program template is later edited.
 - **One deliberate exception:** binding or rebinding a machine to an occurrence in a _live_ session (`prefillOccurrence` in `machines.ts`) rewrites `prescribed_load` and `suggestion_reasoning` on that occurrence's sets, because the prescription must come from that machine's own history. It is gated: refused once any executed value or note is saved on those sets, and never on an ended session. Rep range, RIR, role and metric are still never rewritten. Don't "fix" this path back to immutable (see `docs/machine-identity.md`).
 - **Swapping an exercise (0.10.0, editor spec Part L):** `swapSessionExercise` in `live-edit.ts` rewrites an untouched occurrence of a _live_ session to another exercise: `exercise_id` on the block and its sets, the machine cleared, and `prescribed_load` / `suggestion_reasoning` re-derived by `prefillOccurrence` from the new exercise's history. Set count, role, metric, rep range and RIR are never rewritten. Same gate as a machine change: refused once any set has a saved value or note, and never on an ended session. "Just today" also clears `prescribed_set_id`; "From now on" keeps it, and `applyProgramSwaps` carries it into the program only after the workout ends, through `saveProgramDraft` (a new version, never an in-place edit).
-- **Photo blocks (0.6.0):** `identifySessionExercise` names a block a photo opened while its machine was unknown. It moves only identity columns (exercise, machine, equipment type, load convention, on the block and its sets), also after values are logged and on an ended workout, and never writes an executed value or a note. On an open workout it prefills `prescribed_load` and `suggestion_reasoning` on the sets **not touched yet** only (`prefillOccurrence(..., { onlyUntouched: true })`, 0.6.1); a set with a saved value or note keeps its prescription. It refuses any block that is not a photo block still on the placeholder exercise, so `bindSessionMachine`'s refusal is unchanged. `autoIdentifyRepeatVisit` (exact code, name guard, a machine of that model logged on before in that gym) calls it without a tap, and `undoPhotoIdentify` reverses it on an open workout without touching a saved value or deleting a machine.
+- **Photo blocks (0.6.0):** `identifySessionExercise` names a block a photo opened while its machine was unknown. It moves only identity columns (exercise, machine, equipment type, load convention, on the block and its sets), also after values are logged and on an ended workout, and never writes an executed value or a note. On an open workout it prefills `prescribed_load` and `suggestion_reasoning` on the sets **not touched yet** only (`prefillOccurrence(..., { onlyUntouched: true })`, 0.6.1); a set with a saved value or note keeps its prescription. It refuses any block that is not a photo block still on the placeholder exercise. `bindSessionMachine` and `swapSessionExercise` have no photo-block refusal of their own: on a photo block the UI hides both controls, and the server would accept a direct POST (plan `docs/plans/2026-11-08-workout-state-vocabulary.md` Phase 2 adds the server guard). `autoIdentifyRepeatVisit` (exact code, name guard, a machine of that model logged on before in that gym) calls it without a tap, and `undoPhotoIdentify` reverses it on an open workout without touching a saved value or deleting a machine.
 
 ### Programs are duplicate-on-edit, not mutate-in-place
 
@@ -56,6 +56,47 @@ WHERE executed_load IS NOT NULL
 ```
 
 The blank-row poisoning bug is real: pre-created session rows with null executed values can be returned as "history" by naive `ORDER BY logged_at DESC LIMIT 1` queries. Don't reintroduce it. (See `planning_v2_2.md` §3.)
+
+### Workout state has one vocabulary
+
+A workout's state is never read off a raw column. Two modules own it:
+
+- `src/lib/workout-state.ts` (shared, no DB imports): `sessionPhase(row)` →
+  `'open' | 'ended' | 'trashed'` (trashed wins), `setStatus(row)` →
+  `'untouched' | 'partial' | 'completed'` with `isTouched` / `isCompleted`,
+  and `workoutCapabilities(session, { editEnded })` — the object the session
+  page branches on (`canLogSets`, `canEditLive`, `canFinish`, `canTrash`,
+  `canSaveAsProgram`, `photoEnabled`, `editEnded`).
+- `src/lib/server/workout-state-sql.ts`: `sessionIs.open() / ended() /
+trashed() / notTrashed()`, `setIs.completed()` and `historyFilter()` — the
+  one place the SQL spelling lives. `historyFilter()` is the rule in the
+  section above; a query that needs it calls it, never re-spells it.
+
+`loadSession` takes a `SessionAccessMode` of `'open' | 'not-trashed' |
+'ended' | 'trashed'`; `'not-trashed'` matches open **and** ended rows. The
+one session row lock is `lockSession` in `session-lock.ts`; callers read the
+phase and refuse in their own words.
+
+Before this rule the session lifecycle was re-derived at 87 sites in three
+spellings and the set predicate at 25 sites in five variants, and the row,
+the exercise menu and the finish warning disagreed about a notes-only set.
+`src/lib/workout-state-seam.test.ts` fails the server project if a raw
+`isNull(sessions.endedAt)`, an `ended_at IS NULL` string, a boolean
+`.endedAt` in a `.svelte` file, or an `executedLoad != null ||` chain appears
+outside the allowlist; the allowlist names its reasons. The scan reads each
+file whole, so a predicate split across lines is still found, at the line it
+starts on. The file allowlist is structural only (the vocabulary modules,
+`schema.ts`, the seam tests, test files and export fixtures). A single
+expression is exempted by a marker on the line immediately above it,
+`// workout-state-seam: allow — <reason>` (`-- …` inside a SQL template); it
+covers only a match that starts on the next line, and a marker with no reason
+after the dash is ignored. Three expressions carry one, each an owner
+decision (2026-11-08, plan §5, all "keep"): the `saved` rule in `workout-to-program.ts` (notes-only is
+not "saved" for templating — the draft drops set notes), `doneOn` in `picker.ts` ("done on this machine"
+counts a logged load alone as evidence of use; numeric top-set history still
+needs load and reps) and `strongCsvSet` in `exports/formats.ts` (Strong
+CSV needs `reps > 0`; the native archive keeps every set); the rest of those files is scanned. Do not widen the
+allowlist, or add a marker, to avoid the test.
 
 ### No prescribed loads in the program template
 
@@ -363,7 +404,7 @@ Every function that reads or writes application data takes the owner's id as a
 required second argument, after the db handle:
 
 ```ts
-loadSession(db, userId, sessionId, 'active');
+loadSession(db, userId, sessionId, 'not-trashed');
 createGym(db, userId, formData);
 ```
 
@@ -702,10 +743,11 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/workout-ui.ts` — `workoutUi`, the only place the quick-workout strings and defaults live ("Start workout", "Quick workout", the placeholder name, rest seconds), since 0.5.2 History's Trash strings, and since 0.6.0 the photo-block strings and defaults (sets, targets, weight format by type). Tests read the strings from it.
 - `src/lib/server/machine-admin.ts` — fixing the gym list (0.7.0, machines spec Parts G, H, K): `removeMachine` / `removeGym` (delete when nothing points at the row, else archive via `archived_at`; refused while an open workout uses it), `restoreMachine` / `restoreGym`, `changeMachineModel` (same loading type in place; another type returns `replace`), `replaceMachine`, `applyStandardStack`, `mergeMachines` / `undoMerge` (one `machine_merges` row lists every moved id). Archived gyms and machines are filtered out of every chooser (`machineChoices`, `machineSnapshot`, `quickStartChoices`, `gymsOf`, `instancesOfModel`, photo matching) and kept everywhere they are history. Strings in `src/lib/machine-admin-ui.ts`.
 - `src/lib/server/photo-workout.ts` — photos in a workout (0.6.0): `openPhotoBlock` (a stored photo opens a block on a placeholder machine and exercise, no model call), `identifySessionExercise` ("Use this" and the review page: model, exercise, convention; merges into the gym's machine for that model; identity columns only), `photoBlocksForSession`, `machinesToName`, `unidentifiedBlockOfPhoto`. See `docs/photos.md`, "Photos in a workout", and `docs/machine-identity.md`, "Photo blocks".
-- `src/lib/server/sessions.ts` — action helpers (`startSessionForDay`, `endSession`, `updateSetInSession`), and Trash: `listDeletedSessionsForProgram` / `listDeletedSessionsForUser` (History, 0.5.2), `restoreSoftDeletedSession`, `hardDeleteSession`, `purgeDeletedSessionsForProgram`, all owner-scoped and by id. The route `+page.server.ts` files are thin wrappers around these.
+- `src/lib/server/sessions.ts` — action helpers (`startSessionForDay`, `endSession`, `updateSetInSession`, which locks through `lockSession`), `loadSession` / `loadProgramOwnedSession` by `SessionAccessMode` (`'open' | 'not-trashed' | 'ended' | 'trashed'`), and Trash: `listDeletedSessionsForProgram` / `listDeletedSessionsForUser` (History, 0.5.2), `restoreSoftDeletedSession`, `hardDeleteSession`, `purgeDeletedSessionsForProgram`, all owner-scoped and by id. The route `+page.server.ts` files are thin wrappers around these.
 - `src/lib/server/workout-sets.ts` — in-session set mutation (append set, remove-empty-last-set) for the inline logging UX. Locks the session row, validates done/deleted state, uses a client-supplied `requestId` as the set PK for idempotency, tags appended sets as `machine`-sourced copies (provenance: "Copied from the previous set. Adjust to what you lift."). Never renumbers existing `position`s.
 - `src/lib/AddSheet.svelte` — the add sheet (0.8.0, machines spec Parts I and J), replacing the old add form: Machines and Exercises tabs, no dropdowns, free weights added with no gym or equipment, the weight format asked once per exercise and machine. Its data is `pickerData` in `src/lib/server/picker.ts` (owner-scoped; archived rows and the photo placeholder never appear); its strings and defaults are in `src/lib/picker-ui.ts`. The Exercises page (`/exercises`: rename, body region, hide) uses `src/lib/server/exercise-admin.ts`.
-- `src/lib/server/live-edit.ts` — editing a live workout (0.10.0, editor spec Part L): `removeSessionExercise` (a count of logged sets must match), `skipRestOfExercise`, `moveSessionExercise` (positions exchanged through a parking value in one transaction), `swapSessionExercise`, and `applyProgramSwaps` (after `endSession`; fails safe while another workout of the program is open). All under `lockActive`, the exercise found through the session. The page's strings are in `workoutUi`; the swap UI is `AddSheet.svelte`'s swap mode.
+- `src/lib/server/live-edit.ts` — editing a live workout (0.10.0, editor spec Part L): `removeSessionExercise` (a count of logged sets must match), `skipRestOfExercise`, `moveSessionExercise` (positions exchanged through a parking value in one transaction), `swapSessionExercise`, and `applyProgramSwaps` (after `endSession`; fails safe while another workout of the program is open). All under `lockActive` (in `machines.ts`, built on `lockSession`), the exercise found through the session. The page's strings are in `workoutUi`; the swap UI is `AddSheet.svelte`'s swap mode.
+- `src/lib/server/session-lock.ts` — `lockSession(db, userId, sessionId, { within? })`: the only place a session row is locked `FOR UPDATE`. Returns the row in any phase, or null; callers read `sessionPhase()` and refuse in their own words. `{ within: 'not-trashed' }` puts `sessionIs.notTrashed()` in the locking WHERE, so a row trashed in the statement's snapshot is skipped at once instead of waited on while a restore holds it; only `updateSetInSession` passes it (a stale ended-session save must 404 during a restore, as it did before PR #61). `lockActive`, `workout-sets.ts`, `photo-workout.ts` and `updateSetInSession` all use it.
 - `src/lib/request-id.ts` — idempotency token helpers (client generates a per-submit UUID; server keys on it so a double-submit can't double-append).
 - `src/lib/server/gym-config.ts` — plate inventory config (single-gym hardcoded; superseded for equipment picking by the shipped `gyms`/`gym_equipment` tables, but still the plate-snap inventory source)
 - `src/lib/server/test-db.ts` — integration-test DB bootstrap. Not imported by production code.

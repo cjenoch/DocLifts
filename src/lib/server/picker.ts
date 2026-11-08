@@ -18,6 +18,7 @@ import {
 } from './db/schema';
 import { modelReadableBy } from './catalog';
 import { lastUsedGymId } from './quick-workouts';
+import { historyFilter, sessionIs } from './workout-state-sql';
 import { PLACEHOLDER_MOVEMENT } from './photo-workout';
 import { FREE_WEIGHT_TYPES, type Database } from './progression';
 
@@ -121,20 +122,20 @@ export async function pickerData(
 
 	// The top set of the latest finished workout, per exercise and per machine:
 	// the heaviest executed set of that workout. History filters as everywhere
-	// (CLAUDE.md): ended, not deleted, load and reps present.
+	// (CLAUDE.md): `historyFilter()`. Raw SQL for DISTINCT ON; the tables are
+	// unaliased so the fragments' qualified columns ("sessions"."ended_at") resolve.
 	const topByExercise = await db.execute<{
 		exercise_id: string;
 		started_at: Date;
 		load: number;
 		reps: number;
 	}>(sql`
-		SELECT DISTINCT ON (st.exercise_id) st.exercise_id, s.started_at,
-			st.executed_load AS load, st.executed_reps AS reps
-		FROM sets st JOIN sessions s ON s.id = st.session_id
-		WHERE st.user_id = ${userId} AND s.user_id = ${userId}
-		  AND s.ended_at IS NOT NULL AND s.deleted_at IS NULL
-		  AND st.executed_load IS NOT NULL AND st.executed_reps IS NOT NULL
-		ORDER BY st.exercise_id, s.started_at DESC, st.executed_load DESC, st.executed_reps DESC`);
+		SELECT DISTINCT ON (sets.exercise_id) sets.exercise_id, sessions.started_at,
+			sets.executed_load AS load, sets.executed_reps AS reps
+		FROM sets JOIN sessions ON sessions.id = sets.session_id
+		WHERE sets.user_id = ${userId} AND sessions.user_id = ${userId}
+		  AND ${historyFilter()}
+		ORDER BY sets.exercise_id, sessions.started_at DESC, sets.executed_load DESC, sets.executed_reps DESC`);
 	const topByMachine = await db.execute<{
 		machine_id: string;
 		exercise_id: string;
@@ -142,20 +143,21 @@ export async function pickerData(
 		load: number;
 		reps: number;
 	}>(sql`
-		SELECT DISTINCT ON (st.gym_equipment_id) st.gym_equipment_id AS machine_id, st.exercise_id,
-			s.started_at, st.executed_load AS load, st.executed_reps AS reps
-		FROM sets st JOIN sessions s ON s.id = st.session_id
-		WHERE st.user_id = ${userId} AND s.user_id = ${userId} AND st.gym_equipment_id IS NOT NULL
-		  AND s.ended_at IS NOT NULL AND s.deleted_at IS NULL
-		  AND st.executed_load IS NOT NULL AND st.executed_reps IS NOT NULL
-		ORDER BY st.gym_equipment_id, s.started_at DESC, st.executed_load DESC, st.executed_reps DESC`);
+		SELECT DISTINCT ON (sets.gym_equipment_id) sets.gym_equipment_id AS machine_id, sets.exercise_id,
+			sessions.started_at, sets.executed_load AS load, sets.executed_reps AS reps
+		FROM sets JOIN sessions ON sessions.id = sets.session_id
+		WHERE sets.user_id = ${userId} AND sessions.user_id = ${userId} AND sets.gym_equipment_id IS NOT NULL
+		  AND ${historyFilter()}
+		ORDER BY sets.gym_equipment_id, sessions.started_at DESC, sets.executed_load DESC, sets.executed_reps DESC`);
 	// Exercises done on each machine, newest first (blocks with a logged set).
+	// Any phase but trashed, and a load alone counts: not the history filter.
 	const doneOn = await db.execute<{ machine_id: string; exercise_id: string; at: Date }>(sql`
-		SELECT st.gym_equipment_id AS machine_id, st.exercise_id, max(s.started_at) AS at
-		FROM sets st JOIN sessions s ON s.id = st.session_id
-		WHERE st.user_id = ${userId} AND s.user_id = ${userId} AND st.gym_equipment_id IS NOT NULL
-		  AND s.deleted_at IS NULL AND st.executed_load IS NOT NULL
-		GROUP BY st.gym_equipment_id, st.exercise_id
+		SELECT sets.gym_equipment_id AS machine_id, sets.exercise_id, max(sessions.started_at) AS at
+		FROM sets JOIN sessions ON sessions.id = sets.session_id
+		WHERE sets.user_id = ${userId} AND sessions.user_id = ${userId} AND sets.gym_equipment_id IS NOT NULL
+		  -- workout-state-seam: allow — owner decision 2026-11-08 (plan §5.2): a logged load alone is evidence the exercise was used on this machine
+		  AND ${sessionIs.notTrashed()} AND sets.executed_load IS NOT NULL
+		GROUP BY sets.gym_equipment_id, sets.exercise_id
 		ORDER BY at DESC`);
 	// The weight format last used per exercise and machine (machine '' for free weights).
 	const formats = await db.execute<{
@@ -166,9 +168,9 @@ export async function pickerData(
 	}>(sql`
 		SELECT DISTINCT ON (se.exercise_id, se.gym_equipment_id) se.exercise_id,
 			se.gym_equipment_id AS machine_id, se.equipment_type, se.load_convention
-		FROM session_exercises se JOIN sessions s ON s.id = se.session_id
-		WHERE s.user_id = ${userId} AND s.deleted_at IS NULL AND se.load_convention <> 'legacy'
-		ORDER BY se.exercise_id, se.gym_equipment_id, s.started_at DESC`);
+		FROM session_exercises se JOIN sessions ON sessions.id = se.session_id
+		WHERE sessions.user_id = ${userId} AND ${sessionIs.notTrashed()} AND se.load_convention <> 'legacy'
+		ORDER BY se.exercise_id, se.gym_equipment_id, sessions.started_at DESC`);
 	const mapped = await db
 		.select({
 			exerciseId: exerciseEquipmentMap.exerciseId,

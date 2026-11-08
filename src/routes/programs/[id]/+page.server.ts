@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, days, programs, sessions } from '$lib/server/db';
 import {
 	listDeletedSessionsForProgram,
@@ -13,6 +13,8 @@ import {
 import { z } from 'zod';
 import { requireUser } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
+import { sessionIs } from '$lib/server/workout-state-sql';
+import { sessionPhase } from '$lib/workout-state';
 
 const uuidParamSchema = z.string().uuid();
 
@@ -64,8 +66,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 					and(
 						eq(sessions.userId, program.userId),
 						inArray(sessions.dayId, dayIds),
-						isNull(sessions.endedAt),
-						isNull(sessions.deletedAt)
+						sessionIs.open()
 					)
 				)
 		: [];
@@ -86,14 +87,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			and(
 				eq(sessions.userId, program.userId),
 				eq(sessions.programId, program.id),
-				isNull(sessions.deletedAt)
+				sessionIs.notTrashed()
 			)
 		)
 		.orderBy(desc(sessions.startedAt))
 		.limit(20);
 
 	const sessionsByDay = recentSessions.reduce<Record<string, number>>((acc, s) => {
-		if (!s.endedAt) return acc;
+		if (sessionPhase(s) !== 'ended') return acc;
 		const key = new Date(s.startedAt).toISOString().slice(0, 10);
 		acc[key] = (acc[key] ?? 0) + 1;
 		return acc;
@@ -117,7 +118,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			and(
 				eq(sessions.userId, program.userId),
 				eq(sessions.programId, program.id),
-				isNotNull(sessions.deletedAt)
+				sessionIs.trashed()
 			)
 		);
 	const trashCount = trashCountRow[0]?.count ?? 0;
@@ -196,7 +197,7 @@ export const actions: Actions = {
 			requireUser(locals).id,
 			parsed.data.sessionId,
 			params.id,
-			'ended-active'
+			'ended'
 		);
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });
@@ -226,7 +227,7 @@ export const actions: Actions = {
 			requireUser(locals).id,
 			parsed.data.sessionId,
 			params.id,
-			'deleted-only'
+			'trashed'
 		);
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });
@@ -261,7 +262,7 @@ export const actions: Actions = {
 			requireUser(locals).id,
 			parsed.data.sessionId,
 			params.id,
-			'deleted-only'
+			'trashed'
 		);
 		if (!ownedSession) {
 			return fail(404, { message: 'Session not found for this program' });

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { workoutUi } from '$lib/workout-ui';
-	import { isLogged, type WorkoutEdits } from './workout-edits.svelte';
+	import type { WorkoutEdits } from './workout-edits.svelte';
+	import { isTouched } from '$lib/workout-state';
 	import type { PageData } from './$types';
 	let {
 		group,
@@ -29,7 +30,7 @@
 			planned: boolean;
 		}) => void;
 	} = $props();
-	const loggedCount = $derived(group.sets.filter(isLogged).length);
+	const loggedCount = $derived(group.sets.filter(isTouched).length);
 </script>
 
 <details class="exercise-menu" data-testid="exercise-menu" class:tool-hidden={!editing}>

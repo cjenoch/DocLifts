@@ -9,7 +9,7 @@
  * derived from the day row, never accepted as a parameter.
  */
 
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	dayExercises,
@@ -37,12 +37,20 @@ import {
 } from './progression';
 import { snapForEquipment } from './plates';
 import { mainPrefills } from './main-prefill';
+import { lockSession } from './session-lock';
+import { historyFilter, sessionIs, setIs } from './workout-state-sql';
+import { sessionPhase } from '../workout-state';
 
 export type StartSessionResult =
 	| { ok: true; sessionId: string }
 	| { ok: false; status: number; message: string };
 
-export type SessionAccessMode = 'active' | 'ended-active' | 'deleted-only';
+/**
+ * Which sessions a load may return, named by phase (`sessionPhase`): `'open'`
+ * (neither ended nor trashed), `'not-trashed'` (open or ended), `'ended'`
+ * (ended, not trashed), `'trashed'` (in the Trash, ended or not).
+ */
+export type SessionAccessMode = 'open' | 'not-trashed' | 'ended' | 'trashed';
 
 export type SessionProjection = {
 	id: string;
@@ -422,10 +430,7 @@ async function lastFreeWeightFormat(db: Database, userId: string, exerciseId: st
 				eq(sets.userId, userId),
 				eq(sets.exerciseId, exerciseId),
 				isNull(sets.gymEquipmentId),
-				isNotNull(sets.executedLoad),
-				isNotNull(sets.executedReps),
-				isNotNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
+				historyFilter()
 			)
 		)
 		.orderBy(desc(sets.loggedAt))
@@ -444,14 +449,7 @@ export async function findOpenSessionForDay(
 	const [row] = await db
 		.select({ id: sessions.id })
 		.from(sessions)
-		.where(
-			and(
-				eq(sessions.userId, userId),
-				eq(sessions.dayId, dayId),
-				isNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
-			)
-		)
+		.where(and(eq(sessions.userId, userId), eq(sessions.dayId, dayId), sessionIs.open()))
 		.limit(1);
 	return row?.id ?? null;
 }
@@ -464,12 +462,34 @@ function isUniqueViolation(err: unknown): boolean {
 	return isUniqueViolation((err as { cause?: unknown }).cause);
 }
 
+/**
+ * The phase predicate behind each `SessionAccessMode`, or null for a mode
+ * outside the union (an untyped caller): the loaders then return null, as the
+ * per-mode branches did, rather than an unfiltered `and()` matching any phase.
+ */
+function accessFilter(mode: SessionAccessMode) {
+	switch (mode) {
+		case 'open':
+			return sessionIs.open();
+		case 'not-trashed':
+			return sessionIs.notTrashed();
+		case 'ended':
+			return sessionIs.ended();
+		case 'trashed':
+			return sessionIs.trashed();
+		default:
+			return null;
+	}
+}
+
 export async function loadSession(
 	db: Database,
 	userId: string,
 	sessionId: string,
 	mode: SessionAccessMode
 ): Promise<SessionProjection | null> {
+	const filter = accessFilter(mode);
+	if (!filter) return null;
 	const base = db
 		.select({
 			id: sessions.id,
@@ -482,40 +502,10 @@ export async function loadSession(
 		})
 		.from(sessions);
 
-	if (mode === 'active') {
-		const [session] = await base
-			.where(
-				and(eq(sessions.userId, userId), eq(sessions.id, sessionId), isNull(sessions.deletedAt))
-			)
-			.limit(1);
-		return session ?? null;
-	}
-
-	if (mode === 'ended-active') {
-		const [session] = await base
-			.where(
-				and(
-					eq(sessions.userId, userId),
-					eq(sessions.id, sessionId),
-					isNull(sessions.deletedAt),
-					isNotNull(sessions.endedAt)
-				)
-			)
-			.limit(1);
-		return session ?? null;
-	}
-
-	if (mode === 'deleted-only') {
-		const [session] = await base
-			.where(
-				and(eq(sessions.userId, userId), eq(sessions.id, sessionId), isNotNull(sessions.deletedAt))
-			)
-			.limit(1);
-		return session ?? null;
-	}
-
-	// Exhaustive by SessionAccessMode union.
-	return null;
+	const [session] = await base
+		.where(and(eq(sessions.userId, userId), eq(sessions.id, sessionId), filter))
+		.limit(1);
+	return session ?? null;
 }
 
 export async function loadProgramOwnedSession(
@@ -534,57 +524,22 @@ export async function loadProgramOwnedSession(
 		startedAt: sessions.startedAt,
 		gymId: sessions.gymId
 	};
+	const filter = accessFilter(mode);
+	if (!filter) return null;
 
-	if (mode === 'active') {
-		const [session] = await db
-			.select(projection)
-			.from(sessions)
-			.where(
-				and(
-					eq(sessions.userId, userId),
-					eq(sessions.id, sessionId),
-					eq(sessions.programId, programId),
-					isNull(sessions.deletedAt)
-				)
+	const [session] = await db
+		.select(projection)
+		.from(sessions)
+		.where(
+			and(
+				eq(sessions.userId, userId),
+				eq(sessions.id, sessionId),
+				eq(sessions.programId, programId),
+				filter
 			)
-			.limit(1);
-		return session ?? null;
-	}
-
-	if (mode === 'ended-active') {
-		const [session] = await db
-			.select(projection)
-			.from(sessions)
-			.where(
-				and(
-					eq(sessions.userId, userId),
-					eq(sessions.id, sessionId),
-					eq(sessions.programId, programId),
-					isNull(sessions.deletedAt),
-					isNotNull(sessions.endedAt)
-				)
-			)
-			.limit(1);
-		return session ?? null;
-	}
-
-	if (mode === 'deleted-only') {
-		const [session] = await db
-			.select(projection)
-			.from(sessions)
-			.where(
-				and(
-					eq(sessions.userId, userId),
-					eq(sessions.id, sessionId),
-					eq(sessions.programId, programId),
-					isNotNull(sessions.deletedAt)
-				)
-			)
-			.limit(1);
-		return session ?? null;
-	}
-
-	return null;
+		)
+		.limit(1);
+	return session ?? null;
 }
 
 export async function listDeletedSessionsForProgram(
@@ -606,13 +561,7 @@ export async function listDeletedSessionsForProgram(
 		})
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
-		.where(
-			and(
-				eq(sessions.userId, userId),
-				eq(sessions.programId, programId),
-				isNotNull(sessions.deletedAt)
-			)
-		)
+		.where(and(eq(sessions.userId, userId), eq(sessions.programId, programId), sessionIs.trashed()))
 		.orderBy(desc(sessions.deletedAt))
 		.limit(limit);
 }
@@ -654,20 +603,20 @@ export async function listDeletedSessionsForUser(
 				dayName: days.name,
 				programName: programs.name,
 				systemKind: programs.systemKind,
-				loggedSets: sql<number>`count(${sets.id}) filter (where ${sets.executedLoad} is not null and ${sets.executedReps} is not null)::int`
+				loggedSets: sql<number>`count(${sets.id}) filter (where ${setIs.completed()})::int`
 			})
 			.from(sessions)
 			.innerJoin(days, eq(days.id, sessions.dayId))
 			.innerJoin(programs, eq(programs.id, sessions.programId))
 			.leftJoin(sets, eq(sets.sessionId, sessions.id))
-			.where(and(eq(sessions.userId, userId), isNotNull(sessions.deletedAt)))
+			.where(and(eq(sessions.userId, userId), sessionIs.trashed()))
 			.groupBy(sessions.id, days.name, programs.name, programs.systemKind)
 			.orderBy(desc(sessions.deletedAt), desc(sessions.id))
 			.limit(limit),
 		db
 			.select({ total: sql<number>`count(*)::int` })
 			.from(sessions)
-			.where(and(eq(sessions.userId, userId), isNotNull(sessions.deletedAt)))
+			.where(and(eq(sessions.userId, userId), sessionIs.trashed()))
 	]);
 	return { sessions: rows, total };
 }
@@ -677,7 +626,7 @@ export async function softDeleteEndedSession(
 	userId: string,
 	sessionId: string
 ): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
-	const session = await loadSession(db, userId, sessionId, 'ended-active');
+	const session = await loadSession(db, userId, sessionId, 'ended');
 	if (!session) {
 		return { ok: false, status: 404, message: 'Session not found' };
 	}
@@ -685,14 +634,7 @@ export async function softDeleteEndedSession(
 	await db
 		.update(sessions)
 		.set({ deletedAt: new Date() })
-		.where(
-			and(
-				eq(sessions.userId, userId),
-				eq(sessions.id, session.id),
-				isNull(sessions.deletedAt),
-				isNotNull(sessions.endedAt)
-			)
-		);
+		.where(and(eq(sessions.userId, userId), eq(sessions.id, session.id), sessionIs.ended()));
 	return { ok: true };
 }
 
@@ -701,7 +643,7 @@ export async function restoreSoftDeletedSession(
 	userId: string,
 	sessionId: string
 ): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
-	const session = await loadSession(db, userId, sessionId, 'deleted-only');
+	const session = await loadSession(db, userId, sessionId, 'trashed');
 	if (!session) {
 		return { ok: false, status: 404, message: 'Session not found in trash' };
 	}
@@ -709,9 +651,7 @@ export async function restoreSoftDeletedSession(
 	await db
 		.update(sessions)
 		.set({ deletedAt: null })
-		.where(
-			and(eq(sessions.userId, userId), eq(sessions.id, session.id), isNotNull(sessions.deletedAt))
-		);
+		.where(and(eq(sessions.userId, userId), eq(sessions.id, session.id), sessionIs.trashed()));
 	return { ok: true };
 }
 
@@ -720,7 +660,7 @@ export async function hardDeleteSession(
 	userId: string,
 	sessionId: string
 ): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
-	const session = await loadSession(db, userId, sessionId, 'deleted-only');
+	const session = await loadSession(db, userId, sessionId, 'trashed');
 	if (!session) {
 		return { ok: false, status: 404, message: 'Session not found in trash' };
 	}
@@ -732,9 +672,7 @@ export async function hardDeleteSession(
 	const deleted = await db.transaction(async (tx) => {
 		return tx
 			.delete(sessions)
-			.where(
-				and(eq(sessions.userId, userId), eq(sessions.id, session.id), isNotNull(sessions.deletedAt))
-			)
+			.where(and(eq(sessions.userId, userId), eq(sessions.id, session.id), sessionIs.trashed()))
 			.returning({ id: sessions.id });
 	});
 	if (deleted.length === 0) {
@@ -773,11 +711,7 @@ export async function purgeDeletedSessionsForProgram(
 			.select({ id: sessions.id })
 			.from(sessions)
 			.where(
-				and(
-					eq(sessions.userId, userId),
-					eq(sessions.programId, programId),
-					isNotNull(sessions.deletedAt)
-				)
+				and(eq(sessions.userId, userId), eq(sessions.programId, programId), sessionIs.trashed())
 			)
 			.for('update');
 		if (expectedCount !== undefined && trashed.length !== expectedCount) {
@@ -798,7 +732,7 @@ export async function purgeDeletedSessionsForProgram(
 						sessions.id,
 						trashed.map((t) => t.id)
 					),
-					isNotNull(sessions.deletedAt)
+					sessionIs.trashed()
 				)
 			)
 			.returning({ id: sessions.id });
@@ -817,22 +751,15 @@ export async function endSession(
 	userId: string,
 	sessionId: string
 ): Promise<{ updated: boolean }> {
-	const session = await loadSession(db, userId, sessionId, 'active');
-	if (!session || session.endedAt) {
+	const session = await loadSession(db, userId, sessionId, 'open');
+	if (!session) {
 		return { updated: false };
 	}
 
 	const result = await db
 		.update(sessions)
 		.set({ endedAt: new Date() })
-		.where(
-			and(
-				eq(sessions.userId, userId),
-				eq(sessions.id, session.id),
-				isNull(sessions.endedAt),
-				isNull(sessions.deletedAt)
-			)
-		)
+		.where(and(eq(sessions.userId, userId), eq(sessions.id, session.id), sessionIs.open()))
 		.returning({ id: sessions.id });
 	return { updated: result.length > 0 };
 }
@@ -909,17 +836,11 @@ export async function updateSetInSession(
 	options?: UpdateSetOptions
 ): Promise<UpdateSetResult> {
 	return db.transaction(async (tx) => {
-		const [session] = await tx
-			.select()
-			.from(sessions)
-			.where(
-				and(eq(sessions.userId, userId), eq(sessions.id, sessionId), isNull(sessions.deletedAt))
-			)
-			.for('update');
-		if (!session) {
+		const session = await lockSession(tx, userId, sessionId, { within: 'not-trashed' });
+		if (!session || sessionPhase(session) === 'trashed') {
 			return { ok: false, setId, status: 404, message: 'Session not found' };
 		}
-		if (session.endedAt && !options?.allowEndedSession) {
+		if (sessionPhase(session) === 'ended' && !options?.allowEndedSession) {
 			return { ok: false, setId, status: 409, message: 'Session has ended' };
 		}
 

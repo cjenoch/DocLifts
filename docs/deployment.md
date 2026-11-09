@@ -13,17 +13,21 @@ VPS over SSH.
    dump first; then `scripts/migrate-prod.sh`, which takes and verifies its own
    dump.
 4. **Deploy.** `scripts/compose-prod.sh up -d --build --wait <service>` for each
-   service the release changes (web, the deletion worker, safety). The
-   passthrough check runs before `up`.
+   Compose service the release changes (for example, web or safety). The
+   passthrough check runs before `up`. The deletion worker is separately
+   scheduled: when its code changes, rebuild and pin its immutable image,
+   verify a dry run and a scheduled run, and confirm its timer is active; see
+   [privacy activation](privacy-activation.md) and the release record.
 5. **Smoke.** Containers healthy, the public smoke for the release, and
    `version.json` showing the release sha.
-6. **Confirm Vigla saw the deploy.** Vigla, the monitor on enochnvps, finds
-   DocLifts' containers by their Compose project and service labels
-   (`com.docker.compose.project`, `com.docker.compose.service`), so a normal
+6. **Confirm Vigla saw the deploy.** Vigla, the monitor on enochnvps, currently
+   watches the Node runtime in DocLifts' web container, found by Compose labels
+   (`com.docker.compose.project=doclifts`, `com.docker.compose.service=web`), so a normal
    container replacement needs no change to it (since 2026-11-09). A missing or
-   ambiguous match still fails and alerts. Identical failures alert only once a
-   day, so after every `up` confirm one successful watch cycle and a heartbeat
-   delivery rather than waiting for an alert.
+   ambiguous match still fails and alerts. Identical failures repeat at most once a
+   day; changed failures alert immediately, and the independent heartbeat monitor
+   remains active. After every deploy, confirm one successful watch cycle and a
+   heartbeat delivery rather than waiting for an alert.
 
 7. **Record.** The release record and CHANGELOG; "deployed, acceptance pending"
    until the owner signs off any phone check.

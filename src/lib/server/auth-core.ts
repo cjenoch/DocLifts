@@ -125,6 +125,44 @@ export function passwordMinLength(env: Record<string, string | undefined> = proc
 	return parsed;
 }
 
+/**
+ * The drizzle adapter's options, ONE copy. The server's Better Auth instance
+ * uses them below; users.ts binds the same options to a transaction to write
+ * the user and credential rows atomically (createUser, the bootstrap claim).
+ * Two copies could drift into an account the server cannot read.
+ */
+export const authAdapterOptions = {
+	provider: 'pg' as const,
+	/**
+	 * Postgres schema, not a table prefix. Produces `auth.user` etc.,
+	 * isolating Better Auth's tables from `public.sessions` (workout).
+	 */
+	schemaName: 'auth',
+	/** Resolve models by key against our renamed exports. */
+	schema: authTables
+	/**
+	 * COLUMN NAMING — read the generator, not the option name.
+	 *
+	 * @better-auth/drizzle-adapter/dist/generate-drizzle-schema-*.mjs:
+	 *   function convertToSnakeCase(str, camelCase) {
+	 *     if (camelCase) return str;        // ← true KEEPS camelCase
+	 *     return str.replace(...).toLowerCase();
+	 *   }
+	 *
+	 * So the DEFAULT (camelCase unset/false) is what emits snake_case
+	 * columns. `camelCase: true` would keep camelCase. We want
+	 * snake_case — every other table in this database is snake_case —
+	 * so the option is deliberately left UNSET.
+	 *
+	 * The option is read by the schema generator and relations-v2, not
+	 * by the runtime query builder (`camelCase` does not appear in the
+	 * adapter's own index.mjs). At runtime the column names come from
+	 * each field's `fieldName`, set by hand in db/auth-schema.ts. T1b's
+	 * real sign-in is what proves the mapping end to end.
+	 */
+	// (deliberately unset — see above)
+};
+
 function configuredAuth(db: Database, opts: CreateAuthOptions) {
 	return betterAuth({
 		baseURL: opts.baseURL,
@@ -187,37 +225,7 @@ function configuredAuth(db: Database, opts: CreateAuthOptions) {
 			})
 		],
 
-		database: drizzleAdapter(db, {
-			provider: 'pg',
-			/**
-			 * Postgres schema, not a table prefix. Produces `auth.user` etc.,
-			 * isolating Better Auth's tables from `public.sessions` (workout).
-			 */
-			schemaName: 'auth',
-			/** Resolve models by key against our renamed exports. */
-			schema: authTables
-			/**
-			 * COLUMN NAMING — read the generator, not the option name.
-			 *
-			 * @better-auth/drizzle-adapter/dist/generate-drizzle-schema-*.mjs:
-			 *   function convertToSnakeCase(str, camelCase) {
-			 *     if (camelCase) return str;        // ← true KEEPS camelCase
-			 *     return str.replace(...).toLowerCase();
-			 *   }
-			 *
-			 * So the DEFAULT (camelCase unset/false) is what emits snake_case
-			 * columns. `camelCase: true` would keep camelCase. We want
-			 * snake_case — every other table in this database is snake_case —
-			 * so the option is deliberately left UNSET.
-			 *
-			 * The option is read by the schema generator and relations-v2, not
-			 * by the runtime query builder (`camelCase` does not appear in the
-			 * adapter's own index.mjs). At runtime the column names come from
-			 * each field's `fieldName`, set by hand in db/auth-schema.ts. T1b's
-			 * real sign-in is what proves the mapping end to end.
-			 */
-			// (deliberately unset — see above)
-		}),
+		database: drizzleAdapter(db, authAdapterOptions),
 
 		/**
 		 * NO modelName renames, deliberately.
@@ -278,8 +286,10 @@ function configuredAuth(db: Database, opts: CreateAuthOptions) {
 		 * would be one more place to remember.
 		 *
 		 * Confirmed for 1.7.6 that `internalAdapter.createUser` runs these
-		 * hooks — users.ts's createUser goes through that adapter, which is
-		 * the point: users.ts never has to know this hook exists.
+		 * hooks. users.ts's createUser writes the user and credential rows in
+		 * one transaction instead (2026-11-09), so it calls this configured
+		 * hook itself after commit, as Better Auth does for a write inside its
+		 * own transaction: the list is still defined only here.
 		 *
 		 * onConflictDoNothing on (user_id, name), the unique index created by
 		 * 0010 (`exercises_user_id_name_unique`), so re-running is a no-op

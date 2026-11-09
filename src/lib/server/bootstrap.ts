@@ -41,16 +41,21 @@
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Auth } from './auth-core';
-import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { authTables, authUsers } from './db/auth-schema';
+import { authUsers } from './db/auth-schema';
 import { exercises } from './db/schema';
-import { createUser } from './users';
+import {
+	createUser,
+	insertCredentialAccount,
+	refuseSkippedCreateHooks,
+	SENTINEL_EMAIL
+} from './users';
 import { STARTER_EXERCISES } from './starter-exercises';
 import type { Database } from './progression';
 
 /** The fixed id written by migration 0011. Not configurable: it is a FK target. */
 export const SENTINEL_USER_ID = '00000000-0000-4000-8000-000000000001';
-export const SENTINEL_EMAIL = 'owner@localhost';
+/** The 0011 placeholder email; defined in users.ts (which cannot import this file). */
+export { SENTINEL_EMAIL };
 
 export type BootstrapResult =
 	| { kind: 'claimed-sentinel'; userId: string; email: string; starterExercises: number }
@@ -70,9 +75,9 @@ const inputSchema = z.object({
 /**
  * Claim the sentinel, or create a fresh account on a genuinely empty database.
  *
- * Neither path hand-writes the credential row: the fresh path uses
- * `createUser` (Better Auth's internalAdapter), and the claim uses Better
- * Auth's own drizzle adapter bound to the claim's transaction. A change to
+ * Neither path hand-writes the credential row: both use users.ts's
+ * `insertCredentialAccount` (Better Auth's own drizzle adapter bound to the
+ * path's transaction) — the fresh path through `createUser`. A change to
  * Better Auth's account shape therefore breaks this CLI's sign-in test rather
  * than producing a user that cannot sign in.
  */
@@ -137,24 +142,22 @@ export async function bootstrap(
  * built with, which is bound to the pool, not to this transaction (the drizzle
  * adapter's `transaction` option is off, and the CLI's pool has ONE
  * connection, so a pool write inside this transaction would wait for itself
- * forever). So the row is written by the SAME public adapter factory
- * (`better-auth/adapters/drizzle`), with the same options and Better Auth's
- * resolved config (`ctx.options`: id generation, field names), bound to `tx`.
- * The payload is exactly what `linkAccount` sends
- * (better-auth 1.7.7 dist/db/internal-adapter.mjs:594): createdAt, updatedAt,
- * userId, providerId 'credential', accountId === userId, password hash.
+ * forever). So the row is written by users.ts's `insertCredentialAccount`:
+ * the SAME public adapter factory (`better-auth/adapters/drizzle`), with
+ * auth-core.ts's `authAdapterOptions` and Better Auth's resolved config,
+ * bound to `tx` — the one writer createUser uses too.
  *
  * What that skips is `linkAccount`'s `databaseHooks.account.create` hooks.
- * None exist (auth-core.ts registers only `user.create.after`; oauth-provider
- * only `session.delete`). A configured account hook is refused below rather
- * than silently skipped. A plugin's hooks are not visible on the context, so
- * a new plugin with an account hook must be checked here by hand.
+ * None exist; `refuseSkippedCreateHooks` refuses a configured one rather than
+ * silently skipping it, and says where plugin hooks have to be checked.
  *
  * WHY "ALREADY HAS A CREDENTIAL" IS A REFUSAL, NOT A NO-OP
  * --------------------------------------------------------
- * `auth.account` has no unique constraint on (provider_id, account_id), so a
- * second claim used to insert a SECOND credential row for the sentinel. And a
- * re-run carries a password: treating it as "already provisioned, nothing to
+ * Before 0025, `auth.account` had no unique constraint on (provider_id,
+ * account_id), so a second claim inserted a SECOND credential row for the
+ * sentinel; since 0025 the database would refuse it with a bare unique
+ * violation, and this check names the right command first. And a re-run
+ * carries a password: treating it as "already provisioned, nothing to
  * do" would silently ignore it. `pnpm user:set-password` is the tool for that.
  *
  * The sentinel row is locked FOR UPDATE first, so two concurrent runs
@@ -166,13 +169,7 @@ async function claimSentinel(
 	input: { email: string; password: string; name: string }
 ): Promise<void> {
 	const ctx = await auth.$context;
-	const hooks = ctx.options.databaseHooks as { account?: { create?: unknown } } | undefined;
-	if (hooks?.account?.create) {
-		throw new Error(
-			'Refusing to bootstrap: an auth.account create hook is configured, and the transactional ' +
-				'claim writes the credential row without running it. Teach bootstrap.ts about the hook first.'
-		);
-	}
+	refuseSkippedCreateHooks(ctx, 'bootstrap');
 	// Hash before the transaction: scrypt is slow and needs no lock.
 	const hash = await ctx.password.hash(input.password);
 
@@ -213,22 +210,7 @@ async function claimSentinel(
 			.set({ email: input.email, name: input.name, emailVerified: true, updatedAt: new Date() })
 			.where(eq(authUsers.id, SENTINEL_USER_ID));
 
-		const txAdapter = drizzleAdapter(tx, {
-			provider: 'pg',
-			schemaName: 'auth',
-			schema: authTables
-		})(ctx.options);
-		await txAdapter.create({
-			model: 'account',
-			data: {
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				userId: SENTINEL_USER_ID,
-				providerId: 'credential',
-				accountId: SENTINEL_USER_ID,
-				password: hash
-			}
-		});
+		await insertCredentialAccount(tx, ctx, SENTINEL_USER_ID, hash);
 
 		// The starter list. The sentinel predates the hook, so it never received
 		// one. onConflictDoNothing keeps a name the user already has.

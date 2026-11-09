@@ -29,6 +29,10 @@
  *     userId: createdUser.id, providerId: "credential",
  *     accountId: createdUser.id, password: hash });
  *
+ * createUser writes the same two rows, but in ONE transaction through Better
+ * Auth's own drizzle adapter bound to it (see `insertCredentialAccount`), so a
+ * failure between them cannot leave a user with no password.
+ *
  * `ctx.context` is reached through `auth.$context` — a public export, not an
  * internal. better-auth 1.7.6 dist/auth/base.mjs returns `$context: authContext`
  * from `createBetterAuth`, and better-auth's own test-utils plugin documents
@@ -37,14 +41,87 @@
  * adding it for this would be a larger surface than three adapter calls.
  */
 import { z } from 'zod';
-import type { Auth } from './auth-core';
+import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { authAdapterOptions, type Auth } from './auth-core';
 import type { Database } from './progression';
 import { eq } from 'drizzle-orm';
-
-/** The 0011 sentinel's placeholder email. Duplicated from bootstrap.ts on purpose:
- *  bootstrap.ts imports this file, so importing back would be a cycle. */
-const SENTINEL_EMAIL = 'owner@localhost';
 import { authUsers } from './db/auth-schema';
+
+/** The 0011 sentinel's placeholder email. Defined here and re-exported by
+ *  bootstrap.ts: bootstrap imports this file, so this is the end with no cycle. */
+export const SENTINEL_EMAIL = 'owner@localhost';
+
+type AuthContext = Awaited<Auth['$context']>;
+/** A drizzle transaction handle, as `db.transaction` passes it. */
+export type AuthTx = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+/**
+ * Refuse when Better Auth is configured with a hook that the transactional
+ * writes below would skip.
+ *
+ * `createUser` and `insertCredentialAccount` write through Better
+ * Auth's drizzle adapter bound to OUR transaction, not through
+ * `internalAdapter` (which is bound to the pool: the drizzle adapter's
+ * `transaction` option is off, and the CLI's pool has ONE connection, so a pool
+ * write inside our transaction would wait for itself forever). The adapter
+ * call is the write `internalAdapter` makes, minus `databaseHooks`.
+ *
+ * Today the only configured database hook is auth-core.ts's
+ * `user.create.after` (the starter list), which createUser runs itself after
+ * commit, as Better Auth does for a write inside its own transaction
+ * (`queueAfterTransactionHook`). Any `user.create.before` or `account.create`
+ * hook would be silently skipped, so it is refused instead. Plugin hooks are
+ * not visible on the context (better-auth 1.7.7 context/helpers.mjs passes them
+ * straight into the internal adapter); oauth-provider registers only
+ * `session.delete`. A new plugin with a user or account create hook must be
+ * checked here by hand.
+ */
+export function refuseSkippedCreateHooks(ctx: AuthContext, what: string): void {
+	const hooks = ctx.options.databaseHooks as
+		| { user?: { create?: { before?: unknown } }; account?: { create?: unknown } }
+		| undefined;
+	if (hooks?.account?.create || hooks?.user?.create?.before) {
+		throw new Error(
+			`Refusing to ${what}: an auth user.create.before or account.create hook is configured, ` +
+				`and the transactional write skips it. Teach users.ts about the hook first.`
+		);
+	}
+}
+
+/** Better Auth's own adapter, with auth-core.ts's options and the resolved
+ *  config (`ctx.options`: id generation, field names), bound to `tx`. */
+function txAuthAdapter(tx: AuthTx, ctx: AuthContext) {
+	return drizzleAdapter(tx, authAdapterOptions)(ctx.options);
+}
+
+/**
+ * The credential row, inside the caller's transaction. The payload is exactly
+ * what `internalAdapter.linkAccount` sends (better-auth 1.7.7
+ * dist/db/internal-adapter.mjs:594): createdAt, updatedAt, userId, providerId
+ * 'credential', accountId === userId, the password hash. Since 0025 the
+ * database refuses a second row for the same (provider_id, account_id)
+ * (`auth_account_provider_account_unique`). Call `refuseSkippedCreateHooks`
+ * first. The ONE writer of credential rows for createUser and the bootstrap
+ * claim.
+ */
+export async function insertCredentialAccount(
+	tx: AuthTx,
+	ctx: AuthContext,
+	userId: string,
+	passwordHash: string
+): Promise<void> {
+	await txAuthAdapter(tx, ctx).create({
+		model: 'account',
+		data: {
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			userId,
+			providerId: 'credential',
+			accountId: userId,
+			password: passwordHash
+		}
+	});
+}
 
 /** Better Auth lowercases emails itself; do it first so a duplicate check
  *  and the insert agree on the stored form. */
@@ -124,34 +201,50 @@ export async function createUser(
 	if (existing) throw new Error(`A user with email ${value.email} already exists`);
 
 	const ctx = await auth.$context;
+	refuseSkippedCreateHooks(ctx, 'create the user');
+	// Hash before the transaction: scrypt is slow and needs no lock.
+	const hash = await ctx.password.hash(value.password);
 
-	// The adapter's own createUser lowercases the email, but only after we
-	// have already checked for a duplicate, so normalize before both.
-	const user = await ctx.internalAdapter.createUser(
-		{
-			email: value.email,
-			name: value.name,
-			// True, not false. Every account made here is operator-created
-			// (the bootstrap CLI, `pnpm user:create`, the e2e fixture) and
-			// there is no email flow to complete: no verification mail is
-			// sent and no address is confirmed by anyone. Marking them
-			// unverified bought nothing and would lock every one of them out
-			// the moment `requireEmailVerification` is ever switched on.
-			emailVerified: true
-		},
-		{ method: 'email-password' }
-	);
-
-	if (!user) throw new Error('Better Auth failed to create the user');
-
-	// providerId "credential" + accountId = user.id is what sign-up/email
-	// does; without this account row there is no password to sign in with.
-	await ctx.internalAdapter.linkAccount({
-		userId: user.id,
-		providerId: 'credential',
-		accountId: user.id,
-		password: await ctx.password.hash(value.password)
+	// ONE transaction: the user row and its credential row, or neither. The two
+	// used to be separate pool writes (internalAdapter.createUser, then
+	// linkAccount), so a failure between them left a user with no password —
+	// an email that could never sign in and that a re-run refused as a
+	// duplicate.
+	const user = await db.transaction(async (tx) => {
+		// The data internalAdapter.createUser sends (internal-adapter.mjs:140).
+		// The adapter's own createUser lowercases the email, but only after we
+		// have already checked for a duplicate, so it is normalized before both.
+		const created = await txAuthAdapter(tx, ctx).create<Record<string, unknown>>({
+			model: 'user',
+			data: {
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				email: value.email,
+				name: value.name,
+				// True, not false. Every account made here is operator-created
+				// (the bootstrap CLI, `pnpm user:create`, the e2e fixture) and
+				// there is no email flow to complete: no verification mail is
+				// sent and no address is confirmed by anyone. Marking them
+				// unverified bought nothing and would lock every one of them out
+				// the moment `requireEmailVerification` is ever switched on.
+				emailVerified: true
+			}
+		});
+		const id = typeof created?.id === 'string' ? created.id : null;
+		if (!id) throw new Error('Better Auth failed to create the user');
+		// providerId "credential" + accountId = user.id is what sign-up/email
+		// does; without this account row there is no password to sign in with.
+		await insertCredentialAccount(tx, ctx, id, hash);
+		return { ...created, id };
 	});
+
+	// After commit, the configured `user.create.after` hook: auth-core.ts's
+	// starter exercise list, still defined in that ONE place. Better Auth runs
+	// an after hook for a write inside its own transaction after the commit
+	// too, and this hook catches and logs its own failure, so the account
+	// stands either way (an empty list is recoverable; a half account is not).
+	const after = ctx.options.databaseHooks?.user?.create?.after;
+	await after?.(user as Parameters<typeof after>[0]);
 
 	return { id: user.id, email: value.email, name: value.name };
 }
@@ -168,13 +261,15 @@ export async function findUserByEmail(db: Database, email: string): Promise<stri
 /**
  * Replace an account's password. T5's `pnpm user:set-password`.
  *
- * WHY updatePassword AND NOT linkAccount AGAIN
- * -------------------------------------------
+ * WHY updatePassword AND NOT ANOTHER INSERT
+ * ----------------------------------------
  * `internalAdapter.updatePassword(userId, password)` matches the account row on
  * (userId, providerId 'credential', accountId === userId) and SETS the column.
- * linkAccount, which createUser uses, is an INSERT: calling it a second time
- * for the same account would violate the account table's unique constraint
- * rather than change anything. Reading better-auth 1.7.6's
+ * The credential write createUser makes is an INSERT: a second one for the
+ * same account is refused by `auth_account_provider_account_unique` (the
+ * unique index on (provider_id, account_id), migration 0025) rather than
+ * changing anything. Before 0025 it was silently accepted as a second row.
+ * Reading better-auth 1.7.6's
  * dist/db/internal-adapter.mjs:627 rather than guessing the method name —
  * updatePassword is not in the .d.mts surface, so it is only discoverable in
  * the implementation.

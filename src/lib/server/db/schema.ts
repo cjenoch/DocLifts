@@ -1179,11 +1179,20 @@ export const privacyDeletions = pgTable(
 		requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
 		completedAt: timestamp('completed_at', { withTimezone: true }),
 		lastError: text('last_error'),
-		attempts: integer('attempts').notNull().default(0)
+		attempts: integer('attempts').notNull().default(0),
+		/** A worker's claim on this job expires at this time (0025). NULL = unclaimed.
+		 *  Written only by privacy/lifecycle.ts. */
+		claimedUntil: timestamp('claimed_until', { withTimezone: true })
 	},
 	(t) => [
 		unique('privacy_deletions_subject_unique').on(t.kind, t.subjectHash),
 		index('privacy_deletions_owner_idx').on(t.ownerId),
-		check('privacy_deletions_kind_check', sql`${t.kind} IN ('account', 'photo')`)
+		check('privacy_deletions_kind_check', sql`${t.kind} IN ('account', 'photo')`),
+		// 0025: completion wins (deletionJobState), and the row says so too: a
+		// completed job never carries an error.
+		check(
+			'privacy_deletions_completed_no_error_check',
+			sql`${t.completedAt} IS NULL OR ${t.lastError} IS NULL`
+		)
 	]
 );

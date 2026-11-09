@@ -1,10 +1,11 @@
-import { and, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, lt, sql } from 'drizzle-orm';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
 import type { Ledger } from './ledger';
 import { erasePhotoObject } from './lifecycle';
 import type { PhotoStore } from '../photos/store';
 import { SAFETY_PURPOSE } from '../llm/safety';
+import { userIsActive } from '../session-liveness';
 
 export const RETENTION_DEFAULTS = {
 	detailsDays: 30,
@@ -50,7 +51,7 @@ export async function sweepRetention(
 	const [active] = await db
 		.select({ id: s.authUsers.id })
 		.from(s.authUsers)
-		.where(and(eq(s.authUsers.id, userId), isNull(s.authUsers.deletionRequestedAt)));
+		.where(and(eq(s.authUsers.id, userId), userIsActive()));
 	if (!active)
 		return {
 			details: 0,

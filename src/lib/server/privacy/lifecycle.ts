@@ -1,8 +1,9 @@
-import { and, eq, gt, isNull, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
 import type { PhotoStore } from '../photos/store';
 import { dropErasedPhotoPlaceholder } from '../photo-workout';
+import { sessionIsLive, userIsActive } from '../session-liveness';
 import { withStorageLock } from './storage-lock';
 import { subjectHash, type Ledger, type LedgerEntry } from './ledger';
 
@@ -96,21 +97,19 @@ export async function requestAccountDeletion(
 	now = new Date()
 ) {
 	const job = await db.transaction(async (tx) => {
+		// A fenced row is not locked and not returned; FOR UPDATE re-checks the
+		// predicate after waiting, so a fence committed meanwhile is seen.
 		const [user] = await tx
 			.select()
 			.from(s.authUsers)
-			.where(eq(s.authUsers.id, userId))
+			.where(and(eq(s.authUsers.id, userId), userIsActive()))
 			.for('update');
-		if (!user || user.deletionRequestedAt) return null;
+		if (!user) return null;
 		const [session] = await tx
 			.select()
 			.from(s.authSessions)
 			.where(
-				and(
-					eq(s.authSessions.id, sessionId),
-					eq(s.authSessions.userId, userId),
-					gt(s.authSessions.expiresAt, now)
-				)
+				and(eq(s.authSessions.id, sessionId), eq(s.authSessions.userId, userId), sessionIsLive(now))
 			)
 			.for('update');
 		if (!session) return null;
@@ -447,18 +446,42 @@ async function purgeAccount(db: Database, userId: string, jobId: string) {
 
 export type DeletionRunState = 'not_found' | 'busy' | 'pending' | 'failed' | 'completed';
 
+/**
+ * How long a runner's claim on a job lasts (`privacy_deletions.claimed_until`).
+ * It must outlast the longest run, and the run is bounded to fit it: a batch
+ * starts no new object once `DELETION_LEASE_STOP_MS` of the lease is left and
+ * returns `pending`, so the worst case is the lease minus that margin plus one
+ * object and the closing database work.
+ *
+ * One object's worst case: the storage-lock connection (5 s connect timeout),
+ * for a photo job a journal append (25 s abort in `durableLedger`), and the
+ * version-aware erase (one 30 s abort signal across its S3 calls) — about 60 s,
+ * plus short single-row database statements. The run's own prelude (one
+ * journal append, 25 s; for an account, `listOwned`, 30 s) comes before the
+ * first object. 3 minutes of margin covers one object plus the purge with room
+ * to spare; 15 minutes leaves 12 for objects, which at the default batch of 25
+ * account objects (about 35 s each, no per-object journal append) is enough
+ * for most batches and stops the rest cleanly as `pending`.
+ */
+export const DELETION_LEASE_MS = 15 * 60_000;
+export const DELETION_LEASE_STOP_MS = 3 * 60_000;
+
 /** One bounded batch; a pending result is never called completion. No scheduler
  * is installed by this change. Apply must be invoked explicitly by the operator.
  *
- * Two runners on one job (the worker and a review-page removal, or two operator
- * runs) never mark it for retry. The claim locks the job row `FOR UPDATE SKIP
- * LOCKED`: a row another runner is claiming or failing is `busy`. An object
- * another holder has locked (`storage_busy`: a runner, an upload, a retention
- * sweep) is `busy` too. `busy` writes no `last_error` and is not a failure.
- * The row lock is held only for the claim and for recording a failure, never
- * across the journal or object I/O, so two runners can still overlap between
- * those points; erasure is idempotent per object, and the job only completes
- * once. A failure is never written onto a completed job. */
+ * One runner per job. The claim is one UPDATE that sets `claimed_until` to now
+ * plus `DELETION_LEASE_MS` and counts the attempt, only on an open job (never a
+ * completed one) whose claim is absent or expired; the row is picked `FOR UPDATE
+ * SKIP LOCKED`, so a row in another transaction's short write is skipped rather
+ * than waited on. A job another runner holds (a live lease, or that row lock) is
+ * `busy`: no journal append, no attempt, no `last_error`. An object another
+ * holder has locked (`storage_busy`: an upload, a retention sweep) is `busy`
+ * too. Ownership is checked first, without a lock, so another user's job is
+ * `not_found` (D6), never `busy`. Every exit of a claimed run releases the claim
+ * (completion, `pending`, `busy`, and a recorded failure in the same statement
+ * as `last_error`), guarded by the exact `claimed_until` this run set, so a run
+ * that outlived its lease cannot release a later runner's claim. A failure is
+ * never written onto a completed job. */
 export async function runDeletion(
 	db: Database,
 	userId: string,
@@ -475,22 +498,45 @@ export async function runDeletion(
 		.from(s.privacyDeletions)
 		.where(and(eq(s.privacyDeletions.id, jobId), eq(s.privacyDeletions.ownerId, userId)));
 	if (!owned) return { state: 'not_found', removed: 0 };
-	const claim = await db.transaction(async (tx) => {
-		const [row] = await tx
+	const claimable = db
+		.select({ id: s.privacyDeletions.id })
+		.from(s.privacyDeletions)
+		.where(
+			and(
+				eq(s.privacyDeletions.id, jobId),
+				eq(s.privacyDeletions.ownerId, userId),
+				deletionJobOpen(),
+				or(
+					isNull(s.privacyDeletions.claimedUntil),
+					lte(s.privacyDeletions.claimedUntil, sql`now()`)
+				)
+			)
+		)
+		.for('update', { skipLocked: true });
+	const stopAt = Date.now() + DELETION_LEASE_MS - DELETION_LEASE_STOP_MS;
+	const [job] = await db
+		.update(s.privacyDeletions)
+		.set({
+			// Millisecond precision, so the Date read back matches the stored value
+			// exactly and can guard the release.
+			claimedUntil: sql`date_trunc('milliseconds', now()) + make_interval(secs => ${DELETION_LEASE_MS / 1000})`,
+			attempts: sql`${s.privacyDeletions.attempts}+1`
+		})
+		.where(inArray(s.privacyDeletions.id, claimable))
+		.returning();
+	if (!job) {
+		const [row] = await db
 			.select()
 			.from(s.privacyDeletions)
-			.where(eq(s.privacyDeletions.id, jobId))
-			.for('update', { skipLocked: true });
-		if (!row) return 'busy' as const;
-		if (deletionJobState(row) === 'completed') return 'completed' as const;
-		await tx
-			.update(s.privacyDeletions)
-			.set({ attempts: sql`${s.privacyDeletions.attempts}+1` })
 			.where(eq(s.privacyDeletions.id, jobId));
-		return row;
-	});
-	if (claim === 'busy' || claim === 'completed') return { state: claim, removed: 0 };
-	const job = claim;
+		if (row && deletionJobState(row) === 'completed') return { state: 'completed', removed: 0 };
+		return { state: 'busy', removed: 0 };
+	}
+	// This run's claim, exactly; releasing by it never clears a later runner's.
+	const mine = and(
+		eq(s.privacyDeletions.id, jobId),
+		eq(s.privacyDeletions.claimedUntil, job.claimedUntil!)
+	);
 	let stage = 'ledger';
 	let removed = 0;
 	try {
@@ -536,6 +582,8 @@ export async function runDeletion(
 			(o) => job.kind === 'account' || subjectHash('photo', o.photoId) === job.subjectHash
 		);
 		for (const object of owned) {
+			// Never start an object the lease might not cover; the next run continues.
+			if (Date.now() > stopAt) return { state: 'pending' as const, removed };
 			if (
 				await erasePhotoObject(db, userId, object.storageKey, store, job.kind === 'account', ledger)
 			)
@@ -575,13 +623,22 @@ export async function runDeletion(
 				.for('update');
 			if (!row) return 'not_found' as const;
 			if (deletionJobState(row) === 'completed') return 'completed' as const;
+			// The failure and the release in one statement.
 			await tx
 				.update(s.privacyDeletions)
-				.set({ lastError: stage })
-				.where(eq(s.privacyDeletions.id, jobId));
+				.set({ lastError: stage, claimedUntil: null })
+				.where(and(eq(s.privacyDeletions.id, jobId), deletionJobOpen()));
 			return 'failed' as const;
 		});
 		return { state, removed };
+	} finally {
+		// A release that cannot be written leaves the lease to expire; it never
+		// replaces this run's outcome.
+		await db
+			.update(s.privacyDeletions)
+			.set({ claimedUntil: null })
+			.where(mine)
+			.catch(() => undefined);
 	}
 }
 

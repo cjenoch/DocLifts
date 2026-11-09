@@ -40,7 +40,8 @@ import { loginThrottle, throttleConfigLogLine } from '$lib/server/login-throttle
 import { auth } from '$lib/server/auth';
 import { csrfBoundary } from '$lib/server/csrf-boundary';
 import { db, authUsers } from '$lib/server/db';
-import { eq, isNull, and } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
+import { userIsActive } from '$lib/server/session-liveness';
 import { isAssetPath, isPublicPath, resolveAuthRedirect } from '$lib/server/request-user';
 import { redirectWithNoStore } from '$lib/server/redirect-no-store';
 import { warnIfNoLoginCapableAccount } from '$lib/server/startup-account-check';
@@ -146,7 +147,7 @@ const guard: Handle = async ({ event, resolve }) => {
 		? await db
 				.select({ id: authUsers.id })
 				.from(authUsers)
-				.where(and(eq(authUsers.id, session.user.id), isNull(authUsers.deletionRequestedAt)))
+				.where(and(eq(authUsers.id, session.user.id), userIsActive()))
 				.limit(1)
 		: [];
 	event.locals.auth = auth;

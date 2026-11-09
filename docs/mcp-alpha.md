@@ -53,7 +53,11 @@ whether the authorization behind a token is still live, and both MCP access and
 refresh apply it: the token's login session exists, belongs to the token's user
 and is unexpired; the account is not fenced for deletion; the client is not
 disabled; and the user's consent for that client still exists. A refresh is
-therefore refused for every reason an access is. Checks on the token itself stay
+therefore refused for every reason an access is. The session and account halves
+are `sessionIsLive` and `userIsActive` in `src/lib/server/session-liveness.ts`,
+which the account export and the deletion request use too;
+`session-liveness-seam.test.ts` fails if a session's expiry is compared anywhere
+else. Checks on the token itself stay
 with its kind: access-token expiry, `revoked`, confirmation and audience in
 `authenticateMcp`; refresh-token expiry, `revoked` (rotation-reuse detection) and
 resource subsetting in the OAuth provider. The provider, not app code, writes

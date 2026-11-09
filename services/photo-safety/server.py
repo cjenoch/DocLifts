@@ -15,6 +15,27 @@ processor = ViTImageProcessorPil.from_pretrained("/model", local_files_only=True
 model = AutoModelForImageClassification.from_pretrained("/model", local_files_only=True, use_safetensors=True).eval()
 slot = threading.Lock()
 
+
+def classify(image):
+    inputs = processor(images=image.convert("RGB"), return_tensors="pt")
+    with torch.inference_mode():
+        values = torch.softmax(model(**inputs).logits, dim=-1)[0].tolist()
+    return next(values[i] for i, name in model.config.id2label.items() if name == "nsfw")
+
+
+def warm_up():
+    """Run real inferences on a generated image before the port opens.
+
+    The first inference after start is several times slower than the rest:
+    torch sets itself up and the weights are read from disk on first touch.
+    On 2026-11-09, the first upload after a deploy timed out at the app's 5 s
+    limit while later scans took 0.4-0.7 s. Until this finishes the server is
+    not listening, so the healthcheck reports it unhealthy, not slow.
+    """
+    for _ in range(2):
+        with Image.new("RGB", (640, 480), (40, 100, 160)) as image:
+            classify(image)
+
 class Handler(BaseHTTPRequestHandler):
     def setup(self):
         self.request.settimeout(5)
@@ -54,10 +75,7 @@ class Handler(BaseHTTPRequestHandler):
             with Image.open(io.BytesIO(data), formats=["JPEG"]) as image:
                 if image.format != "JPEG" or max(image.size) > 1600:
                     raise ValueError("image_shape")
-                inputs = processor(images=image.convert("RGB"), return_tensors="pt")
-            with torch.inference_mode():
-                values = torch.softmax(model(**inputs).logits, dim=-1)[0].tolist()
-            score = next(values[i] for i, name in model.config.id2label.items() if name == "nsfw")
+                score = classify(image)
             self.answer(200, {"model": MODEL, "nsfw": score})
         except Exception:
             self.answer(503, {"error": "scan_failed"})
@@ -85,4 +103,5 @@ class Server(ThreadingHTTPServer):
     def handle_error(self, *_args):
         pass
 
+warm_up()
 Server(("0.0.0.0", 8000), Handler).serve_forever()

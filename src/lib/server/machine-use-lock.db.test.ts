@@ -425,3 +425,83 @@ describe('an archive that comes second never archives a machine being attached (
 		}
 	);
 });
+
+describe("naming a photo re-checks the chosen machine's model under the lock (owner review, 2026-11-08)", () => {
+	const modelOf = (userId: string, name: string) =>
+		db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Life Fitness',
+				name,
+				loadingType: 'machine-stack',
+				confidence: 'user',
+				ownerUserId: userId
+			})
+			.returning()
+			.then((r) => r[0]);
+	const uploaded = async (userId: string, gymId: string) => {
+		const id = randomUUID();
+		await db.insert(s.equipmentPhotos).values({
+			id,
+			userId,
+			gymId,
+			storageKey: `users/${userId}/equipment-photos/${id}.jpg`,
+			contentType: 'image/jpeg',
+			bytes: 1000,
+			width: 1200,
+			height: 1600,
+			sha256: 'd'.repeat(64),
+			status: 'uploaded'
+		});
+		return id;
+	};
+
+	it('refuses when the machine is changed to another model while naming waits for it', async () => {
+		const { userId, gymId, sessionId } = await setup('identify-model-race');
+		const a = await modelOf(userId, 'Chest Press');
+		const b = await modelOf(userId, 'Shoulder Press');
+		// Positive first: with nothing in the way, naming joins the machine of model A.
+		const ok = await createMachine(db, userId, {
+			gymId,
+			equipmentType: 'machine-stack',
+			equipmentModelId: a.id
+		});
+		const first = await openPhotoBlock(db, userId, sessionId, await uploaded(userId, gymId));
+		expect(
+			await identifySessionExercise(db, userId, sessionId, first.id, {
+				modelId: a.id,
+				exerciseName: 'Chest press',
+				gymEquipmentId: ok.id
+			})
+		).toMatchObject({ machineId: ok.id });
+
+		// The race: another connection changes that machine to model B and holds it.
+		const photoId = await uploaded(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, photoId);
+		const before = await workout(sessionId);
+		const holder = hold((tx) =>
+			tx.update(s.gymEquipment).set({ equipmentModelId: b.id }).where(eq(s.gymEquipment.id, ok.id))
+		);
+		let naming: Promise<unknown> | undefined;
+		try {
+			await holder.held;
+			naming = identifySessionExercise(db, userId, sessionId, block.id, {
+				modelId: a.id,
+				exerciseName: 'Chest press',
+				gymEquipmentId: ok.id
+			});
+			expect(await within(naming, 750)).toBe('still waiting');
+		} finally {
+			holder.release();
+			await holder.done.catch(() => undefined);
+		}
+		expect(await within(naming!, 5000)).toMatchObject({
+			error: expect.objectContaining({ message: 'Machine not found' })
+		});
+		// Nothing was confirmed as model A on model B's machine.
+		expect(await workout(sessionId)).toEqual(before);
+		const [p] = await db.select().from(s.equipmentPhotos).where(eq(s.equipmentPhotos.id, photoId));
+		expect(p).toMatchObject({ status: 'uploaded', matchedModelId: null });
+		expect(await machineRow(ok.id)).toMatchObject({ equipmentModelId: b.id });
+	});
+});

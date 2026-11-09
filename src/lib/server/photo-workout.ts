@@ -278,6 +278,28 @@ export async function dropErasedPhotoPlaceholder(
 	if (!machineId || photo.status === 'confirmed') return false;
 	if (photo.matchedModelId || photo.createdModelId) return false;
 	try {
+		return await dropUntouchedPlaceholder(db, userId, machineId, photo.gymId);
+	} catch {
+		// Erasure must never fail on this cleanup: the object is already gone.
+		return false;
+	}
+}
+
+/**
+ * Delete a placeholder machine the caller already knows the app made, if it is
+ * still untouched and unreferenced: locked `FOR UPDATE SKIP LOCKED` in a
+ * savepoint and re-read under the lock (an edited placeholder is the user's
+ * machine; a locked one is being claimed by another writer). A contained
+ * reference, lock or fence error rolls back only this cleanup and returns
+ * false; anything else is a programming error and is thrown.
+ */
+async function dropUntouchedPlaceholder(
+	db: Database,
+	userId: string,
+	machineId: string,
+	gymId: string
+): Promise<boolean> {
+	try {
 		return await db.transaction(async (sp) => {
 			const [locked] = await sp
 				.select()
@@ -285,7 +307,7 @@ export async function dropErasedPhotoPlaceholder(
 				.where(
 					and(
 						eq(gymEquipment.id, machineId),
-						eq(gymEquipment.gymId, photo.gymId),
+						eq(gymEquipment.gymId, gymId),
 						inArray(
 							gymEquipment.gymId,
 							sp.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
@@ -293,14 +315,14 @@ export async function dropErasedPhotoPlaceholder(
 					)
 				)
 				.for('update', { skipLocked: true });
-			// Re-read under the lock: an edited placeholder is the user's machine.
 			if (!locked || !untouchedPhotoPlaceholder(locked)) return false;
 			if (await machineIsReferenced(sp, machineId)) return false;
 			await sp.delete(gymEquipment).where(eq(gymEquipment.id, machineId));
 			return true;
 		});
-	} catch {
-		return false;
+	} catch (err) {
+		if (CLEANUP_CONTAINED.has(sqlState(err) ?? '')) return false;
+		throw err;
 	}
 }
 
@@ -589,7 +611,11 @@ export async function identifySessionExercise(
 		let machine = existing
 			? (await lockMachineForUse(tx, userId, existing.id, { gymId: placeholder.gymId }))?.machine
 			: undefined;
-		if (existing && !machine) throw new MachineInputError('Machine not found');
+		// The locked row is the latest committed one: if its model changed since
+		// the read above, it is no longer "a machine of this model" (owner review,
+		// 2026-11-08: the photo would be confirmed as one model on another's machine).
+		if (existing && (!machine || machine.equipmentModelId !== model.id))
+			throw new MachineInputError('Machine not found');
 		if (!machine) {
 			[machine] = await tx
 				.update(gymEquipment)
@@ -667,8 +693,10 @@ export async function identifySessionExercise(
 				eq(equipmentPhotos.gymEquipmentId, placeholder.id),
 				machine.id
 			);
-			if (!(await machineIsReferenced(tx, placeholder.id)))
-				await tx.delete(gymEquipment).where(eq(gymEquipment.id, placeholder.id));
+			// The block came from a photo, so the app made this placeholder; it goes
+			// only if the owner has not set it up since (untouched) and nothing points
+			// at it, under the shared locked check.
+			await dropUntouchedPlaceholder(tx, userId, placeholder.id, placeholder.gymId);
 		}
 
 		// Last time's numbers into the sets not touched yet, on an open workout

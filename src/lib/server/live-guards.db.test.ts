@@ -1119,3 +1119,55 @@ describe('Merge and Undo with a photo pending removal (owner review P2, d4ac8af)
 		expect((await snapshot(b1.id)).block.gymEquipmentId).toBe(b2.gymEquipmentId);
 	});
 });
+
+describe('naming a photo into an existing machine keeps a placeholder the owner set up (owner review, 2026-11-08)', () => {
+	it('drops an untouched placeholder, but keeps "West stack" with its settings', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-identify-west');
+		const [model] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Life Fitness',
+				name: 'Chest Press',
+				loadingType: 'machine-stack',
+				confidence: 'user',
+				ownerUserId: userId
+			})
+			.returning();
+		const existing = await createMachine(db, userId, {
+			gymId,
+			equipmentType: 'machine-stack',
+			equipmentModelId: model.id
+		});
+		// Positive first: an untouched placeholder goes when its block joins the machine.
+		const p1 = await photo(userId, gymId);
+		const b1 = await openPhotoBlock(db, userId, sessionId, p1.id);
+		expect(
+			await identifySessionExercise(db, userId, sessionId, b1.id, {
+				modelId: model.id,
+				exerciseName: 'Chest press'
+			})
+		).toMatchObject({ machineId: existing.id, merged: true });
+		expect(await machineRow(b1.gymEquipmentId!)).toBeUndefined();
+
+		// The owner's repro: rename the placeholder and set it up, then name the photo.
+		const p2 = await photo(userId, gymId);
+		const b2 = await openPhotoBlock(db, userId, sessionId, p2.id);
+		await db
+			.update(s.gymEquipment)
+			.set({ localLabel: 'West stack', stackLb: 200, incrementLb: 10 })
+			.where(eq(s.gymEquipment.id, b2.gymEquipmentId!));
+		expect(
+			await identifySessionExercise(db, userId, sessionId, b2.id, {
+				modelId: model.id,
+				exerciseName: 'Chest press'
+			})
+		).toMatchObject({ machineId: existing.id, merged: true });
+		expect((await snapshot(b2.id)).block.gymEquipmentId).toBe(existing.id);
+		expect(await machineRow(b2.gymEquipmentId!)).toMatchObject({
+			localLabel: 'West stack',
+			stackLb: 200,
+			incrementLb: 10,
+			archivedAt: null
+		});
+	});
+});

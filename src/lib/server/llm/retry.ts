@@ -107,7 +107,11 @@ export async function completeWithRetry<T>(
 			policy.baseDelayMs + Math.floor((deps.random ?? Math.random)() * policy.jitterMs);
 		if (now() + wait + policy.minAttemptMs > deadline) throw first;
 		if (deps.beforeRetry && !(await deps.beforeRetry())) throw first;
+		// The quota query can consume the budget while it awaits the database.
+		if (now() + wait + policy.minAttemptMs > deadline) throw first;
 		await (deps.sleep ?? realSleep)(wait);
+		// A timer can wake late after event-loop contention or a process pause.
+		if (now() + policy.minAttemptMs > deadline) throw first;
 		return await attempt();
 	}
 }

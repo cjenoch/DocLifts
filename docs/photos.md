@@ -226,13 +226,12 @@ next two identifications succeeded, but the user saw a failure. Now
   analysis limit; at the daily limit the retry is not made.
 - The wait is the provider's `Retry-After`, else 1-2 s (1 s plus up to 1 s of
   jitter).
-- **One 45 s budget** covers both attempts and the wait, and also caps each
-  attempt below `LLM_TIMEOUT_MS` (60 s in production as last recorded, docs/release-0.2.0.md). With the
-  gym page's single request (processing, safety at most 5 s by default, the
-  store write, identification) that is about 50 s at worst: under the ~60 s a
-  phone browser commonly allows a request and Cloudflare's 100 s origin
-  timeout. The POST itself has no client timeout; `photoClientSettings.timeoutMs`
-  (4 s) bounds only the resize on the phone. Normal reads take 2-3 s.
+- **One 45 s provider budget** covers both attempts and the wait, and also
+  caps each attempt below `LLM_TIMEOUT_MS` (verified as 60 s in production on
+  2026-11-09). Transfer, processing, safety, storage and database bookkeeping
+  can add time; this is not a 45 or 50 s limit on the full upload request.
+  The POST itself has no client timeout; `photoClientSettings.timeoutMs`
+  (4 s) bounds only the resize on the phone.
 - A second attempt needs 5 s left after the wait. A `Retry-After` that does
   not fit means no wait and no second attempt.
 - Never retried: 401/403 and every other status, timeouts, schema misses,

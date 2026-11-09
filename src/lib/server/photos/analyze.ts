@@ -212,13 +212,10 @@ export type { CompleteFn };
  * upload, photo row, processing or safety scan.
  *
  * `budgetMs` is the one deadline for both attempts and the wait, and it also
- * caps each attempt's timeout below LLM_TIMEOUT_MS (60 s in production as last recorded). 45 s
- * keeps the gym page's single request (process, safety at most 5 s by
- * default, store, identification) near 50 s at worst, under the 60 s a
- * phone's browser commonly allows a request and Cloudflare's 100 s origin
- * timeout; the page itself sets no client timeout on the POST. Production
- * reads take 2-3 s (gemini-2.5-flash-lite, docs/release-0.2.0.md), so 45 s is
- * still 15x a normal read.
+ * caps each attempt's timeout below LLM_TIMEOUT_MS (verified as 60 s in
+ * production on 2026-11-09). This is the provider budget, not a full upload
+ * deadline: transfer, processing, safety, storage and database bookkeeping
+ * can add time. The page sets no client timeout on the POST.
  *
  * Without a Retry-After the wait is 1-2 s (1 s plus up to 1 s of jitter). A
  * second attempt needs 5 s of budget left after the wait, the slowest normal

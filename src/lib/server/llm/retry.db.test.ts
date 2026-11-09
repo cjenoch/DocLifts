@@ -23,7 +23,8 @@ import {
 	parseRetryAfter,
 	type CompleteFn,
 	type CompleteRequest,
-	type RetryPolicy
+	type RetryPolicy,
+	type RetryDeps
 } from './index';
 import { LLM_ENV, type Env } from './config';
 import { scriptedModel, type ScriptedAnswer } from './test-models';
@@ -90,7 +91,7 @@ function harness(answers: ScriptedAnswer[] | MockLanguageModelV4, env: Env = ENV
 		},
 		random: () => 0.5
 	};
-	const run = (policy = POLICY, extra: { beforeRetry?: () => Promise<boolean> } = {}) =>
+	const run = (policy = POLICY, extra: RetryDeps = {}) =>
 		completeWithRetry(complete, db, alice, request, policy, { ...deps, ...extra });
 	return { run, model, waits, timeouts, clock };
 }
@@ -182,6 +183,39 @@ describe('completeWithRetry: transient answers', () => {
 		expect(isTransientLlmError(error)).toBe(true);
 		expect(h.waits).toEqual([]);
 		expect(h.model.doGenerateCalls).toHaveLength(1);
+	});
+
+	it.each([40_000, 45_000])(
+		'a quota check taking %i ms leaves too little time: no wait or second attempt',
+		async (elapsed) => {
+			const h = harness([{ status: 429 }, OK]);
+			const error = await caught(() =>
+				h.run(POLICY, {
+					beforeRetry: async () => {
+						h.clock.t += elapsed;
+						return true;
+					}
+				})
+			);
+			expect(isTransientLlmError(error)).toBe(true);
+			expect(h.waits).toEqual([]);
+			expect(h.model.doGenerateCalls).toHaveLength(1);
+			expect(await rows()).toHaveLength(1);
+		}
+	);
+
+	it('a retry wait waking after the deadline never starts a second attempt', async () => {
+		const h = harness([{ status: 503 }, OK]);
+		const error = await caught(() =>
+			h.run(POLICY, {
+				sleep: async (ms) => {
+					h.clock.t += ms + POLICY.budgetMs;
+				}
+			})
+		);
+		expect(isTransientLlmError(error)).toBe(true);
+		expect(h.model.doGenerateCalls).toHaveLength(1);
+		expect(await rows()).toHaveLength(1);
 	});
 });
 

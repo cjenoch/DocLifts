@@ -11,7 +11,7 @@
  * sentinel on a live database.
  */
 import { beforeEach, afterAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { bootstrap, SENTINEL_USER_ID, SENTINEL_EMAIL } from './bootstrap';
 import { createUser, setPassword, findUserByEmail } from './users';
 import { auth } from './auth';
@@ -178,6 +178,122 @@ describe('user:bootstrap', () => {
 		expect(await db().select().from(authUsers)).toEqual(before);
 		const [untouched] = await db().select().from(authUsers).where(eq(authUsers.id, existing.id));
 		expect(untouched.email).toBe('real@example.com');
+	});
+});
+
+/** Credential rows for the sentinel, counted rather than assumed. */
+async function sentinelCredentialRows(): Promise<number> {
+	const rows = await db()
+		.select({ id: authAccounts.id })
+		.from(authAccounts)
+		.where(
+			and(eq(authAccounts.userId, SENTINEL_USER_ID), eq(authAccounts.providerId, 'credential'))
+		);
+	return rows.length;
+}
+
+describe('user:bootstrap — a claim happens once, whole or not at all', () => {
+	it('refuses a second claim, leaving exactly one credential row and the first password working', async () => {
+		await plantSentinel();
+		const first = await bootstrap(auth, db(), {
+			email: 'first-claim@doclifts.invalid',
+			password: 'correct-horse-battery',
+			name: 'First'
+		});
+		// Positive first: the claim did land, with one credential row.
+		expect(first.kind).toBe('claimed-sentinel');
+		expect(await sentinelCredentialRows()).toBe(1);
+
+		await expect(
+			bootstrap(auth, db(), {
+				email: 'second-claim@doclifts.invalid',
+				password: 'another-password-123',
+				name: 'Second'
+			})
+		).rejects.toThrow(/already claimed as first-claim@doclifts\.invalid.*user:set-password/s);
+
+		// The state, not the error: still one credential row, the first claim's
+		// details intact, and the first password still the one that signs in.
+		expect(await sentinelCredentialRows()).toBe(1);
+		const [user] = await db().select().from(authUsers).where(eq(authUsers.id, SENTINEL_USER_ID));
+		expect(user.email).toBe('first-claim@doclifts.invalid');
+		const signedIn = await auth.api.signInEmail({
+			body: { email: 'first-claim@doclifts.invalid', password: 'correct-horse-battery' }
+		});
+		expect(signedIn.user.id).toBe(SENTINEL_USER_ID);
+	});
+
+	it('rolls the whole claim back when a step fails, and a re-run then completes it', async () => {
+		await plantSentinel();
+		// Inject a failure in the LAST step (the starter insert) with a trigger,
+		// so every earlier step has already run when it fails. No test seam in
+		// production code.
+		await harness.client.unsafe(`
+			create function bootstrap_test_fail() returns trigger language plpgsql as $$
+			begin raise exception 'injected starter failure'; end $$;
+			create trigger bootstrap_test_fail before insert on exercises
+				for each row execute function bootstrap_test_fail();
+		`);
+		try {
+			await expect(
+				bootstrap(auth, db(), {
+					email: 'crash@doclifts.invalid',
+					password: 'correct-horse-battery',
+					name: 'Crash'
+				})
+			).rejects.toMatchObject({
+				// Drizzle wraps the Postgres error; the injected one is its cause.
+				cause: expect.objectContaining({ message: 'injected starter failure' })
+			});
+		} finally {
+			await harness.client.unsafe(`
+				drop trigger bootstrap_test_fail on exercises;
+				drop function bootstrap_test_fail();
+			`);
+		}
+
+		// Nothing of the claim survived: 0011's sentinel exactly, no credential.
+		const [after] = await db().select().from(authUsers).where(eq(authUsers.id, SENTINEL_USER_ID));
+		expect(after.email).toBe(SENTINEL_EMAIL);
+		expect(after.emailVerified).toBe(false);
+		expect(await sentinelCredentialRows()).toBe(0);
+
+		// And the re-run completes it.
+		const result = await bootstrap(auth, db(), {
+			email: 'crash@doclifts.invalid',
+			password: 'correct-horse-battery',
+			name: 'Crash'
+		});
+		expect(result.kind).toBe('claimed-sentinel');
+		expect(result.starterExercises).toBe(STARTER_EXERCISES.length);
+		expect(await sentinelCredentialRows()).toBe(1);
+		const signedIn = await auth.api.signInEmail({
+			body: { email: 'crash@doclifts.invalid', password: 'correct-horse-battery' }
+		});
+		expect(signedIn.user.id).toBe(SENTINEL_USER_ID);
+	});
+
+	it('completes a half claim left by the old three-statement bootstrap (email set, no credential)', async () => {
+		await plantSentinel();
+		// The state a crash after the old UPDATE left behind.
+		await db()
+			.update(authUsers)
+			.set({ email: 'half@doclifts.invalid', name: 'Half', emailVerified: true })
+			.where(eq(authUsers.id, SENTINEL_USER_ID));
+		expect(await sentinelCredentialRows()).toBe(0);
+
+		const result = await bootstrap(auth, db(), {
+			email: 'half@doclifts.invalid',
+			password: 'correct-horse-battery',
+			name: 'Half'
+		});
+
+		expect(result.kind).toBe('claimed-sentinel');
+		expect(await sentinelCredentialRows()).toBe(1);
+		const signedIn = await auth.api.signInEmail({
+			body: { email: 'half@doclifts.invalid', password: 'correct-horse-battery' }
+		});
+		expect(signedIn.user.id).toBe(SENTINEL_USER_ID);
 	});
 });
 

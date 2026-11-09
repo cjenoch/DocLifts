@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireUser } from '$lib/server/request-user';
 import { auth } from '$lib/server/auth';
 import { db } from '$lib/server/db';
-import { verifyPasswordViaHandler } from '$lib/server/auth-proxy';
+import { userTimeZone, zoneOrUtc } from '$lib/server/user-time-zone';
 import {
 	readAccountExport,
 	hasExportSession,
@@ -18,8 +18,11 @@ import type { RequestHandler } from './$types';
 const formSchema = z
 	.object({
 		format: z.enum(['json', 'csv', 'strong']),
-		password: z.string().min(1).max(128),
-		timeZone: z.string().min(1).max(80)
+		// No password since 2026-11-09 (owner decision): a live session is enough.
+		// A page loaded before that still sends one; it is accepted and ignored.
+		password: z.string().max(128).optional(),
+		// Strong dates; when absent or blank, the zone the phone last reported.
+		timeZone: z.string().max(80).optional()
 	})
 	.strict();
 async function boundedForm(request: Request) {
@@ -59,25 +62,20 @@ async function boundedForm(request: Request) {
 	if ([...fields.keys()].length !== new Set(fields.keys()).size)
 		error(400, 'Repeated export fields.');
 	const parsed = formSchema.safeParse(Object.fromEntries(fields));
-	if (!parsed.success) error(400, 'Choose a format and enter your current password.');
-	try {
-		new Intl.DateTimeFormat('en', { timeZone: parsed.data.timeZone });
-	} catch {
-		error(400, 'Choose a valid time zone, such as America/New_York or UTC.');
+	if (!parsed.success) error(400, 'Choose a format to download.');
+	const timeZone = parsed.data.timeZone?.trim() || null;
+	if (timeZone) {
+		try {
+			new Intl.DateTimeFormat('en', { timeZone });
+		} catch {
+			error(400, 'Choose a valid time zone, such as America/New_York or UTC.');
+		}
 	}
-	return parsed.data;
+	return { format: parsed.data.format, timeZone };
 }
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = requireUser(locals);
 	const input = await boundedForm(request);
-	const verified = await verifyPasswordViaHandler(request.headers, input.password);
-	if (!verified.ok)
-		error(
-			verified.status === 429 ? 429 : 400,
-			verified.status === 429
-				? 'Too many password attempts. Wait a minute and try again.'
-				: 'Your password could not be verified. Go back and check your current password.'
-		);
 	const session = await auth.api.getSession({ headers: request.headers });
 	if (
 		!session ||
@@ -99,7 +97,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				? Buffer.from(JSON.stringify(jsonArchive(data, now), null, 2) + '\n')
 				: input.format === 'csv'
 					? Buffer.from(spreadsheetArchive(data, now))
-					: Buffer.from(strongCsv(data, input.timeZone));
+					: Buffer.from(
+							strongCsv(data, input.timeZone ?? zoneOrUtc(await userTimeZone(db, user.id)))
+						);
 		if (body.length > MAX_EXPORT_BYTES)
 			throw new ExportLimitError('Export exceeds the size limit.');
 		if (!(await hasExportSession(db, user.id, session.session.id)))

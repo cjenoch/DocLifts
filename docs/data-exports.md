@@ -1,6 +1,7 @@
 # Account exports (0.20.0 Alpha)
 
-Open **Account → Export your data**, enter your current password, and download.
+Open **Account → Export your data** and download. No password is asked (owner
+decision, 2026-11-09): a live signed-in session is enough.
 Files go to your device; DocLifts does not send them to another fitness app.
 
 | Format                                 | Use                                                          | Important limits                                                             |
@@ -86,8 +87,11 @@ Primary references checked October 24, 2026:
 
 ## Boundaries and verification
 
-`POST /account/export/download` accepts only the three known formats, the current
-password and a valid time zone. The existing CSRF and password throttle apply.
+`POST /account/export/download` accepts only the three known formats and an
+optional time zone; a password field sent by a page loaded before 2026-11-09 is
+accepted and ignored. Strong dates use the time zone in the form (prefilled with
+the device's zone), or, when it is blank, the zone the phone last reported
+(`auth.user.time_zone`), else UTC. The existing CSRF boundary applies.
 No account ID is accepted. A live owner session and deletion fence are checked
 before reading and immediately before returning the file. Downloads are private,
 no-store attachments, built in memory with no persistent export or S3 request.
@@ -103,6 +107,6 @@ atomic by these checks. Support can arrange larger requests.
 Tests use distinct fictional owners and values, historical vs current names,
 open/Trash/empty sessions, zero/timed work, formula-like multiline notes,
 notebook uncertainty and oversized records. Served-build browser tests download
-and parse each format, verify account isolation and non-mutation, and refuse
-wrong passwords, cross-origin/invalid input, revoked and deleting accounts.
+and parse each format, verify account isolation and non-mutation, the stored-zone
+default, and refuse cross-origin/invalid input, revoked and deleting accounts.
 Human testing in a destination fitness app remains outstanding.

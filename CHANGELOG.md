@@ -19,6 +19,11 @@
   - The rest timer's settings panel opens fully on screen during a workout.
     It was anchored to the workout bar, so its lower half — "Try alert"
     included — sat below the screen.
+  - Removing a block or permanently deleting a workout after its photo was
+    discarded works again; migration 0024 (`0024_privacy_fence_unlink.sql`)
+    lets a photo pending removal lose its block and machine links, and
+    nothing else. The empty "Photo" machine now goes when the block leaves it,
+    right after Discard.
 
 - Operator tool: `pnpm photo:placeholders` (production:
   `scripts/photo-placeholders-prod.sh`) archives the unused "Photo 2:32 PM"

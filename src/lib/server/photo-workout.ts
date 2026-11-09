@@ -28,7 +28,6 @@ import {
 	gymEquipment,
 	gyms,
 	llmCalls,
-	photoObjects,
 	sessionExercises,
 	sessions,
 	sets
@@ -145,8 +144,9 @@ export async function photoPlaceholderOf(
 
 /**
  * SQLSTATEs a best-effort cleanup absorbs: a reference, a lock, a deadlock,
- * and 23514, which 0022's write fence raises on any UPDATE of a photo whose
- * object is `delete_pending` (or of a fenced account's row).
+ * and 23514, the write fence: a fenced account's row, or (should the database
+ * still run 0022's fence, before 0024) any UPDATE of a photo whose object is
+ * `delete_pending`.
  */
 const CLEANUP_CONTAINED = new Set(['23503', '55P03', '40P01', '23514']);
 function sqlState(err: unknown): string | undefined {
@@ -170,15 +170,16 @@ function sqlState(err: unknown): string | undefined {
  *   it, so the lock is skipped and the machine kept: no wait, no 23503.
  * - Anything pointing at it other than the evidence photos (logged sets, a
  *   merge, another photo) keeps it, as history.
- * - A discarded photo's object is `delete_pending` until it is erased, and
- *   0022's write fence refuses any UPDATE of such a photo row. The evidence
- *   photo cannot be unlinked then, and the machine cannot be deleted while it
- *   points there (the FK is NO ACTION), so the cleanup is skipped and the
- *   machine kept: no UPDATE is attempted. `dropErasedPhotoPlaceholder` removes
- *   it when the photo is erased, if nothing else points at it by then.
+ * - The evidence photos are unlinked (`gym_equipment_id` to null) before the
+ *   machine is deleted, since that FK is NO ACTION. A discarded photo's object
+ *   is `delete_pending` until it is erased; since migration 0024 the write
+ *   fence lets such a row lose its links (only `session_exercise_id` /
+ *   `gym_equipment_id` going to null), so the placeholder goes right after
+ *   Discard too. Any other change to a pending photo is still refused.
  * - It runs in a SAVEPOINT (a nested transaction). A reference, lock,
- *   deadlock or write-fence (23514) error rolls back only the cleanup and
- *   keeps the machine; any other error is a programming error and is thrown.
+ *   deadlock or write-fence (23514: a fenced account, or a fence that refuses
+ *   the unlink) error rolls back only the cleanup and keeps the machine; any
+ *   other error is a programming error and is thrown.
  *
  * Returns true when the machine was deleted.
  */
@@ -209,18 +210,6 @@ export async function dropPhotoPlaceholderMachine(
 				.for('update', { skipLocked: true });
 			if (!locked) return false;
 			if (await machineIsReferenced(sp, machineId, { ignoringPhotoIds: photoIds })) return false;
-			const [pending] = await sp
-				.select({ photoId: photoObjects.photoId })
-				.from(photoObjects)
-				.where(
-					and(
-						inArray(photoObjects.photoId, photoIds),
-						eq(photoObjects.userId, userId),
-						eq(photoObjects.state, 'delete_pending')
-					)
-				)
-				.limit(1);
-			if (pending) return false;
 			await sp
 				.update(equipmentPhotos)
 				.set({ gymEquipmentId: null })
@@ -243,10 +232,11 @@ export async function dropPhotoPlaceholderMachine(
 /**
  * Erasure's half of the placeholder cleanup. `erasePhotoObject` calls it in its
  * own transaction, right after it deletes the photo row (`photo` is that
- * deleted row), for a live account only. A photo discarded while its block was
- * on the placeholder is the only evidence the app made that machine, and its
- * row cannot be unlinked while the object is `delete_pending`, so
- * `dropPhotoPlaceholderMachine` kept the machine at swap time; this removes it.
+ * deleted row), for a live account only. Since 0024 the swap-time cleanup
+ * (`dropPhotoPlaceholderMachine`) unlinks a pending photo and deletes the
+ * placeholder itself, so this is the backstop for a photo that still points at
+ * a placeholder when it is erased because the swap-time cleanup kept it (the
+ * machine was locked by another writer, or still referenced then).
  *
  * The rule: the photo is not `confirmed` (a confirmed photo names a real
  * machine, which is never deleted here), and it pointed at a machine that is
@@ -267,10 +257,20 @@ export async function dropPhotoPlaceholderMachine(
 export async function dropErasedPhotoPlaceholder(
 	db: Database,
 	userId: string,
-	photo: { status: string; gymId: string; gymEquipmentId: string | null }
+	photo: {
+		status: string;
+		gymId: string;
+		gymEquipmentId: string | null;
+		matchedModelId: string | null;
+		createdModelId: string | null;
+	}
 ): Promise<boolean> {
 	const machineId = photo.gymEquipmentId;
+	// Not evidence: a confirmed photo, or one that was ever confirmed (a model was
+	// matched or created from it; removal leaves those columns). requestPhotoDeletion
+	// also drops a confirmed photo's link before it reads `discarded`.
 	if (!machineId || photo.status === 'confirmed') return false;
+	if (photo.matchedModelId || photo.createdModelId) return false;
 	try {
 		return await db.transaction(async (sp) => {
 			const [locked] = await sp

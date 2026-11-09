@@ -554,30 +554,38 @@ it, a placeholder made before this rule, and a photo confirmed onto another
 machine. A placeholder that holds logged sets, or anything else pointing at
 it, stays, as history.
 
-**Discard, then swap (0022's write fence).** Both Discard paths (`discardPhoto`,
-and `requestPhotoDeletion` once removal is enabled) leave the photo's object
-`delete_pending` until it is erased, and 0022's trigger refuses any UPDATE of
-that photo row (23514). So the photo cannot be unlinked from the placeholder
-at swap time, and the machine cannot be deleted while the photo points at it
-(the FK is NO ACTION). `dropPhotoPlaceholderMachine` therefore skips the cleanup
-when an evidence photo is `delete_pending` (no UPDATE is attempted; 23514 is
-also contained as a backstop, rolling back only the savepoint). Swap, Change
-machine and Remove succeed at once after Discard. The placeholder goes either at
-swap time (photo not pending; since 0022 every discarded photo is pending until
-erased, so in practice this means erasure) or when the photo is erased,
-whichever comes later. With removal not enabled, a discarded object is erased
-by the retention sweep after `discardedDays` (30), which an operator runs;
-until then the empty placeholder stays in the gym list. At erasure, `erasePhotoObject`,
-after deleting an unconfirmed photo row that pointed at a placeholder-shaped
-machine, calls `dropErasedPhotoPlaceholder`, which deletes that machine if
-nothing points at it any more (`machineIsReferenced`), under
-`FOR UPDATE SKIP LOCKED` in a savepoint that never fails the erasure. Live
-accounts only; an account being deleted is purged whole. A machine a
-`confirmed` photo points at is never deleted at erasure. The leftover case:
-if the block is still on the placeholder when the photo is erased (with removal
-enabled, the review page erases at once, so this is the usual order there), the
-machine is referenced and kept, and the later swap finds no evidence and keeps
-it too. It stays in the gym list until the user removes it from the gym page.
+**Discard, then swap (the write fence, 0022 and 0024).** Both Discard paths
+(`discardPhoto`, and `requestPhotoDeletion` once removal is enabled) leave the
+photo's object `delete_pending` until it is erased. 0022's trigger refused any
+UPDATE of that photo row (23514), including the `ON DELETE SET NULL` Postgres
+runs on `session_exercise_id` when the block is deleted, so Remove and
+permanently deleting a trashed workout failed after Discard. Since migration
+0024 the fence allows exactly one change to a pending photo: `session_exercise_id`
+and/or `gym_equipment_id` going to null, every other column unchanged. Status,
+candidate, and pointing a link at a different row are still refused, and a
+fenced account is refused first, as before. So Swap, Change machine and Remove
+succeed at once after Discard, and `dropPhotoPlaceholderMachine` unlinks the
+pending evidence photo and deletes the placeholder in the same edit (23514 is
+still contained as a backstop, rolling back only the savepoint).
+
+At erasure, `erasePhotoObject`, after deleting an unconfirmed photo row that
+still points at a placeholder-shaped machine, calls `dropErasedPhotoPlaceholder`,
+which deletes that machine if nothing points at it any more
+(`machineIsReferenced`), under `FOR UPDATE SKIP LOCKED` in a savepoint that
+never fails the erasure. Live accounts only; an account being deleted is purged
+whole. A machine a `confirmed` photo points at is never deleted at erasure.
+This is now a backstop for a placeholder the swap-time cleanup kept (the
+machine was locked by another writer, or still referenced then).
+
+What remains is one leftover case: the photo is **erased while its block is
+still on the placeholder**. The machine is referenced at erasure and kept, the
+photo row (the only evidence) is gone, and the later swap, change or remove
+finds no evidence and keeps it too. With removal enabled the review page
+erases at once, so this is the usual order there when the user discards first
+and swaps second; with removal not enabled it happens only when the retention
+sweep erases the photo (after `discardedDays`, 30) before the block leaves the
+placeholder, typically a workout left with an unnamed block. The machine stays
+in the gym list until the user removes it from the gym page.
 
 **Legacy placeholders (one-time cleanup, 2026-11-08).** Placeholders made
 before the photo carried the machine link have no evidence, so the rule above

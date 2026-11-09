@@ -157,9 +157,18 @@ export async function requestPhotoDeletion(
 		const record = entry('photo', photoId, now);
 		await inventoryPhotos(tx, userId);
 		// Hide immediately. The key remains in the outbox until erasure succeeds.
+		// A confirmed photo's machine link is dropped here, while its status still
+		// says confirmed: once it reads `discarded`, erasure could not tell it from
+		// a workout photo's placeholder evidence (dropErasedPhotoPlaceholder) and
+		// might delete the user's machine. An unconfirmed photo keeps its link,
+		// which is that evidence.
 		await tx
 			.update(s.equipmentPhotos)
-			.set({ status: 'discarded', candidate: null })
+			.set({
+				status: 'discarded',
+				candidate: null,
+				...(photo.status === 'confirmed' ? { gymEquipmentId: null } : {})
+			})
 			.where(eq(s.equipmentPhotos.id, photoId));
 		await tx
 			.update(s.photoObjects)

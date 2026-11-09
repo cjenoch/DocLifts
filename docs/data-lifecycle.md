@@ -64,6 +64,11 @@ record is deleted outright, with every other model-call row of the account.
 Migration `0022_open_johnny_blaze.sql` adds the account fence, deletion receipts,
 object inventory and write-fencing triggers, and backfills every known photo key.
 Migration `0023_salty_darkstar.sql` adds the durable upload settlement deadline.
+Migration `0024_privacy_fence_unlink.sql` narrows the pending-photo write fence: a
+photo whose object is `delete_pending` may still have `session_exercise_id` and
+`gym_equipment_id` set to null (the `ON DELETE SET NULL` of a removed block or
+permanently deleted workout, and the placeholder cleanup), and every other change
+to it is still refused.
 Earlier migrations are unchanged. Global equipment catalog rows are untouched.
 
 Uploads commit their object inventory **before** PUT. A separate PostgreSQL

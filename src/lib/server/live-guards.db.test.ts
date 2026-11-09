@@ -8,11 +8,15 @@
  * is no longer a photo block, for the page and the server alike, so Swap and
  * Change machine work on it and its "Photo" placeholder machine goes.
  *
- * Discard leaves the photo's object `delete_pending`, and 0022's write fence
- * refuses any UPDATE of that photo row (23514). The photos here carry their
+ * Discard leaves the photo's object `delete_pending` until it is erased.
+ * 0022's write fence refused any UPDATE of that photo row (23514), including
+ * the ON DELETE SET NULL Postgres runs when the block is deleted; since 0024 it
+ * lets a pending photo lose its links (`session_exercise_id` and
+ * `gym_equipment_id` to null) and nothing else. The photos here carry their
  * `photo_objects` row as the upload route leaves it, so Discard really leaves
- * them pending: the swap succeeds and keeps the placeholder, and erasing the
- * photo (`erasePhotoObject`, `runDeletion`) removes it.
+ * them pending: swap, remove and permanent delete succeed, and the placeholder
+ * goes at swap or remove time. The one leftover: a photo erased while its block
+ * is still on the placeholder (see the last describe).
  */
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -42,6 +46,7 @@ import { MemoryPhotoStore } from './photos/store';
 import { erasePhotoObject, requestPhotoDeletion, runDeletion } from './privacy/lifecycle';
 import type { Ledger } from './privacy/ledger';
 import { startQuickSession } from './quick-workouts';
+import { endSession, hardDeleteSession, softDeleteEndedSession } from './sessions';
 
 let db: TestDb;
 let handle: Awaited<ReturnType<typeof setupTestDb>>;
@@ -323,12 +328,16 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 		expect(after.rows.every((r) => r.exerciseId === pulldown.id && r.gymEquipmentId === null)).toBe(
 			true
 		);
-		// The pending photo cannot be unlinked, so the placeholder waits for erasure.
-		expect(await machineRow(placeholderId)).toBeDefined();
-		expect((await photoRow(goneP.id)).gymEquipmentId).toBe(placeholderId);
+		// 0024: the pending photo is unlinked and the placeholder goes at swap time.
+		expect(await objectState(goneP.id)).toBe('delete_pending');
+		expect(await machineRow(placeholderId)).toBeUndefined();
+		expect(await photoRow(goneP.id)).toMatchObject({
+			status: 'discarded',
+			gymEquipmentId: null,
+			sessionExerciseId: orphan.id
+		});
 		expect(await erase(userId, goneP)).toBe(true);
 		expect(await photoRow(goneP.id)).toBeUndefined();
-		expect(await machineRow(placeholderId)).toBeUndefined();
 
 		// The block with a live photo is still refused, and keeps its placeholder.
 		const stack = await createMachine(db, userId, {
@@ -425,11 +434,9 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 	});
 
 	// Removing the block sets the pending photo's session_exercise_id to null
-	// (ON DELETE SET NULL), which is an UPDATE of that photo row, and 0022's
-	// write fence refuses it (23514) until the photo is erased. This test pins
-	// the requirement (Remove works after Discard); it fails until the fence
-	// lets a pending photo's links be cleared. Owner decision pending.
-	it('Remove after Discard, while the photo is still pending erasure, succeeds; erasure then drops the placeholder', async () => {
+	// (ON DELETE SET NULL), which is an UPDATE of that photo row; 0022's write
+	// fence refused it (23514). 0024 allows exactly that unlink.
+	it('Remove after Discard, while the photo is still pending erasure, succeeds and drops the placeholder', async () => {
 		const { userId, gymId, sessionId } = await setup('p2-remove-pending');
 		const p = await photo(userId, gymId);
 		const block = await openPhotoBlock(db, userId, sessionId, p.id);
@@ -448,10 +455,105 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 		});
 		expect(removed.removedLogged).toBe(1);
 		expect((await snapshot(block.id)).block).toBeUndefined();
-		// Still linked from the pending photo; erasing it removes the machine.
-		expect(await machineRow(placeholderId)).toBeDefined();
-		expect(await erase(userId, p)).toBe(true);
+		// Both links cleared on the still-pending photo, and the placeholder gone now.
+		expect(await objectState(p.id)).toBe('delete_pending');
+		expect(await photoRow(p.id)).toMatchObject({
+			status: 'discarded',
+			sessionExerciseId: null,
+			gymEquipmentId: null
+		});
 		expect(await machineRow(placeholderId)).toBeUndefined();
+		expect(await erase(userId, p)).toBe(true);
+		expect(await photoRow(p.id)).toBeUndefined();
+	});
+
+	it('permanently deleting a trashed workout whose block holds a photo pending removal succeeds and unlinks the photo', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-hard-delete-pending');
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
+		expect(await objectState(p.id)).toBe('delete_pending');
+		expect((await endSession(db, userId, sessionId)).updated).toBe(true);
+		expect(await softDeleteEndedSession(db, userId, sessionId)).toEqual({ ok: true });
+
+		// sessions -> CASCADE session_exercises -> SET NULL on the pending photo.
+		expect(await hardDeleteSession(db, userId, sessionId)).toEqual({ ok: true });
+		const [gone] = await db.select().from(s.sessions).where(eq(s.sessions.id, sessionId));
+		expect(gone).toBeUndefined();
+		expect((await snapshot(block.id)).block).toBeUndefined();
+		expect(await photoRow(p.id)).toMatchObject({ status: 'discarded', sessionExerciseId: null });
+		expect(await objectState(p.id)).toBe('delete_pending');
+	});
+});
+
+describe('0024 write fence on a photo pending removal', () => {
+	/** The SQLSTATE and message of a refused write, or 'ok'. */
+	async function outcome(write: Promise<unknown>) {
+		try {
+			await write;
+			return 'ok';
+		} catch (err) {
+			const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+			return `${cause?.code}: ${cause?.message}`;
+		}
+	}
+	const PENDING = '23514: Photo removal pending';
+
+	/** A pending (discarded) photo linked to a block and its placeholder, plus another block and machine. */
+	async function pendingPhoto(label: string) {
+		const { userId, gymId, sessionId } = await setup(label);
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const other = await openPhotoBlock(db, userId, sessionId, (await photo(userId, gymId)).id);
+		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
+		expect(await objectState(p.id)).toBe('delete_pending');
+		return { userId, p, block, other };
+	}
+	const update = (id: string, set: Partial<typeof s.equipmentPhotos.$inferInsert>) =>
+		db.update(s.equipmentPhotos).set(set).where(eq(s.equipmentPhotos.id, id));
+
+	it('allows only the links going to null; refuses status, candidate and re-pointing a link', async () => {
+		const { p, block, other } = await pendingPhoto('fence-0024');
+		const before = await photoRow(p.id);
+		expect(before).toMatchObject({
+			sessionExerciseId: block.id,
+			gymEquipmentId: block.gymEquipmentId
+		});
+
+		// Refused: anything but unlinking, the links included when they move elsewhere.
+		expect(await outcome(update(p.id, { status: 'analyzed' }))).toBe(PENDING);
+		expect(await outcome(update(p.id, { candidate: { late: 'result' } }))).toBe(PENDING);
+		expect(await outcome(update(p.id, { sessionExerciseId: other.id }))).toBe(PENDING);
+		expect(await outcome(update(p.id, { gymEquipmentId: other.gymEquipmentId }))).toBe(PENDING);
+		expect(await outcome(update(p.id, { gymEquipmentId: null, status: 'confirmed' }))).toBe(
+			PENDING
+		);
+		expect(await photoRow(p.id)).toEqual(before);
+
+		// Positive: unlinking one, then the other, succeeds and changes nothing else.
+		expect(await outcome(update(p.id, { gymEquipmentId: null }))).toBe('ok');
+		expect(await outcome(update(p.id, { sessionExerciseId: null }))).toBe('ok');
+		expect(await photoRow(p.id)).toEqual({
+			...before,
+			sessionExerciseId: null,
+			gymEquipmentId: null
+		});
+		// Once unlinked, a link cannot come back.
+		expect(await outcome(update(p.id, { sessionExerciseId: block.id }))).toBe(PENDING);
+	});
+
+	it('still refuses a fenced account (deletion requested), even for the unlinking update', async () => {
+		const { userId, p } = await pendingPhoto('fence-0024-account');
+		// Positive first: the same account, still active, may unlink.
+		expect(await outcome(update(p.id, { sessionExerciseId: null }))).toBe('ok');
+		await db
+			.update(s.authUsers)
+			.set({ deletionRequestedAt: new Date() })
+			.where(eq(s.authUsers.id, userId));
+		expect(await outcome(update(p.id, { gymEquipmentId: null }))).toBe(
+			'23514: Account unavailable'
+		);
+		expect((await photoRow(p.id)).gymEquipmentId).not.toBeNull();
 	});
 });
 
@@ -488,8 +590,8 @@ describe('the placeholder cleanup needs evidence, and never fails the edit (owne
 		expect((await photoRow(p.id)).gymEquipmentId).toBe(placeholderId);
 		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
 
-		// Positive first: binding the orphan block away succeeds; the placeholder
-		// openPhotoBlock made for it goes when its photo is erased.
+		// Positive first: binding the orphan block away succeeds, and the placeholder
+		// openPhotoBlock made for it goes with it (0024: the pending photo is unlinked).
 		const onFinish = await bindSessionMachine(
 			db,
 			userId,
@@ -498,9 +600,8 @@ describe('the placeholder cleanup needs evidence, and never fails the edit (owne
 			changeTo(gymId, finish.id)
 		);
 		expect(onFinish.gymEquipmentId).toBe(finish.id);
-		expect(await machineRow(placeholderId)).toBeDefined();
-		expect(await erase(userId, p)).toBe(true);
 		expect(await machineRow(placeholderId)).toBeUndefined();
+		expect(await erase(userId, p)).toBe(true);
 
 		// The block is still on the placeholder exercise and its label starts
 		// "Photo ", but nothing says the app made Photo Finish for it: kept.
@@ -618,13 +719,14 @@ describe('Discard, then swap: the write fence never fails the edit, and erasure 
 			exerciseId: pulldown.id,
 			gymEquipmentId: null
 		});
-		expect(await machineRow(placeholderId)).toBeDefined();
+		// 0024: the pending photo is unlinked, so the placeholder goes with the swap.
+		expect(await machineRow(placeholderId)).toBeUndefined();
+		expect((await photoRow(p.id)).gymEquipmentId).toBeNull();
 
 		expect((await runDeletion(db, userId, job!.id, new MemoryPhotoStore(), ledger, 1)).state).toBe(
 			'completed'
 		);
 		expect(await photoRow(p.id)).toBeUndefined();
-		expect(await machineRow(placeholderId)).toBeUndefined();
 	});
 
 	it('erased while the block is still on the placeholder: kept (referenced), and the later swap finds no evidence and keeps it', async () => {
@@ -655,18 +757,22 @@ describe('Discard, then swap: the write fence never fails the edit, and erasure 
 	it("erasure deletes an evidence photo's placeholder, never a machine a confirmed photo points at", async () => {
 		const { userId, gymId, sessionId } = await setup('p2-confirmed');
 		// Positive first: a discarded evidence photo's unused placeholder goes.
-		const [pulldown] = await db
-			.insert(s.exercises)
-			.values({ name: 'Lat pulldown', equipmentType: 'machine-stack', userId })
-			.returning();
 		const p = await photo(userId, gymId);
 		const block = await openPhotoBlock(db, userId, sessionId, p.id);
 		const placeholderId = block.gymEquipmentId!;
 		const job = await requestPhotoDeletion(db, userId, p.id, ledger);
-		await swapSessionExercise(db, userId, sessionId, {
-			occurrenceId: block.id,
-			exerciseId: pulldown.id
-		});
+		// Since 0024 the swap-time cleanup removes the placeholder itself; erasure is
+		// the backstop for one it kept (locked, or still referenced then). Leave the
+		// machine directly, so the photo still points at an unused placeholder.
+		await db
+			.update(s.sets)
+			.set({ gymEquipmentId: null })
+			.where(eq(s.sets.sessionExerciseId, block.id));
+		await db
+			.update(s.sessionExercises)
+			.set({ gymEquipmentId: null })
+			.where(eq(s.sessionExercises.id, block.id));
+		expect((await photoRow(p.id)).gymEquipmentId).toBe(placeholderId);
 		expect((await runDeletion(db, userId, job!.id, new MemoryPhotoStore(), ledger, 1)).state).toBe(
 			'completed'
 		);
@@ -689,6 +795,29 @@ describe('Discard, then swap: the write fence never fails the edit, and erasure 
 			(await runDeletion(db, userId, removal!.id, new MemoryPhotoStore(), ledger, 1)).state
 		).toBe('completed');
 		expect(await photoRow(c.id)).toBeUndefined();
+		expect(await machineRow(named.id)).toBeDefined();
+	});
+
+	it('removing a confirmed photo drops its machine link at once; an unconfirmed one keeps its evidence', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-confirmed-link');
+		// Positive first: a workout photo's placeholder evidence survives the request.
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		await requestPhotoDeletion(db, userId, p.id, ledger);
+		expect((await photoRow(p.id)).gymEquipmentId).toBe(block.gymEquipmentId);
+		// A confirmed photo: the link goes in the same step that hides it.
+		const named = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Row by the window',
+			equipmentType: 'machine-stack'
+		});
+		const c = await photo(userId, gymId);
+		await db
+			.update(s.equipmentPhotos)
+			.set({ status: 'confirmed', gymEquipmentId: named.id })
+			.where(eq(s.equipmentPhotos.id, c.id));
+		await requestPhotoDeletion(db, userId, c.id, ledger);
+		expect(await photoRow(c.id)).toMatchObject({ status: 'discarded', gymEquipmentId: null });
 		expect(await machineRow(named.id)).toBeDefined();
 	});
 });

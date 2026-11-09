@@ -238,6 +238,26 @@ path in the application; whatever loads the archive does so outside the
 codebase. After 0011 that load MUST set `user_id` or the insert is rejected.
 That sentence is the only protection the archive path has.
 
+## 0024 — narrow the pending-photo write fence
+
+`0024_privacy_fence_unlink.sql` is custom SQL (`drizzle-kit generate --custom`):
+no schema change, so `0024_snapshot.json` is 0023's with a new id. It is one
+`CREATE OR REPLACE FUNCTION public.privacy_write_fence()`, 0022's body except the
+`equipment_photos` pending branch, which now allows an UPDATE whose only changes
+are `session_exercise_id` and/or `gym_equipment_id` becoming null. The reason is
+a foreign-key action: `ON DELETE SET NULL` on `session_exercise_id` (0018) is an
+UPDATE the `BEFORE UPDATE` trigger sees, so 0022 made removing a block, and
+permanently deleting a trashed workout (cascade sessions → session_exercises),
+fail after the block's photo was discarded. `CREATE OR REPLACE` keeps the
+function's OID, so 0022's triggers are untouched and nothing new is named.
+
+Verify after applying (rule 3): `\df+ privacy_write_fence` shows the new branch;
+on a pending photo, setting either link to null succeeds while a status change
+is refused (23514 `Photo removal pending`); on a fenced account the unlink is
+refused (23514 `Account unavailable`); row counts are unchanged.
+Revert: rerun 0022's `CREATE FUNCTION` body as `CREATE OR REPLACE` (no data
+changes to undo).
+
 ## Later
 
 Not scheduled. Recorded so the reasoning survives the end of the ownership work.

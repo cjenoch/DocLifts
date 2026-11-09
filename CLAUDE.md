@@ -690,6 +690,11 @@ In force now. It governs `scripts/compose-prod.sh`, `scripts/migrate-prod.sh`,
   Automatic rollback and mandatory reapproval are paused. Recovery images remain
   available if restoring service is necessary; report what failed and what ran.
 
+- **After every deploy, confirm one Vigla watch cycle and a heartbeat**
+  (since 2026-11-09). Vigla finds DocLifts by Compose project and service
+  labels, so a container replacement needs no change to it. The standing order
+  of a deploy is `docs/deployment.md`.
+
 - **A release with an owner-only check still owed** (a real-phone test, a
   first real use) is recorded as "deployed, acceptance pending", in the
   runbook and the CHANGELOG, until he signs it off.

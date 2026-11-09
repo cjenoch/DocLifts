@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, max, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, max, not, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	equipmentModels,
@@ -8,6 +8,7 @@ import {
 	gymEquipment,
 	gyms,
 	machineMerges,
+	photoObjects,
 	sessionExercises,
 	sets
 } from './db/schema';
@@ -320,32 +321,75 @@ export async function lockActive(db: Database, userId: string, sessionId: string
 	if (sessionPhase(s) === 'ended') throw new MachineInputError('Session has ended');
 	return s;
 }
-async function machineSnapshot(db: Database, userId: string, input: unknown) {
-	const value = identitySchema.parse(input);
+/** Refusal when a machine chosen for a workout is not (or no longer) usable. */
+export const MACHINE_NOT_FOUND = 'Machine not found in selected gym';
+
+/**
+ * The machine-use lock (2026-11-08): the ONE way a machine is attached to a
+ * workout (a block's or a set's `gym_equipment_id` set to it). Locks the
+ * machine row and its gym row `FOR SHARE`, then re-checks on the locked
+ * (latest committed) rows that the machine is this user's, in `gymId` when
+ * given, and that neither it nor its gym is archived or merged. Returns the
+ * rows, or null: the caller refuses in its own words ("not found").
+ *
+ * Why a lock and not a read: every path that archives or merges a machine
+ * (`removeMachine`, `mergeMachines`, `archiveLegacyPhotoPlaceholders`) and
+ * `removeGym` locks the row `FOR UPDATE` and then checks that no open workout
+ * uses it. A plain read here could see the machine before that archive
+ * committed, and the block's foreign key only waits for the row to exist, so
+ * both succeeded and an open workout pointed at an archived machine.
+ * `FOR SHARE` conflicts with `FOR UPDATE`, so the two serialise: an attach that
+ * waits re-reads the archived row and refuses, and an archive that comes
+ * second sees the new block (remove, merge: "Finish the open workout") or,
+ * with SKIP LOCKED, skips the row (`locked`). Several attaches share the lock.
+ * Lock order is always session first (callers hold `lockSession`), then the
+ * machine; no archive path locks a session, so the two cannot deadlock.
+ */
+export async function lockMachineForUse(
+	db: Database,
+	userId: string,
+	machineId: string,
+	opts: { gymId?: string } = {}
+) {
+	if (!z.string().uuid().safeParse(machineId).success) return null;
 	const [row] = await db
-		.select({ machine: gymEquipment, gym: gyms, model: equipmentModels })
+		.select({ machine: gymEquipment, gym: gyms })
 		.from(gymEquipment)
 		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
-		.leftJoin(equipmentModels, eq(equipmentModels.id, gymEquipment.equipmentModelId))
 		.where(
 			and(
-				eq(gymEquipment.id, value.gymEquipmentId),
-				eq(gymEquipment.gymId, value.gymId),
+				eq(gymEquipment.id, machineId),
 				eq(gyms.userId, userId),
-				// An archived machine or gym cannot be chosen for a workout (0.7.0).
-				isNull(gymEquipment.archivedAt),
-				isNull(gyms.archivedAt)
+				opts.gymId ? eq(gymEquipment.gymId, opts.gymId) : undefined
 			)
-		);
-	if (!row) throw new MachineInputError('Machine not found in selected gym');
+		)
+		.for('share');
+	// Checked on the row the lock returned: after a wait, that is the version
+	// the archiving transaction committed.
+	if (!row || row.machine.archivedAt || row.machine.mergedIntoId || row.gym.archivedAt) return null;
+	return row;
+}
+
+async function machineSnapshot(db: Database, userId: string, input: unknown) {
+	const value = identitySchema.parse(input);
+	// An archived machine or gym cannot be chosen for a workout (0.7.0), and the
+	// lock keeps it from being archived until this transaction ends.
+	const row = await lockMachineForUse(db, userId, value.gymEquipmentId, { gymId: value.gymId });
+	if (!row) throw new MachineInputError(MACHINE_NOT_FOUND);
 	if (value.loadConvention === 'plates_per_side' && row.machine.equipmentType !== 'machine-plate')
 		throw new MachineInputError('Per-side plates require a plate-loaded machine');
+	const [model] = row.machine.equipmentModelId
+		? await db
+				.select()
+				.from(equipmentModels)
+				.where(eq(equipmentModels.id, row.machine.equipmentModelId))
+		: [];
 	return {
 		gymEquipmentId: row.machine.id,
 		loadConvention: value.loadConvention,
 		machineLabel: row.machine.localLabel,
 		gymName: row.gym.name,
-		modelName: row.model ? `${row.model.manufacturer} ${row.model.name}` : null,
+		modelName: model ? `${model.manufacturer} ${model.name}` : null,
 		equipmentType: row.machine.equipmentType
 	};
 }
@@ -547,6 +591,62 @@ export async function machineIsReferenced(
 			OR EXISTS (SELECT 1 FROM ${machineMerges} WHERE ${machineMerges.droppedId} = ${machineId} OR ${machineMerges.keptId} = ${machineId})
 			OR EXISTS (SELECT 1 FROM ${gymEquipment} WHERE ${gymEquipment.mergedIntoId} = ${machineId}) AS used`);
 	return Boolean(row?.used);
+}
+
+/**
+ * A photo whose stored object is `delete_pending` (discarded or removal
+ * requested, not erased yet). Since 0024 the write fence lets such a row lose
+ * its links (`gym_equipment_id` / `session_exercise_id` to null) and nothing
+ * else, so it is never re-pointed at another machine (`relinkMachinePhotos`).
+ * The same test the trigger makes: a `photo_objects` row for the photo id.
+ */
+export const photoPendingRemoval = () =>
+	sql`EXISTS (SELECT 1 FROM ${photoObjects} WHERE ${photoObjects.photoId} = ${equipmentPhotos.id} AND ${photoObjects.state} = 'delete_pending')`;
+
+/**
+ * Move this user's photos that `where` selects to machine `to` (2026-11-08):
+ * the one way a photo's machine link is re-pointed (machine merge and its undo,
+ * the photo flow's merge into an existing machine). A photo pending removal
+ * (`photoPendingRemoval`) is not moved, which 0024's fence would refuse
+ * (23514, "Photo removal pending"): its link is set to null instead, which the
+ * fence allows, and it is left out of `moved`, so an undo never tries to move
+ * it back. It is going away, and an erased photo is evidence of nothing.
+ *
+ * The photos are locked `FOR UPDATE` first and pending is read afterwards, in
+ * its own statement: Discard and removal lock the photo row before they mark
+ * the object pending, so once the lock is held the answer cannot change.
+ */
+export async function relinkMachinePhotos(
+	db: Database,
+	userId: string,
+	where: SQL,
+	to: string
+): Promise<{ moved: string[]; unlinked: string[] }> {
+	const ids = (
+		await db
+			.select({ id: equipmentPhotos.id })
+			.from(equipmentPhotos)
+			.where(and(eq(equipmentPhotos.userId, userId), where))
+			.orderBy(asc(equipmentPhotos.id))
+			.for('update')
+	).map((r) => r.id);
+	if (!ids.length) return { moved: [], unlinked: [] };
+	const mine = and(eq(equipmentPhotos.userId, userId), inArray(equipmentPhotos.id, ids));
+	const unlinked = (
+		await db
+			.update(equipmentPhotos)
+			.set({ gymEquipmentId: null })
+			.where(and(mine, photoPendingRemoval()))
+			.returning({ id: equipmentPhotos.id })
+	).map((r) => r.id);
+	const moved = (
+		await db
+			.update(equipmentPhotos)
+			.set({ gymEquipmentId: to })
+			.where(and(mine, not(photoPendingRemoval())))
+			.returning({ id: equipmentPhotos.id })
+	).map((r) => r.id);
+	return { moved, unlinked };
 }
 
 export async function bindSessionMachine(

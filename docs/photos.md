@@ -548,7 +548,20 @@ that the app made it for that block: a photo of this user whose
 discarded included), the block on the placeholder exercise, and the machine
 still placeholder-shaped (no model, `machine-stack`, not archived or merged).
 The label is not evidence: a machine the user named "Photo Finish" is never
-deleted. Without that evidence the machine is kept, and the user can remove it
+deleted.
+
+Evidence says the app made the machine; it does not say nobody touched it
+since (owner review P2, 2026-11-08: a placeholder renamed "West stack" with a
+200 lb stack and a 10 lb increment was deleted with its block). So the machine,
+re-read on the row the cleanup has locked, must also be **untouched**
+(`untouchedPhotoPlaceholder`): every column the user can edit still at the value
+`openPhotoBlock` inserted. Those columns are the label (still exactly the
+generated "Photo <time>", `photoMachineLabelPattern`; the time is the phone's
+and is stored nowhere else, so any label of exactly that format passes), the
+stack and the increment (null), the model (none) and the type (`machine-stack`),
+and it is not archived or merged. Anything else is the user's machine now and is
+kept, by this cleanup, by erasure's (`dropErasedPhotoPlaceholder`) and by the
+legacy archive below, which read the same rule. Without that evidence the machine is kept, and the user can remove it
 from the gym page; that is the case for a photo erased before the block left
 it, a placeholder made before this rule, and a photo confirmed onto another
 machine. A placeholder that holds logged sets, or anything else pointing at
@@ -569,10 +582,10 @@ pending evidence photo and deletes the placeholder in the same edit (23514 is
 still contained as a backstop, rolling back only the savepoint).
 
 At erasure, `erasePhotoObject`, after deleting an unconfirmed photo row that
-still points at a placeholder-shaped machine, calls `dropErasedPhotoPlaceholder`,
+still points at an untouched placeholder, calls `dropErasedPhotoPlaceholder`,
 which deletes that machine if nothing points at it any more
 (`machineIsReferenced`), under `FOR UPDATE SKIP LOCKED` in a savepoint that
-never fails the erasure. Live accounts only; an account being deleted is purged
+never fails the erasure; the untouched rule is checked on the locked row. Live accounts only; an account being deleted is purged
 whole. A machine a `confirmed` photo points at is never deleted at erasure.
 This is now a backstop for a placeholder the swap-time cleanup kept (the
 machine was locked by another writer, or still referenced then).
@@ -586,6 +599,15 @@ and swaps second; with removal not enabled it happens only when the retention
 sweep erases the photo (after `discardedDays`, 30) before the block leaves the
 placeholder, typically a workout left with an unnamed block. The machine stays
 in the gym list until the user removes it from the gym page.
+
+**A photo pending removal is never moved to another machine (2026-11-08).**
+0024 lets a pending photo lose its links and nothing else, so the paths that
+re-point photos from one machine to another (machine merge and its undo, and
+`identifySessionExercise` joining an existing machine) go through
+`relinkMachinePhotos` in `machines.ts`: it locks the photos, then sets a pending
+photo's `gym_equipment_id` to null and moves the rest. Before, Merge and Undo
+answered 500 (23514) when the dropped machine held a discarded photo. The merge
+preview counts only the photos that will move.
 
 **Legacy placeholders (one-time cleanup, 2026-11-08).** Placeholders made
 before the photo carried the machine link have no evidence, so the rule above

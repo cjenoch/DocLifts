@@ -18,7 +18,7 @@
  * is in every statement; another user's row is "not found" (D6).
  */
 import { createHash } from 'node:crypto';
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, not, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	equipmentModels,
@@ -33,11 +33,17 @@ import {
 	type MachineMergeMoved
 } from './db/schema';
 import type { Database } from './progression';
-import { createMachine, MachineInputError, machineIsReferenced } from './machines';
+import {
+	createMachine,
+	MachineInputError,
+	machineIsReferenced,
+	photoPendingRemoval,
+	relinkMachinePhotos
+} from './machines';
 import { modelReadableBy, modelVisibleTo } from './catalog';
 import { defaultMachineLabel } from '../catalog-labels';
 import { sessionIs } from './workout-state-sql';
-import { photoMachineLabelPattern } from './photo-workout';
+import { photoMachineLabelPattern, untouchedPhotoPlaceholder } from './photo-workout';
 import { workoutUi } from '../workout-ui';
 
 export const FINISH_WORKOUT_FIRST = 'Finish the open workout that uses it first.';
@@ -484,10 +490,18 @@ export async function mergePreview(
 	if (kept.machine.equipmentType !== dropped.machine.equipmentType) return null;
 	const a = await historyOf(db, keptId);
 	const b = await historyOf(db, droppedId);
+	// The photos that will move: one pending removal is unlinked, not moved
+	// (`relinkMachinePhotos`), so it is not counted.
 	const [photos] = await db
 		.select({ n: count() })
 		.from(equipmentPhotos)
-		.where(eq(equipmentPhotos.gymEquipmentId, droppedId));
+		.where(
+			and(
+				eq(equipmentPhotos.gymEquipmentId, droppedId),
+				eq(equipmentPhotos.userId, userId),
+				not(photoPendingRemoval())
+			)
+		);
 	const conventions = new Set([...a.conventions, ...b.conventions]);
 	const hasModel = (m: typeof kept.machine) => m.equipmentModelId != null;
 	const suggestedKeptId =
@@ -549,15 +563,11 @@ export async function mergeMachines(db: Database, userId: string, gymId: string,
 					.where(eq(sessionExercises.gymEquipmentId, droppedId))
 					.returning({ id: sessionExercises.id })
 			).map((r) => r.id),
+			// A photo pending removal is unlinked, not moved, and not listed, so
+			// undo leaves it alone (0024 lets it lose its link and nothing else).
 			photos: (
-				await tx
-					.update(equipmentPhotos)
-					.set({ gymEquipmentId: keptId })
-					.where(
-						and(eq(equipmentPhotos.gymEquipmentId, droppedId), eq(equipmentPhotos.userId, userId))
-					)
-					.returning({ id: equipmentPhotos.id })
-			).map((r) => r.id)
+				await relinkMachinePhotos(tx, userId, eq(equipmentPhotos.gymEquipmentId, droppedId), keptId)
+			).moved
 		};
 		if (kept.equipmentModelId) {
 			const exerciseIds = await exercisesLoggedOn(tx, [keptId]);
@@ -642,17 +652,18 @@ export async function undoMerge(db: Database, userId: string, mergeId: string) {
 						eq(sessionExercises.gymEquipmentId, merge.keptId)
 					)
 				);
+		// A listed photo that has since become pending removal (discarded after
+		// the merge) is unlinked rather than moved back.
 		if (photoIds.length)
-			await tx
-				.update(equipmentPhotos)
-				.set({ gymEquipmentId: merge.droppedId })
-				.where(
-					and(
-						inArray(equipmentPhotos.id, photoIds),
-						eq(equipmentPhotos.gymEquipmentId, merge.keptId),
-						eq(equipmentPhotos.userId, userId)
-					)
-				);
+			await relinkMachinePhotos(
+				tx,
+				userId,
+				and(
+					inArray(equipmentPhotos.id, photoIds),
+					eq(equipmentPhotos.gymEquipmentId, merge.keptId)
+				)!,
+				merge.droppedId
+			);
 		await tx
 			.update(gymEquipment)
 			.set({ archivedAt: null, mergedIntoId: null })
@@ -709,21 +720,11 @@ export type LegacyPlaceholderSkip = {
 };
 
 /**
- * Still exactly what `openPhotoBlock` leaves: no model, the placeholder type,
- * not archived or merged, no stack or increment typed in (the closest thing to
- * "never edited" without an `updated_at`), and a label of exactly its format.
+ * Still exactly what `openPhotoBlock` leaves: `untouchedPhotoPlaceholder`, the
+ * same rule the workout and erasure cleanups read (the closest thing to "never
+ * edited" without an `updated_at`).
  */
-function placeholderShaped(m: typeof gymEquipment.$inferSelect): boolean {
-	return (
-		m.equipmentModelId === null &&
-		m.equipmentType === workoutUi.photoPlaceholderType &&
-		m.archivedAt === null &&
-		m.mergedIntoId === null &&
-		m.stackLb === null &&
-		m.incrementLb === null &&
-		photoMachineLabelPattern.test(m.localLabel)
-	);
-}
+const placeholderShaped = untouchedPhotoPlaceholder;
 
 /** Why this machine is not (or no longer) a legacy placeholder, or null when it is one. */
 async function legacyPlaceholderRefusal(

@@ -36,9 +36,11 @@ import type { Database } from './progression';
 import {
 	addSessionExercise,
 	createMachine,
+	lockMachineForUse,
 	MachineInputError,
 	machineIsReferenced,
-	prefillOccurrence
+	prefillOccurrence,
+	relinkMachinePhotos
 } from './machines';
 import { modelVisibleTo } from './catalog';
 import { matchCandidate } from './photos/match';
@@ -167,7 +169,11 @@ function sqlState(err: unknown): string | undefined {
  *
  * - The machine is locked `FOR UPDATE SKIP LOCKED` before references are
  *   counted. Another transaction writing a reference holds `FOR KEY SHARE` on
- *   it, so the lock is skipped and the machine kept: no wait, no 23503.
+ *   it (an attach also `FOR SHARE`, `lockMachineForUse`), so the lock is
+ *   skipped and the machine kept: no wait, no 23503.
+ * - The locked row is re-read and must still be `untouchedPhotoPlaceholder`:
+ *   a placeholder the user has renamed, or given a stack, increment or model,
+ *   is their machine now and is kept (owner review P2, 2026-11-08).
  * - Anything pointing at it other than the evidence photos (logged sets, a
  *   merge, another photo) keeps it, as history.
  * - The evidence photos are unlinked (`gym_equipment_id` to null) before the
@@ -194,7 +200,7 @@ export async function dropPhotoPlaceholderMachine(
 	try {
 		return await db.transaction(async (sp) => {
 			const [locked] = await sp
-				.select({ id: gymEquipment.id })
+				.select()
 				.from(gymEquipment)
 				.where(
 					and(
@@ -202,13 +208,13 @@ export async function dropPhotoPlaceholderMachine(
 						inArray(
 							gymEquipment.gymId,
 							sp.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
-						),
-						isNull(gymEquipment.equipmentModelId),
-						isNull(gymEquipment.archivedAt)
+						)
 					)
 				)
 				.for('update', { skipLocked: true });
-			if (!locked) return false;
+			// Re-read under the lock: a machine the user has edited since the app
+			// made it (renamed, a stack or increment, a model) is theirs: kept.
+			if (!locked || !untouchedPhotoPlaceholder(locked)) return false;
 			if (await machineIsReferenced(sp, machineId, { ignoringPhotoIds: photoIds })) return false;
 			await sp
 				.update(equipmentPhotos)
@@ -239,9 +245,9 @@ export async function dropPhotoPlaceholderMachine(
  * machine was locked by another writer, or still referenced then).
  *
  * The rule: the photo is not `confirmed` (a confirmed photo names a real
- * machine, which is never deleted here), and it pointed at a machine that is
- * still placeholder-shaped (in the photo's gym, a gym of this user, no model,
- * the placeholder type, not archived or merged). The machine is locked
+ * machine, which is never deleted here), and it pointed at a machine in the
+ * photo's gym, a gym of this user, that is still `untouchedPhotoPlaceholder`
+ * on the locked row (a placeholder the user edited is kept). The machine is locked
  * `FOR UPDATE SKIP LOCKED` and deleted only when nothing points at it any more
  * (`machineIsReferenced`: no other photo, set, block or merge). A block still
  * on it keeps it, and a later swap then finds no evidence and keeps it too.
@@ -274,7 +280,7 @@ export async function dropErasedPhotoPlaceholder(
 	try {
 		return await db.transaction(async (sp) => {
 			const [locked] = await sp
-				.select({ id: gymEquipment.id })
+				.select()
 				.from(gymEquipment)
 				.where(
 					and(
@@ -283,15 +289,12 @@ export async function dropErasedPhotoPlaceholder(
 						inArray(
 							gymEquipment.gymId,
 							sp.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
-						),
-						isNull(gymEquipment.equipmentModelId),
-						isNull(gymEquipment.archivedAt),
-						isNull(gymEquipment.mergedIntoId),
-						eq(gymEquipment.equipmentType, workoutUi.photoPlaceholderType)
+						)
 					)
 				)
 				.for('update', { skipLocked: true });
-			if (!locked) return false;
+			// Re-read under the lock: an edited placeholder is the user's machine.
+			if (!locked || !untouchedPhotoPlaceholder(locked)) return false;
 			if (await machineIsReferenced(sp, machineId)) return false;
 			await sp.delete(gymEquipment).where(eq(gymEquipment.id, machineId));
 			return true;
@@ -374,6 +377,38 @@ export const photoMachineLabelPattern: RegExp = (() => {
 	const [before, after] = workoutUi.photoMachineLabel(slot).split(slot);
 	return new RegExp(`^${escapeRegExp(before)}${ANY_PHOTO_TIME}${escapeRegExp(after ?? '')}$`);
 })();
+
+/**
+ * A placeholder machine nobody has touched since `openPhotoBlock` (or
+ * `undoPhotoIdentify`) inserted it (owner review P2, 2026-11-08): every column
+ * the user can edit still holds its insert value. The columns, from schema.ts
+ * and the paths that write them:
+ *
+ * - `local_label` (the machine edit page, `updateMachine`): still exactly the
+ *   generated "Photo <time>" (`photoMachineLabelPattern`). The time is the
+ *   phone's and is not stored anywhere else, so the label cannot be compared
+ *   to the one written at creation; any label of that exact format passes.
+ * - `stack_lb`, `increment_lb` (`updateMachine`, `applyStandardStack`): null.
+ * - `equipment_model_id`, `equipment_type` (`changeMachineModel`, naming):
+ *   no model, the placeholder type.
+ * - `archived_at`, `merged_into_id` (Remove, Merge): neither set.
+ *
+ * `gym_id` and `id` are never edited. Anything else, including a placeholder
+ * renamed "West stack" or given a stack, is the user's machine now: the
+ * cleanups (`dropPhotoPlaceholderMachine`, `dropErasedPhotoPlaceholder`) keep
+ * it, and so does the legacy archive (`placeholderShaped` in machine-admin.ts).
+ */
+export function untouchedPhotoPlaceholder(m: typeof gymEquipment.$inferSelect): boolean {
+	return (
+		m.equipmentModelId === null &&
+		m.equipmentType === workoutUi.photoPlaceholderType &&
+		m.archivedAt === null &&
+		m.mergedIntoId === null &&
+		m.stackLb === null &&
+		m.incrementLb === null &&
+		photoMachineLabelPattern.test(m.localLabel)
+	);
+}
 
 /**
  * Step 1: the stored photo opens a block. Idempotent per photo: a photo that
@@ -549,7 +584,12 @@ export async function identifySessionExercise(
 			.orderBy(asc(gymEquipment.localLabel))
 			.limit(1);
 		if (value.gymEquipmentId && !existing) throw new MachineInputError('Machine not found');
-		let machine = existing;
+		// Joining an existing machine attaches it to this block: under the
+		// machine-use lock, re-checked (not archived or merged since the read).
+		let machine = existing
+			? (await lockMachineForUse(tx, userId, existing.id, { gymId: placeholder.gymId }))?.machine
+			: undefined;
+		if (existing && !machine) throw new MachineInputError('Machine not found');
 		if (!machine) {
 			[machine] = await tx
 				.update(gymEquipment)
@@ -617,20 +657,17 @@ export async function identifySessionExercise(
 			);
 
 		if (machine.id !== placeholder.id) {
-			// Merged: anything else still on the placeholder moves too, then it goes.
-			await tx
-				.update(equipmentPhotos)
-				.set({ gymEquipmentId: machine.id })
-				.where(eq(equipmentPhotos.gymEquipmentId, placeholder.id));
-			const [stillUsed] = await tx
-				.select({ n: sql<number>`count(*)::int` })
-				.from(sessionExercises)
-				.where(eq(sessionExercises.gymEquipmentId, placeholder.id));
-			const [setsUsing] = await tx
-				.select({ n: sql<number>`count(*)::int` })
-				.from(sets)
-				.where(eq(sets.gymEquipmentId, placeholder.id));
-			if (!stillUsed.n && !setsUsing.n)
+			// Merged: any other photo still on the placeholder moves too (one pending
+			// removal is unlinked instead, which the 0024 fence allows), then the
+			// placeholder goes once nothing at all points at it (another block or
+			// set, a photo, a machine merge).
+			await relinkMachinePhotos(
+				tx,
+				userId,
+				eq(equipmentPhotos.gymEquipmentId, placeholder.id),
+				machine.id
+			);
+			if (!(await machineIsReferenced(tx, placeholder.id)))
 				await tx.delete(gymEquipment).where(eq(gymEquipment.id, placeholder.id));
 		}
 

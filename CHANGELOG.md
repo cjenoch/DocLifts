@@ -24,6 +24,16 @@
     lets a photo pending removal lose its block and machine links, and
     nothing else. The empty "Photo" machine now goes when the block leaves it,
     right after Discard.
+  - A "Photo" machine you renamed or set up (stack, increment, model) is never
+    deleted when its block leaves it or its photo is erased; only one still
+    exactly as the app made it goes.
+  - Merging a machine, and undoing a merge, no longer fails when one of its
+    photos was discarded: that photo's machine link is cleared instead of
+    moved, and the merge preview no longer counts it. Naming a photo block
+    into an existing machine had the same failure and is fixed too.
+  - Adding, changing or naming a machine in a workout while the same machine
+    is being removed, merged or archived now waits and then says "not found",
+    instead of leaving the open workout on an archived machine.
 
 - Operator tool: `pnpm photo:placeholders` (production:
   `scripts/photo-placeholders-prod.sh`) archives the unused "Photo 2:32 PM"

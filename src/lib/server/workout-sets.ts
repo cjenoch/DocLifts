@@ -2,7 +2,7 @@ import { and, eq, isNull, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { sets } from './db/schema';
 import type { Database } from './progression';
-import { MachineInputError } from './machines';
+import { lockMachineForUse, MACHINE_NOT_FOUND, MachineInputError } from './machines';
 import { lockSession } from './session-lock';
 import { isTouched, sessionPhase } from '../workout-state';
 
@@ -89,6 +89,10 @@ export async function appendWorkoutSet(
 				throw new MachineInputError('Please reload and try again.');
 			return existing;
 		}
+		// The copy attaches the source's machine to a new set: under the
+		// machine-use lock, like every attach (machines.ts, lockMachineForUse).
+		if (source.gymEquipmentId && !(await lockMachineForUse(tx, userId, source.gymEquipmentId)))
+			throw new MachineInputError(MACHINE_NOT_FOUND);
 		const [last] = await tx
 			.select()
 			.from(sets)

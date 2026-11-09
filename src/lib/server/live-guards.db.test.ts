@@ -30,8 +30,10 @@ import {
 	createMachine,
 	FREE_WEIGHT_BIND_REFUSAL,
 	MachineInputError,
-	PHOTO_BLOCK_REFUSAL
+	PHOTO_BLOCK_REFUSAL,
+	updateMachine
 } from './machines';
+import { mergeMachines, mergePreview, undoMerge } from './machine-admin';
 import { removeSessionExercise, swapSessionExercise, WorkoutEditError } from './live-edit';
 import {
 	identifySessionExercise,
@@ -819,5 +821,301 @@ describe('Discard, then swap: the write fence never fails the edit, and erasure 
 		await requestPhotoDeletion(db, userId, c.id, ledger);
 		expect(await photoRow(c.id)).toMatchObject({ status: 'discarded', gymEquipmentId: null });
 		expect(await machineRow(named.id)).toBeDefined();
+	});
+});
+
+/**
+ * Owner review P2 (2026-11-08, at d4ac8af): the cleanup deleted a placeholder
+ * the owner had made his own. The photo link proves the app created it; it
+ * does not prove nobody edited it since. `untouchedPhotoPlaceholder` is the
+ * rule, read on the row locked for the delete: label still the generated
+ * "Photo <time>", no stack, no increment, no model, the placeholder type.
+ */
+describe('a placeholder the owner customized is never deleted (owner review P2, d4ac8af)', () => {
+	/** The owner's repro: a photo block whose machine he renamed and set up on the machine page. */
+	async function customized(userId: string, gymId: string, sessionId: string) {
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const machineId = block.gymEquipmentId!;
+		const edited = await updateMachine(db, userId, gymId, machineId, {
+			localLabel: 'West stack',
+			stackLb: 200,
+			incrementLb: 10
+		});
+		expect(edited).toMatchObject({ localLabel: 'West stack', stackLb: 200, incrementLb: 10 });
+		return { p, block, machineId };
+	}
+	const westStack = {
+		localLabel: 'West stack',
+		stackLb: 200,
+		incrementLb: 10,
+		equipmentModelId: null,
+		archivedAt: null,
+		mergedIntoId: null
+	};
+
+	it('Remove: the untouched placeholder goes, the renamed one with stack 200 and increment 10 stays', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-custom-remove');
+		// Positive first: an untouched placeholder still goes with its block.
+		const plain = await photo(userId, gymId);
+		const plainBlock = await openPhotoBlock(db, userId, sessionId, plain.id);
+		expect(await discardPhoto(db, userId, plain.id, new MemoryPhotoStore())).toBe(true);
+		await removeSessionExercise(db, userId, sessionId, { occurrenceId: plainBlock.id });
+		expect(await machineRow(plainBlock.gymEquipmentId!)).toBeUndefined();
+
+		const { p, block, machineId } = await customized(userId, gymId, sessionId);
+		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
+		await removeSessionExercise(db, userId, sessionId, { occurrenceId: block.id });
+		expect((await snapshot(block.id)).block).toBeUndefined();
+		expect(await machineRow(machineId)).toMatchObject(westStack);
+		// The pending photo is not unlinked by a cleanup that did not run.
+		expect(await photoRow(p.id)).toMatchObject({ status: 'discarded', gymEquipmentId: machineId });
+	});
+
+	it('Swap and Change machine keep a customized placeholder', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-custom-swap-bind');
+		const [pulldown] = await db
+			.insert(s.exercises)
+			.values({ name: 'Lat pulldown', equipmentType: 'machine-stack', userId })
+			.returning();
+		const door = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Press by the door',
+			equipmentType: 'machine-stack'
+		});
+		// Positive first: an untouched one goes on bind.
+		const plain = await photo(userId, gymId);
+		const plainBlock = await openPhotoBlock(db, userId, sessionId, plain.id);
+		expect(await discardPhoto(db, userId, plain.id, new MemoryPhotoStore())).toBe(true);
+		await bindSessionMachine(db, userId, sessionId, plainBlock.id, changeTo(gymId, door.id));
+		expect(await machineRow(plainBlock.gymEquipmentId!)).toBeUndefined();
+
+		const swapCase = await customized(userId, gymId, sessionId);
+		expect(await discardPhoto(db, userId, swapCase.p.id, new MemoryPhotoStore())).toBe(true);
+		const swapped = await swapSessionExercise(db, userId, sessionId, {
+			occurrenceId: swapCase.block.id,
+			exerciseId: pulldown.id
+		});
+		expect(swapped).toMatchObject({ exerciseId: pulldown.id, gymEquipmentId: null });
+		expect(await machineRow(swapCase.machineId)).toMatchObject(westStack);
+
+		const bindCase = await customized(userId, gymId, sessionId);
+		expect(await discardPhoto(db, userId, bindCase.p.id, new MemoryPhotoStore())).toBe(true);
+		const bound = await bindSessionMachine(
+			db,
+			userId,
+			sessionId,
+			bindCase.block.id,
+			changeTo(gymId, door.id)
+		);
+		expect(bound.gymEquipmentId).toBe(door.id);
+		expect(await machineRow(bindCase.machineId)).toMatchObject(westStack);
+	});
+
+	it.each([
+		['the label alone', { localLabel: 'West stack' }],
+		['the stack alone', { stackLb: 200 }],
+		['the increment alone', { incrementLb: 10 }]
+	])('each editable column counts: %s keeps it', async (_, edit) => {
+		const { userId, gymId, sessionId } = await setup('p2-custom-one-column');
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const machineId = block.gymEquipmentId!;
+		const label = (await machineRow(machineId)).localLabel;
+		// updateMachine sets all three; the ones not edited keep their insert value.
+		await updateMachine(db, userId, gymId, machineId, { localLabel: label, ...edit });
+		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
+		await removeSessionExercise(db, userId, sessionId, { occurrenceId: block.id });
+		expect(await machineRow(machineId)).toMatchObject(edit);
+	});
+
+	it('erasure keeps a customized placeholder, and still removes an untouched one', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-custom-erase');
+		/** Leave the machine directly, as when the swap-time cleanup kept it, so erasure decides. */
+		async function leaveMachine(blockId: string) {
+			await db
+				.update(s.sets)
+				.set({ gymEquipmentId: null })
+				.where(eq(s.sets.sessionExerciseId, blockId));
+			await db
+				.update(s.sessionExercises)
+				.set({ gymEquipmentId: null })
+				.where(eq(s.sessionExercises.id, blockId));
+		}
+		// Positive first: the untouched placeholder goes with its erased photo.
+		const plain = await photo(userId, gymId);
+		const plainBlock = await openPhotoBlock(db, userId, sessionId, plain.id);
+		const plainJob = await requestPhotoDeletion(db, userId, plain.id, ledger);
+		await leaveMachine(plainBlock.id);
+		expect(
+			(await runDeletion(db, userId, plainJob!.id, new MemoryPhotoStore(), ledger, 1)).state
+		).toBe('completed');
+		expect(await machineRow(plainBlock.gymEquipmentId!)).toBeUndefined();
+
+		const { p, block, machineId } = await customized(userId, gymId, sessionId);
+		const job = await requestPhotoDeletion(db, userId, p.id, ledger);
+		await leaveMachine(block.id);
+		expect((await photoRow(p.id)).gymEquipmentId).toBe(machineId);
+		expect((await runDeletion(db, userId, job!.id, new MemoryPhotoStore(), ledger, 1)).state).toBe(
+			'completed'
+		);
+		expect(await photoRow(p.id)).toBeUndefined();
+		expect(await machineRow(machineId)).toMatchObject(westStack);
+	});
+});
+
+/**
+ * Owner review P2 (2026-11-08, at d4ac8af): Merge and Undo answered 500 when a
+ * photo on the machine was pending removal, because they re-pointed it and
+ * 0024's fence lets such a photo lose its link and nothing else. Now a pending
+ * photo is unlinked (null), never moved, and left out of the merge's `moved`
+ * list (`relinkMachinePhotos`). Everything else moves as before.
+ */
+describe('Merge and Undo with a photo pending removal (owner review P2, d4ac8af)', () => {
+	/** A finished workout with one logged set on a photo block's placeholder, and another stack machine. */
+	async function finishedPhotoBlock(label: string) {
+		const { userId, gymId, sessionId } = await setup(label);
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		const [first] = (await snapshot(block.id)).rows;
+		await db
+			.update(s.sets)
+			.set({ executedLoad: 50, executedReps: 10 })
+			.where(eq(s.sets.id, first.id));
+		expect((await endSession(db, userId, sessionId)).updated).toBe(true);
+		const other = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Press by the door',
+			equipmentType: 'machine-stack'
+		});
+		const setIds = (await snapshot(block.id)).rows.map((r) => r.id).sort();
+		return { userId, gymId, p, block, placeholderId, other, setIds };
+	}
+	/** Where the block and its sets point now. */
+	async function machinesOf(blockId: string) {
+		const { block, rows } = await snapshot(blockId);
+		return { block: block.gymEquipmentId, sets: [...new Set(rows.map((r) => r.gymEquipmentId))] };
+	}
+
+	it('discard, then merge, then undo: both commit, the pending photo is unlinked and never moved', async () => {
+		const f = await finishedPhotoBlock('p2-merge-pending');
+		// Positive first: before Discard the preview counts the photo it would move.
+		expect(await mergePreview(db, f.userId, f.gymId, f.other.id, f.placeholderId)).toMatchObject({
+			sets: f.setIds.length,
+			workouts: 1,
+			photos: 1
+		});
+		expect(await discardPhoto(db, f.userId, f.p.id, new MemoryPhotoStore())).toBe(true);
+		expect(await objectState(f.p.id)).toBe('delete_pending');
+		// The preview stays truthful: the pending photo will not move.
+		expect(await mergePreview(db, f.userId, f.gymId, f.other.id, f.placeholderId)).toMatchObject({
+			sets: f.setIds.length,
+			photos: 0
+		});
+
+		const merge = await mergeMachines(db, f.userId, f.gymId, {
+			keptId: f.other.id,
+			droppedId: f.placeholderId
+		});
+		expect(merge).not.toBeNull();
+		expect({ ...merge!.moved, sets: [...merge!.moved.sets].sort() }).toEqual({
+			sets: f.setIds,
+			sessionExercises: [f.block.id],
+			photos: []
+		});
+		expect(await machinesOf(f.block.id)).toEqual({ block: f.other.id, sets: [f.other.id] });
+		expect(await machineRow(f.placeholderId)).toMatchObject({ mergedIntoId: f.other.id });
+		expect(await photoRow(f.p.id)).toMatchObject({ status: 'discarded', gymEquipmentId: null });
+		expect(await objectState(f.p.id)).toBe('delete_pending');
+
+		const undone = await undoMerge(db, f.userId, merge!.id);
+		expect(undone?.undoneAt).toBeInstanceOf(Date);
+		expect(await machinesOf(f.block.id)).toEqual({
+			block: f.placeholderId,
+			sets: [f.placeholderId]
+		});
+		expect(await machineRow(f.placeholderId)).toMatchObject({
+			archivedAt: null,
+			mergedIntoId: null
+		});
+		expect(await photoRow(f.p.id)).toMatchObject({ status: 'discarded', gymEquipmentId: null });
+	});
+
+	it('merge, then discard, then undo: undo commits and unlinks the photo instead of moving it back', async () => {
+		const f = await finishedPhotoBlock('p2-undo-pending');
+		const merge = await mergeMachines(db, f.userId, f.gymId, {
+			keptId: f.other.id,
+			droppedId: f.placeholderId
+		});
+		// Positive first: a photo not pending moves, and is listed for undo.
+		expect(merge!.moved.photos).toEqual([f.p.id]);
+		expect((await photoRow(f.p.id)).gymEquipmentId).toBe(f.other.id);
+
+		expect(await discardPhoto(db, f.userId, f.p.id, new MemoryPhotoStore())).toBe(true);
+		expect(await objectState(f.p.id)).toBe('delete_pending');
+		const undone = await undoMerge(db, f.userId, merge!.id);
+		expect(undone?.undoneAt).toBeInstanceOf(Date);
+		const [row] = await db.select().from(s.machineMerges).where(eq(s.machineMerges.id, merge!.id));
+		expect(row.undoneAt).not.toBeNull();
+		expect(await machinesOf(f.block.id)).toEqual({
+			block: f.placeholderId,
+			sets: [f.placeholderId]
+		});
+		expect(await machineRow(f.placeholderId)).toMatchObject({
+			archivedAt: null,
+			mergedIntoId: null
+		});
+		expect(await photoRow(f.p.id)).toMatchObject({ status: 'discarded', gymEquipmentId: null });
+		expect(await objectState(f.p.id)).toBe('delete_pending');
+	});
+
+	it('naming a photo block into an existing machine unlinks a pending photo on its placeholder, and commits', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-identify-pending');
+		const [model] = await db
+			.insert(s.equipmentModels)
+			.values({
+				manufacturer: 'Life Fitness',
+				name: 'Chest Press',
+				loadingType: 'machine-stack',
+				confidence: 'user',
+				ownerUserId: userId
+			})
+			.returning();
+		const existing = await createMachine(db, userId, {
+			gymId,
+			equipmentType: 'machine-stack',
+			equipmentModelId: model.id
+		});
+		// Two photo blocks on two placeholders in a finished workout; the first
+		// placeholder is merged into the second, so its photo now points there.
+		const p1 = await photo(userId, gymId);
+		const b1 = await openPhotoBlock(db, userId, sessionId, p1.id);
+		const p2 = await photo(userId, gymId);
+		const b2 = await openPhotoBlock(db, userId, sessionId, p2.id);
+		expect((await endSession(db, userId, sessionId)).updated).toBe(true);
+		const merge = await mergeMachines(db, userId, gymId, {
+			keptId: b2.gymEquipmentId!,
+			droppedId: b1.gymEquipmentId!
+		});
+		expect(merge!.moved.photos).toEqual([p1.id]);
+		// Then the first photo is discarded: pending, still on the second placeholder.
+		expect(await discardPhoto(db, userId, p1.id, new MemoryPhotoStore())).toBe(true);
+		expect(await photoRow(p1.id)).toMatchObject({ gymEquipmentId: b2.gymEquipmentId });
+
+		const named = await identifySessionExercise(db, userId, sessionId, b2.id, {
+			modelId: model.id,
+			exerciseName: 'Chest press'
+		});
+		expect(named).toMatchObject({ machineId: existing.id, merged: true });
+		expect((await snapshot(b2.id)).block.gymEquipmentId).toBe(existing.id);
+		expect(await photoRow(p2.id)).toMatchObject({
+			status: 'confirmed',
+			gymEquipmentId: existing.id
+		});
+		expect(await photoRow(p1.id)).toMatchObject({ status: 'discarded', gymEquipmentId: null });
+		// The second placeholder still holds the first block and the merge record: kept.
+		expect(await machineRow(b2.gymEquipmentId!)).toBeDefined();
+		expect((await snapshot(b1.id)).block.gymEquipmentId).toBe(b2.gymEquipmentId);
 	});
 });

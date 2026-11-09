@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, lte, sql } from 'drizzle-orm';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
 import type { PhotoStore } from '../photos/store';
+import { dropErasedPhotoPlaceholder } from '../photo-workout';
 import { withStorageLock } from './storage-lock';
 import { subjectHash, type Ledger, type LedgerEntry } from './ledger';
 
@@ -267,6 +268,18 @@ export async function erasePhotoObject(
 				.where(and(eq(s.equipmentPhotos.id, object.photoId), eq(s.equipmentPhotos.userId, userId)))
 				.returning();
 			if (photo?.llmCallId) await releasePhotoCall(tx, userId, photo.llmCallId, accountDeletion);
+			// The empty placeholder machine a discarded workout photo made goes with
+			// it (docs/data-lifecycle.md). Live accounts only: a fenced account is
+			// purged whole, machines included. Contained in a savepoint; never fails this.
+			if (photo?.gymEquipmentId && !accountDeletion) {
+				const [owner] = await tx
+					.select({ deletionRequestedAt: s.authUsers.deletionRequestedAt })
+					.from(s.authUsers)
+					.where(eq(s.authUsers.id, userId))
+					.for('share');
+				if (owner && !owner.deletionRequestedAt)
+					await dropErasedPhotoPlaceholder(tx, userId, photo);
+			}
 			await tx
 				.delete(s.photoObjects)
 				.where(and(eq(s.photoObjects.storageKey, key), eq(s.photoObjects.userId, userId)));

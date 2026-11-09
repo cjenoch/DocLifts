@@ -47,7 +47,9 @@ activation; earlier discards require support reconciliation on older restores.
 A saved-photo review exposes a separate checked confirmation, including for
 confirmed images. The image is hidden immediately, then its private object and
 review row are removed. Machine identity, workout blocks, prescriptions, executed
-sets and notes are unchanged. A storage failure leaves the image hidden and the
+sets and notes are unchanged, with one exception: erasing an unconfirmed workout
+photo also removes the empty placeholder machine it created, when nothing else
+(a block, a set, another photo, a merge) points at that machine any more. A storage failure leaves the image hidden and the
 job pending. The linked model-call record is unlinked and reduced to usage
 metadata in the same step: its output, raw error text, optional prompt text, error
 code and image-derived prompt hash are cleared, so no image or model output

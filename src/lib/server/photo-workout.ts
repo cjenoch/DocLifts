@@ -28,6 +28,7 @@ import {
 	gymEquipment,
 	gyms,
 	llmCalls,
+	photoObjects,
 	sessionExercises,
 	sessions,
 	sets
@@ -142,8 +143,12 @@ export async function photoPlaceholderOf(
 		: null;
 }
 
-/** SQLSTATEs a best-effort cleanup absorbs: a reference, a lock, a deadlock. */
-const CLEANUP_CONTAINED = new Set(['23503', '55P03', '40P01']);
+/**
+ * SQLSTATEs a best-effort cleanup absorbs: a reference, a lock, a deadlock,
+ * and 23514, which 0022's write fence raises on any UPDATE of a photo whose
+ * object is `delete_pending` (or of a fenced account's row).
+ */
+const CLEANUP_CONTAINED = new Set(['23503', '55P03', '40P01', '23514']);
 function sqlState(err: unknown): string | undefined {
 	// Drizzle wraps the driver's PostgresError in DrizzleQueryError (`.cause`).
 	for (let e = err; typeof e === 'object' && e !== null; e = (e as { cause?: unknown }).cause) {
@@ -165,9 +170,15 @@ function sqlState(err: unknown): string | undefined {
  *   it, so the lock is skipped and the machine kept: no wait, no 23503.
  * - Anything pointing at it other than the evidence photos (logged sets, a
  *   merge, another photo) keeps it, as history.
- * - It runs in a SAVEPOINT (a nested transaction). A reference, lock or
- *   deadlock error rolls back only the cleanup and keeps the machine; any
- *   other error is a programming error and is thrown.
+ * - A discarded photo's object is `delete_pending` until it is erased, and
+ *   0022's write fence refuses any UPDATE of such a photo row. The evidence
+ *   photo cannot be unlinked then, and the machine cannot be deleted while it
+ *   points there (the FK is NO ACTION), so the cleanup is skipped and the
+ *   machine kept: no UPDATE is attempted. `dropErasedPhotoPlaceholder` removes
+ *   it when the photo is erased, if nothing else points at it by then.
+ * - It runs in a SAVEPOINT (a nested transaction). A reference, lock,
+ *   deadlock or write-fence (23514) error rolls back only the cleanup and
+ *   keeps the machine; any other error is a programming error and is thrown.
  *
  * Returns true when the machine was deleted.
  */
@@ -198,6 +209,18 @@ export async function dropPhotoPlaceholderMachine(
 				.for('update', { skipLocked: true });
 			if (!locked) return false;
 			if (await machineIsReferenced(sp, machineId, { ignoringPhotoIds: photoIds })) return false;
+			const [pending] = await sp
+				.select({ photoId: photoObjects.photoId })
+				.from(photoObjects)
+				.where(
+					and(
+						inArray(photoObjects.photoId, photoIds),
+						eq(photoObjects.userId, userId),
+						eq(photoObjects.state, 'delete_pending')
+					)
+				)
+				.limit(1);
+			if (pending) return false;
 			await sp
 				.update(equipmentPhotos)
 				.set({ gymEquipmentId: null })
@@ -214,6 +237,67 @@ export async function dropPhotoPlaceholderMachine(
 	} catch (err) {
 		if (CLEANUP_CONTAINED.has(sqlState(err) ?? '')) return false;
 		throw err;
+	}
+}
+
+/**
+ * Erasure's half of the placeholder cleanup. `erasePhotoObject` calls it in its
+ * own transaction, right after it deletes the photo row (`photo` is that
+ * deleted row), for a live account only. A photo discarded while its block was
+ * on the placeholder is the only evidence the app made that machine, and its
+ * row cannot be unlinked while the object is `delete_pending`, so
+ * `dropPhotoPlaceholderMachine` kept the machine at swap time; this removes it.
+ *
+ * The rule: the photo is not `confirmed` (a confirmed photo names a real
+ * machine, which is never deleted here), and it pointed at a machine that is
+ * still placeholder-shaped (in the photo's gym, a gym of this user, no model,
+ * the placeholder type, not archived or merged). The machine is locked
+ * `FOR UPDATE SKIP LOCKED` and deleted only when nothing points at it any more
+ * (`machineIsReferenced`: no other photo, set, block or merge). A block still
+ * on it keeps it, and a later swap then finds no evidence and keeps it too.
+ *
+ * It runs in a SAVEPOINT and absorbs EVERY error, not only the codes the
+ * swap-time cleanup contains: by now the object is already erased from
+ * storage, and a deterministic failure here would fail the erasure on every
+ * retry and leave the photo row behind. Losing the cleanup only leaves an
+ * empty machine the user can remove from the gym page.
+ *
+ * Returns true when the machine was deleted.
+ */
+export async function dropErasedPhotoPlaceholder(
+	db: Database,
+	userId: string,
+	photo: { status: string; gymId: string; gymEquipmentId: string | null }
+): Promise<boolean> {
+	const machineId = photo.gymEquipmentId;
+	if (!machineId || photo.status === 'confirmed') return false;
+	try {
+		return await db.transaction(async (sp) => {
+			const [locked] = await sp
+				.select({ id: gymEquipment.id })
+				.from(gymEquipment)
+				.where(
+					and(
+						eq(gymEquipment.id, machineId),
+						eq(gymEquipment.gymId, photo.gymId),
+						inArray(
+							gymEquipment.gymId,
+							sp.select({ id: gyms.id }).from(gyms).where(eq(gyms.userId, userId))
+						),
+						isNull(gymEquipment.equipmentModelId),
+						isNull(gymEquipment.archivedAt),
+						isNull(gymEquipment.mergedIntoId),
+						eq(gymEquipment.equipmentType, workoutUi.photoPlaceholderType)
+					)
+				)
+				.for('update', { skipLocked: true });
+			if (!locked) return false;
+			if (await machineIsReferenced(sp, machineId)) return false;
+			await sp.delete(gymEquipment).where(eq(gymEquipment.id, machineId));
+			return true;
+		});
+	} catch {
+		return false;
 	}
 }
 

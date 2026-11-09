@@ -7,6 +7,12 @@
  * Owner review P2 (2026-11-08): a placeholder block whose photo was discarded
  * is no longer a photo block, for the page and the server alike, so Swap and
  * Change machine work on it and its "Photo" placeholder machine goes.
+ *
+ * Discard leaves the photo's object `delete_pending`, and 0022's write fence
+ * refuses any UPDATE of that photo row (23514). The photos here carry their
+ * `photo_objects` row as the upload route leaves it, so Discard really leaves
+ * them pending: the swap succeeds and keeps the placeholder, and erasing the
+ * photo (`erasePhotoObject`, `runDeletion`) removes it.
  */
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -33,6 +39,8 @@ import {
 } from './photo-workout';
 import { discardPhoto } from './photos/confirm';
 import { MemoryPhotoStore } from './photos/store';
+import { erasePhotoObject, requestPhotoDeletion, runDeletion } from './privacy/lifecycle';
+import type { Ledger } from './privacy/ledger';
 import { startQuickSession } from './quick-workouts';
 
 let db: TestDb;
@@ -57,16 +65,22 @@ async function setup(label: string) {
 	return { userId, gymId: gym.id, sessionId: started.sessionId };
 }
 
-/** A stored photo at the gym, as the upload route leaves it. */
+/**
+ * A stored photo at the gym, as the upload route leaves it: the row and its
+ * `photo_objects` inventory row in state `stored`. Without the inventory row
+ * Discard has nothing to mark `delete_pending`, and the write fence that broke
+ * the swap in CI never fires.
+ */
 async function photo(userId: string, gymId: string) {
 	const id = randomUUID();
+	const storageKey = `users/${userId}/equipment-photos/${id}.jpg`;
 	const [row] = await db
 		.insert(s.equipmentPhotos)
 		.values({
 			id,
 			userId,
 			gymId,
-			storageKey: `users/${userId}/equipment-photos/${id}.jpg`,
+			storageKey,
 			contentType: 'image/jpeg',
 			bytes: 1000,
 			width: 1200,
@@ -75,7 +89,25 @@ async function photo(userId: string, gymId: string) {
 			status: 'uploaded'
 		})
 		.returning();
+	await db.insert(s.photoObjects).values({ storageKey, userId, photoId: id, state: 'stored' });
 	return row;
+}
+
+/** The photo's object state, or undefined once erased. */
+async function objectState(photoId: string) {
+	const [row] = await db
+		.select({ state: s.photoObjects.state })
+		.from(s.photoObjects)
+		.where(eq(s.photoObjects.photoId, photoId));
+	return row?.state;
+}
+
+/** A journal that acknowledges every append, as the broker does. */
+const ledger: Ledger = { append: async () => {} };
+
+/** The retention sweep's erasure of one discarded photo (removal not enabled). */
+async function erase(userId: string, p: { storageKey: string }) {
+	return erasePhotoObject(db, userId, p.storageKey, new MemoryPhotoStore(), false, ledger);
 }
 
 /** The block and its sets, to compare before and after a refused call. */
@@ -237,7 +269,7 @@ async function machineRow(id: string) {
 }
 
 describe('a placeholder block whose photo is discarded is an ordinary block (P2)', () => {
-	it('page data and server guards agree; swap then works and the placeholder machine goes', async () => {
+	it('page data and server guards agree; swap then works, and the placeholder goes when the photo is erased', async () => {
 		const { userId, gymId, sessionId } = await setup('p2-swap');
 		const [pulldown] = await db
 			.insert(s.exercises)
@@ -263,6 +295,7 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 
 		// "Discard this photo" on the review page (deletion not enabled).
 		expect(await discardPhoto(db, userId, goneP.id, new MemoryPhotoStore())).toBe(true);
+		expect(await objectState(goneP.id)).toBe('delete_pending');
 
 		// One rule: the page drops the block, the server stops refusing it, Home stops counting it.
 		const blocks = await photoBlocksForSession(db, userId, sessionId);
@@ -290,6 +323,11 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 		expect(after.rows.every((r) => r.exerciseId === pulldown.id && r.gymEquipmentId === null)).toBe(
 			true
 		);
+		// The pending photo cannot be unlinked, so the placeholder waits for erasure.
+		expect(await machineRow(placeholderId)).toBeDefined();
+		expect((await photoRow(goneP.id)).gymEquipmentId).toBe(placeholderId);
+		expect(await erase(userId, goneP)).toBe(true);
+		expect(await photoRow(goneP.id)).toBeUndefined();
 		expect(await machineRow(placeholderId)).toBeUndefined();
 
 		// The block with a live photo is still refused, and keeps its placeholder.
@@ -361,7 +399,7 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 		expect(await machineRow(stack.id)).toBeDefined();
 	});
 
-	it('with a logged set, swap is still refused for logged sets and the placeholder stays as history; remove drops it', async () => {
+	it('with a logged set, swap is still refused for logged sets and the placeholder stays as history', async () => {
 		const { userId, gymId, sessionId } = await setup('p2-touched');
 		const [pulldown] = await db
 			.insert(s.exercises)
@@ -384,12 +422,35 @@ describe('a placeholder block whose photo is discarded is an ordinary block (P2)
 			})
 		).rejects.toThrow('This exercise has logged sets');
 		expect(await machineRow(placeholderId)).toBeDefined();
+	});
+
+	// Removing the block sets the pending photo's session_exercise_id to null
+	// (ON DELETE SET NULL), which is an UPDATE of that photo row, and 0022's
+	// write fence refuses it (23514) until the photo is erased. This test pins
+	// the requirement (Remove works after Discard); it fails until the fence
+	// lets a pending photo's links be cleared. Owner decision pending.
+	it('Remove after Discard, while the photo is still pending erasure, succeeds; erasure then drops the placeholder', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-remove-pending');
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
+		expect(await objectState(p.id)).toBe('delete_pending');
+		const [first] = (await snapshot(block.id)).rows;
+		await db
+			.update(s.sets)
+			.set({ executedLoad: 50, executedReps: 10 })
+			.where(eq(s.sets.id, first.id));
 
 		const removed = await removeSessionExercise(db, userId, sessionId, {
 			occurrenceId: block.id,
 			loggedCount: 1
 		});
 		expect(removed.removedLogged).toBe(1);
+		expect((await snapshot(block.id)).block).toBeUndefined();
+		// Still linked from the pending photo; erasing it removes the machine.
+		expect(await machineRow(placeholderId)).toBeDefined();
+		expect(await erase(userId, p)).toBe(true);
 		expect(await machineRow(placeholderId)).toBeUndefined();
 	});
 });
@@ -427,8 +488,8 @@ describe('the placeholder cleanup needs evidence, and never fails the edit (owne
 		expect((await photoRow(p.id)).gymEquipmentId).toBe(placeholderId);
 		expect(await discardPhoto(db, userId, p.id, new MemoryPhotoStore())).toBe(true);
 
-		// Positive first: binding the orphan block away drops the placeholder
-		// openPhotoBlock made for it, and unlinks the discarded photo from it.
+		// Positive first: binding the orphan block away succeeds; the placeholder
+		// openPhotoBlock made for it goes when its photo is erased.
 		const onFinish = await bindSessionMachine(
 			db,
 			userId,
@@ -437,8 +498,9 @@ describe('the placeholder cleanup needs evidence, and never fails the edit (owne
 			changeTo(gymId, finish.id)
 		);
 		expect(onFinish.gymEquipmentId).toBe(finish.id);
+		expect(await machineRow(placeholderId)).toBeDefined();
+		expect(await erase(userId, p)).toBe(true);
 		expect(await machineRow(placeholderId)).toBeUndefined();
-		expect((await photoRow(p.id)).gymEquipmentId).toBeNull();
 
 		// The block is still on the placeholder exercise and its label starts
 		// "Photo ", but nothing says the app made Photo Finish for it: kept.
@@ -527,5 +589,106 @@ describe('the placeholder cleanup needs evidence, and never fails the edit (owne
 		const after = await snapshot(block.id);
 		expect(after.block.gymEquipmentId).toBe(target.id);
 		expect(after.rows.every((r) => r.gymEquipmentId === target.id)).toBe(true);
+	});
+});
+
+describe('Discard, then swap: the write fence never fails the edit, and erasure removes the placeholder (CI 42536152112)', () => {
+	it('removal enabled (requestPhotoDeletion), erasure pending: swap succeeds, then runDeletion removes the placeholder', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-request-pending');
+		const [pulldown] = await db
+			.insert(s.exercises)
+			.values({ name: 'Lat pulldown', equipmentType: 'machine-stack', userId })
+			.returning();
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		const job = await requestPhotoDeletion(db, userId, p.id, ledger);
+		expect(job).not.toBeNull();
+		expect(await objectState(p.id)).toBe('delete_pending');
+		expect(await isPhotoBlock(db, userId, block.id)).toBe(false);
+
+		// The review page's runDeletion did not finish (storage failure): the
+		// photo row stays, pending. Swap must still succeed.
+		const swapped = await swapSessionExercise(db, userId, sessionId, {
+			occurrenceId: block.id,
+			exerciseId: pulldown.id
+		});
+		expect(swapped).toMatchObject({ exerciseId: pulldown.id, gymEquipmentId: null });
+		expect((await snapshot(block.id)).block).toMatchObject({
+			exerciseId: pulldown.id,
+			gymEquipmentId: null
+		});
+		expect(await machineRow(placeholderId)).toBeDefined();
+
+		expect((await runDeletion(db, userId, job!.id, new MemoryPhotoStore(), ledger, 1)).state).toBe(
+			'completed'
+		);
+		expect(await photoRow(p.id)).toBeUndefined();
+		expect(await machineRow(placeholderId)).toBeUndefined();
+	});
+
+	it('erased while the block is still on the placeholder: kept (referenced), and the later swap finds no evidence and keeps it', async () => {
+		const { userId, gymId, sessionId } = await setup('p2-erased-first');
+		const [pulldown] = await db
+			.insert(s.exercises)
+			.values({ name: 'Lat pulldown', equipmentType: 'machine-stack', userId })
+			.returning();
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		// The review page with removal enabled: request, then run at once.
+		const job = await requestPhotoDeletion(db, userId, p.id, ledger);
+		expect((await runDeletion(db, userId, job!.id, new MemoryPhotoStore(), ledger, 1)).state).toBe(
+			'completed'
+		);
+		expect(await photoRow(p.id)).toBeUndefined();
+		expect(await machineRow(placeholderId)).toBeDefined();
+
+		const swapped = await swapSessionExercise(db, userId, sessionId, {
+			occurrenceId: block.id,
+			exerciseId: pulldown.id
+		});
+		expect(swapped.exerciseId).toBe(pulldown.id);
+		expect(await machineRow(placeholderId)).toBeDefined();
+	});
+
+	it("erasure deletes an evidence photo's placeholder, never a machine a confirmed photo points at", async () => {
+		const { userId, gymId, sessionId } = await setup('p2-confirmed');
+		// Positive first: a discarded evidence photo's unused placeholder goes.
+		const [pulldown] = await db
+			.insert(s.exercises)
+			.values({ name: 'Lat pulldown', equipmentType: 'machine-stack', userId })
+			.returning();
+		const p = await photo(userId, gymId);
+		const block = await openPhotoBlock(db, userId, sessionId, p.id);
+		const placeholderId = block.gymEquipmentId!;
+		const job = await requestPhotoDeletion(db, userId, p.id, ledger);
+		await swapSessionExercise(db, userId, sessionId, {
+			occurrenceId: block.id,
+			exerciseId: pulldown.id
+		});
+		expect((await runDeletion(db, userId, job!.id, new MemoryPhotoStore(), ledger, 1)).state).toBe(
+			'completed'
+		);
+		expect(await machineRow(placeholderId)).toBeUndefined();
+
+		// A confirmed photo on a machine of the very same shape (no model, the
+		// placeholder type, nothing else pointing at it): removal keeps it.
+		const named = await createMachine(db, userId, {
+			gymId,
+			localLabel: 'Press by the door',
+			equipmentType: 'machine-stack'
+		});
+		const c = await photo(userId, gymId);
+		await db
+			.update(s.equipmentPhotos)
+			.set({ status: 'confirmed', gymEquipmentId: named.id })
+			.where(eq(s.equipmentPhotos.id, c.id));
+		const removal = await requestPhotoDeletion(db, userId, c.id, ledger);
+		expect(
+			(await runDeletion(db, userId, removal!.id, new MemoryPhotoStore(), ledger, 1)).state
+		).toBe('completed');
+		expect(await photoRow(c.id)).toBeUndefined();
+		expect(await machineRow(named.id)).toBeDefined();
 	});
 });

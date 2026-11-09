@@ -266,7 +266,15 @@ run('photo in the workout (production build, no model configured)', () => {
 			.select()
 			.from(s.equipmentPhotos)
 			.where(eq(s.equipmentPhotos.id, latest.id));
-		expect(undone).toMatchObject({ status: 'analyzed', gymEquipmentId: null });
+		// Undo makes a fresh placeholder for the block and links the photo to it,
+		// as openPhotoBlock does (the evidence photoPlaceholderOf reads).
+		const [reverted] = await harness.db
+			.select()
+			.from(s.sessionExercises)
+			.where(eq(s.sessionExercises.id, latest.sessionExerciseId!));
+		expect(reverted.gymEquipmentId).not.toBeNull();
+		expect(reverted.gymEquipmentId).not.toBe(machines[0].id);
+		expect(undone).toMatchObject({ status: 'analyzed', gymEquipmentId: reverted.gymEquipmentId });
 		expect(
 			await harness.db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, machines[0].id))
 		).toHaveLength(1);
@@ -329,16 +337,23 @@ run('photo in the workout (production build, no model configured)', () => {
 			.poll(() => page.getByRole('heading', { name: 'P2 pulldown', exact: true }).count())
 			.toBe(1);
 
-		// State: the block is the new exercise with no machine, and the
-		// placeholder machine is gone rather than left in the gym list.
+		// State: the block is the new exercise with no machine. The discarded
+		// photo's object is delete_pending, so its row cannot be unlinked and the
+		// placeholder is kept for now; erasing the photo removes it
+		// (live-guards.db.test.ts covers that half).
 		const [swapped] = await harness.db
 			.select()
 			.from(s.sessionExercises)
 			.where(eq(s.sessionExercises.id, block.id));
 		expect(swapped).toMatchObject({ exerciseId: pulldown.id, gymEquipmentId: null });
+		const [discarded] = await harness.db
+			.select()
+			.from(s.equipmentPhotos)
+			.where(eq(s.equipmentPhotos.sessionExerciseId, block.id));
+		expect(discarded).toMatchObject({ status: 'discarded', gymEquipmentId: placeholderId });
 		expect(
 			await harness.db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, placeholderId))
-		).toHaveLength(0);
+		).toHaveLength(1);
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});

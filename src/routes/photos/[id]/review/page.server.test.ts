@@ -31,7 +31,21 @@ vi.mock('$lib/server/privacy/ledger', async (importOriginal) => ({
 	})
 }));
 
+// The model, for the retry tests: a mock behind the real `complete()`. Unset,
+// the real `complete()` runs with no LLM configured, as before.
+const llm = vi.hoisted(() => ({ complete: null as CompleteFn | null }));
+vi.mock('$lib/server/llm', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/llm')>();
+	return {
+		...actual,
+		complete: ((...args: Parameters<CompleteFn>) =>
+			(llm.complete ?? actual.complete)(...args)) as CompleteFn
+	};
+});
+
 import { actions, load } from './+page.server';
+import type { CompleteFn } from '$lib/server/llm';
+import { scriptedModel, testComplete } from '$lib/server/llm/test-models';
 import { photoRemovalUi, removalStatusLine, type StoredRemovalState } from '$lib/photo-removal-ui';
 import { GET } from '../image/+server';
 import * as s from '$lib/server/db/schema';
@@ -299,5 +313,72 @@ describe('removal says what is true: busy, failed and pending are different line
 		];
 		expect(new Set(lines).size).toBe(5);
 		expect(removalStatusLine(null)).toBe(photoRemovalUi.status.done);
+	});
+});
+
+/**
+ * 2026-11-09: the gym page's landing after a transient provider answer. The
+ * line and the control come from the photo's last read in llm_calls, so they
+ * survive a reload and a visit from the gym page's "Waiting for review" list;
+ * "Retry identification" re-reads the same saved photo.
+ */
+describe('identification temporarily unavailable', () => {
+	afterEach(() => {
+		llm.complete = null;
+	});
+	const BUSY = { status: 429, retryAfter: '0' };
+	const notice = async (id: string) =>
+		((await loadAs(alice, id)) as { analysisNotice: string | null }).analysisNotice;
+
+	it('a 429 past the retry: unavailable; Retry identification identifies the same photo', async () => {
+		const counting = new CountingPhotoStore();
+		setPhotoStoreForTests(counting);
+		const { photo } = (await uploadPhoto(
+			harness.db,
+			alice,
+			{ gymId: alicesGym, bytes: await smallPng() },
+			{ store: counting, limits: { maxBytes: 10 * 1024 * 1024, dailyLimit: 20 } }
+		))!;
+		llm.complete = testComplete(scriptedModel([BUSY, BUSY]));
+		await expect(actions.analyze(post(alice, photo.id, { note: '' }))).rejects.toMatchObject({
+			status: 303,
+			location: `/photos/${photo.id}/review?analysis=unavailable`
+		});
+		expect(await notice(photo.id)).toBe('unavailable'); // no query: read from the database
+
+		// The control posts ?/analyze for this photo id.
+		llm.complete = testComplete(scriptedModel([{ text: JSON.stringify(FIXTURE_CANDIDATE) }]));
+		await expect(actions.analyze(post(alice, photo.id, { note: '' }))).rejects.toMatchObject({
+			status: 303,
+			location: `/photos/${photo.id}/review`
+		});
+		const rows = await harness.db
+			.select()
+			.from(s.equipmentPhotos)
+			.where(eq(s.equipmentPhotos.userId, alice));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			id: photo.id,
+			status: 'analyzed',
+			candidate: FIXTURE_CANDIDATE
+		});
+		expect(counting.puts).toBe(1);
+		expect(await notice(photo.id)).toBeNull();
+		const calls = await harness.db.select().from(s.llmCalls).where(eq(s.llmCalls.userId, alice));
+		expect(calls.map((c) => c.status).sort()).toEqual(['ok', 'provider_error', 'provider_error']);
+	});
+
+	it('any other failure keeps the ordinary line', async () => {
+		const { photo } = (await uploadPhoto(
+			harness.db,
+			alice,
+			{ gymId: alicesGym, bytes: await smallPng() },
+			{ store, limits: { maxBytes: 10 * 1024 * 1024, dailyLimit: 20 } }
+		))!;
+		llm.complete = testComplete(scriptedModel([{ status: 403 }]));
+		await expect(actions.analyze(post(alice, photo.id, { note: '' }))).rejects.toMatchObject({
+			location: `/photos/${photo.id}/review?analysis=failed`
+		});
+		expect(await notice(photo.id)).toBeNull(); // the template's "!c" line, as before
 	});
 });

@@ -97,7 +97,8 @@ export const actions: Actions = {
 						image,
 						timings
 					});
-					if (!outcome?.ok) target += '?analysis=failed';
+					if (outcome && !outcome.ok && outcome.retryable) target += '?analysis=unavailable';
+					else if (!outcome?.ok) target += '?analysis=failed';
 				} catch (e) {
 					if (!(e instanceof PhotoLimitError)) throw e;
 					target += '?analysis=limit';

@@ -212,6 +212,51 @@ from llm_calls where purpose = 'equipment_from_photo'
 order by created_at desc limit 10;
 ```
 
+## Transient provider answers (2026-11-09)
+
+The first production photo error after PR #65 was an OpenRouter 429 on
+identification: the safety scan had passed and the photo was saved, and the
+next two identifications succeeded, but the user saw a failure. Now
+`analyzePhoto` calls the model through `completeWithRetry`
+(`docs/llm.md`, "Retrying transient answers") with `IDENTIFY_RETRY`:
+
+- A 429, 502 or 503 is retried **once**, with the image already in hand: no
+  new upload, photo row, store write, processing or safety scan. Each attempt
+  is its own `llm_calls` row and counts toward the hourly cap and the daily
+  analysis limit; at the daily limit the retry is not made.
+- The wait is the provider's `Retry-After`, else 1-2 s (1 s plus up to 1 s of
+  jitter).
+- **One 45 s provider budget** covers both attempts and the wait, and also
+  caps each attempt below `LLM_TIMEOUT_MS` (verified as 60 s in production on
+  2026-11-09). Transfer, processing, safety, storage and database bookkeeping
+  can add time; this is not a 45 or 50 s limit on the full upload request.
+  The POST itself has no client timeout; `photoClientSettings.timeoutMs`
+  (4 s) bounds only the resize on the phone.
+- A second attempt needs 5 s left after the wait. A `Retry-After` that does
+  not fit means no wait and no second attempt.
+- Never retried: 401/403 and every other status, timeouts, schema misses,
+  not configured, the hourly cap, and the safety scan (it fails closed before
+  the photo is saved).
+
+When identification still ends on a transient answer, the outcome is
+`retryable` and both entry points say, in the owner's words,
+`workoutUi.photoIdentifyUnavailable` ("Photo saved. Identification is
+temporarily unavailable.") with `workoutUi.photoRetryIdentify` ("Retry
+identification"), which re-runs identification on the same saved photo:
+
+- **Gym page → review page:** the upload redirects to
+  `review?analysis=unavailable`; the review page shows the line and a Retry
+  identification button (`?/analyze`, the same action as Re-analyze). The page
+  also reads the photo's last read from `llm_calls`, so the line survives a
+  reload and a visit from "Waiting for review".
+- **Workout photo block:** `?/readPhoto` returns `read: 'unavailable'`, and
+  `photoBlocksForSession` gives the block `kind: 'unavailable'` from the same
+  recorded read, so it survives a reload. The button posts the block's
+  existing read form for the same photo id.
+
+Any other failure keeps its existing wording. A retry refused by the hourly cap
+ends on `LlmRefused`, so the user sees the ordinary failure line.
+
 ## Data
 
 `equipment_photos` (migration 0016): `id`, `user_id` (owner, NOT NULL),
@@ -230,6 +275,10 @@ and GPS → ≤1600 px, turned, no EXIF; 12 MB refused; PNG re-encoded),
 `complete()`, via `llm/test-models.ts`), `match.db.test.ts`,
 `confirm.db.test.ts`, the review route's `page.server.test.ts`, and
 `e2e/photos.e2e.ts` on the served build with the memory store and no LLM key.
+The identification retry: `llm/retry.db.test.ts`, `analyze.db.test.ts`
+("identification retry"), `sessions/[id]/read-photo.test.ts`, the gym and
+review routes' `page.server.test.ts`, `WorkoutPhotoBlock.svelte.spec.ts` and
+`e2e/photo-workout.e2e.ts` (both entry points on the served build).
 Fixture photos are generated in the tests; none is a real photo.
 
 ## Not in this release
@@ -503,7 +552,9 @@ a slow read behave like a good one (`src/lib/server/photo-workout.ts`):
    ending without a match (timeout, model error, daily limit, no placard, model
    off) leaves the block as it is and shows one quiet line,
    `workoutUi.photoReadFailed`, with "Read again" and "Name it" (the review
-   page). A reload never re-reads on its own.
+   page). A transient provider answer that outlived the automatic retry shows
+   `workoutUi.photoIdentifyUnavailable` with "Retry identification" instead
+   (see "Transient provider answers"). A reload never re-reads on its own.
 3. **Identify** (`?/identify`, "Use this"): offered when the read's match is
    preselected by `matchCandidate`, name guard included.
    `identifySessionExercise` sets the model on the placeholder machine, or,

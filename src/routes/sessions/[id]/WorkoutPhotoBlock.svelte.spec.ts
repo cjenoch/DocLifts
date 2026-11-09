@@ -13,13 +13,16 @@ const photoId = '00000000-0000-4000-8000-0000000000aa';
 
 /** The page's WorkoutPhotos, without its onMount: only the lists the block reads. */
 function photos(
-	over: Partial<Record<'readingIds' | 'autoRead' | 'laterIds' | 'failedIds', string[]>> = {}
+	over: Partial<
+		Record<'readingIds' | 'autoRead' | 'laterIds' | 'failedIds' | 'unavailableIds', string[]>
+	> = {}
 ) {
 	return {
 		readingIds: [],
 		autoRead: [],
 		laterIds: [],
 		failedIds: [],
+		unavailableIds: [],
 		readSubmit: () => () => {},
 		...over
 	};
@@ -32,6 +35,7 @@ function show(block: Record<string, unknown>, list = photos()) {
 }
 
 const readAgain = () => page.getByRole('button', { name: ui.photoReadAgain, exact: true });
+const retryIdentify = () => page.getByRole('button', { name: ui.photoRetryIdentify, exact: true });
 const nameIt = () => page.getByRole('link', { name: ui.photoNameIt, exact: true });
 /** As rendered: Svelte drops leading whitespace inside an {#if}. */
 const line = () => (document.querySelector('.photo-line') as HTMLElement | null)?.innerText ?? null;
@@ -87,5 +91,45 @@ describe('WorkoutPhotoBlock', () => {
 			.toBeInTheDocument();
 		await expect.element(readAgain()).not.toBeInTheDocument();
 		expect(line()).toBeNull();
+	});
+
+	/**
+	 * 2026-11-09. On a phone, between sets: the owner's line and one 44 px
+	 * "Retry identification" next to "Name it". The tap submits ?/readPhoto for
+	 * the same photo id; read-photo.test.ts proves on the database that this
+	 * identifies that photo without a new upload.
+	 */
+	describe('identification temporarily unavailable', () => {
+		it('stored: the line, Retry identification posting this photo, and Name it', async () => {
+			show({ kind: 'unavailable', photoId });
+			expect(line()).toBe(ui.photoIdentifyUnavailable);
+			await expect.element(retryIdentify()).toBeInTheDocument();
+			await expect.element(readAgain()).not.toBeInTheDocument();
+			await expect.element(nameIt()).toHaveAttribute('href', `/photos/${photoId}/review`);
+			const form = (await retryIdentify().element()).closest('form')!;
+			expect(form.getAttribute('action')).toBe('?/readPhoto');
+			expect(new FormData(form).get('photoId')).toBe(photoId);
+			const button = (await retryIdentify().element()) as HTMLElement;
+			expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+		});
+
+		it('from this page: a read that came back unavailable outranks a stored failure', async () => {
+			show({ kind: 'failed', photoId }, photos({ unavailableIds: [photoId] }));
+			expect(line()).toBe(ui.photoIdentifyUnavailable);
+			await expect.element(retryIdentify()).toBeInTheDocument();
+		});
+
+		it('a later failure from this page outranks a stored unavailable: the ordinary line', async () => {
+			show({ kind: 'unavailable', photoId }, photos({ failedIds: [photoId] }));
+			expect(line()).toBe(ui.photoReadFailed);
+			await expect.element(readAgain()).toBeInTheDocument();
+			await expect.element(retryIdentify()).not.toBeInTheDocument();
+		});
+
+		it('while the retry runs: only the reading line', async () => {
+			show({ kind: 'unavailable', photoId }, photos({ readingIds: [photoId] }));
+			expect(line()).toBe(ui.photoReading);
+			await expect.element(retryIdentify()).not.toBeInTheDocument();
+		});
 	});
 });

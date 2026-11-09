@@ -19,7 +19,9 @@
  *
  * One provider attempt per call (`maxRetries: 0`), so one row is one request
  * and the timeout bounds the whole call. A caller that wants a retry calls
- * again, and that retry is counted and recorded like any other call.
+ * again, and that retry is counted and recorded like any other call;
+ * `completeWithRetry` (retry.ts) is the bounded way to do that for transient
+ * provider answers, one call to this function per attempt.
  */
 import { completeSafety, type SafetyRequest } from './safety';
 import {
@@ -41,7 +43,8 @@ import {
 	LlmProviderError,
 	LlmRefused,
 	LlmSchemaError,
-	LlmTimeout
+	LlmTimeout,
+	type ProviderErrorDetail
 } from './errors';
 import { promptHash, promptText, type LlmMessage } from './prompt';
 import { getModel, modelIdFor, type ModelInstance, type ModelKind } from './provider';
@@ -57,6 +60,15 @@ export * from './errors';
 export type { LlmMessage } from './prompt';
 export type { ModelKind } from './provider';
 export { usageForUser, type LlmUsage } from './usage';
+export {
+	completeWithRetry,
+	isTransientErrorCode,
+	isTransientLlmError,
+	TRANSIENT_HTTP_STATUSES,
+	type CompleteFn,
+	type RetryDeps,
+	type RetryPolicy
+} from './retry';
 
 export type CompleteRequest<T> = {
 	/** What the call is for; recorded in `llm_calls.purpose`. */
@@ -79,6 +91,13 @@ export type CompleteRequest<T> = {
 	wireSchema?: Record<string, unknown>;
 	/** `vision` uses LLM_VISION_MODEL (falling back to LLM_MODEL). Default `text`. */
 	kind?: ModelKind;
+	/**
+	 * A tighter timeout for this one call, in ms: the call is aborted at
+	 * whichever comes first, this or LLM_TIMEOUT_MS. A caller that retries
+	 * (llm/retry.ts) passes what is left of its own deadline, so every attempt
+	 * and the wait between them fit inside one budget.
+	 */
+	timeoutMs?: number;
 };
 
 /** The schema handed to the SDK: the wire schema validated by zod, or zod itself. */
@@ -120,6 +139,37 @@ function providerErrorCode(error: unknown): string {
 	return 'unknown';
 }
 
+/**
+ * A Retry-After value as milliseconds from `nowMs`: delay-seconds ("2",
+ * "1.5") or an HTTP-date. A date already past is 0. Anything else is null,
+ * as if the header were absent. RFC 9110 §10.2.3.
+ */
+export function parseRetryAfter(value: string | null | undefined, nowMs: number): number | null {
+	const v = value?.trim();
+	if (!v) return null;
+	if (/^\d+(\.\d+)?$/.test(v)) return Math.round(Number(v) * 1000);
+	// An HTTP-date names its day and month ("Mon, 09 Nov 2026 …"); without a
+	// letter, Date.parse would read "-3" or "2027" as a year.
+	if (!/[a-z]/i.test(v)) return null;
+	const at = Date.parse(v);
+	return Number.isNaN(at) ? null : Math.max(0, at - nowMs);
+}
+
+/**
+ * The status and Retry-After of a provider failure, for the caller's retry
+ * decision. Only these two numbers leave the SDK error: its headers, body and
+ * message (which may echo the request) are not kept, logged or stored.
+ */
+function providerErrorDetail(error: unknown, nowMs: number): ProviderErrorDetail {
+	if (!APICallError.isInstance(error)) return {};
+	const headers = error.responseHeaders ?? {};
+	const name = Object.keys(headers).find((k) => k.toLowerCase() === 'retry-after');
+	return {
+		status: error.statusCode ?? null,
+		retryAfterMs: name ? parseRetryAfter(headers[name], nowMs) : null
+	};
+}
+
 type Outcome =
 	| {
 			status: 'ok';
@@ -137,7 +187,7 @@ type Outcome =
 			completionTokens: number | null;
 	  }
 	| { status: 'timeout' }
-	| { status: 'provider_error'; errorCode: string };
+	| { status: 'provider_error'; errorCode: string; detail: ProviderErrorDetail };
 
 export function createLlmClient(options: LlmClientOptions = {}) {
 	const now = options.now ?? (() => Date.now());
@@ -211,7 +261,11 @@ export function createLlmClient(options: LlmClientOptions = {}) {
 					completionTokens: error.usage?.outputTokens ?? null
 				};
 			}
-			return { status: 'provider_error', errorCode: providerErrorCode(error) };
+			return {
+				status: 'provider_error',
+				errorCode: providerErrorCode(error),
+				detail: providerErrorDetail(error, now())
+			};
 		} finally {
 			clearTimeout(timer);
 		}
@@ -277,7 +331,8 @@ export function createLlmClient(options: LlmClientOptions = {}) {
 		}
 		cap.record(userId);
 
-		const outcome = await attempt(modelFor(kind, cfg), request, cfg.timeoutMs);
+		const timeoutMs = Math.max(1, Math.min(cfg.timeoutMs, request.timeoutMs ?? Infinity));
+		const outcome = await attempt(modelFor(kind, cfg), request, timeoutMs);
 		switch (outcome.status) {
 			case 'ok': {
 				const callId = await record(outcome);
@@ -289,11 +344,11 @@ export function createLlmClient(options: LlmClientOptions = {}) {
 			}
 			case 'timeout': {
 				const callId = await record({ status: 'timeout', errorCode: 'timeout' });
-				throw new LlmTimeout(cfg.timeoutMs, callId);
+				throw new LlmTimeout(timeoutMs, callId);
 			}
 			case 'provider_error': {
-				const callId = await record(outcome);
-				throw new LlmProviderError(outcome.errorCode, callId);
+				const callId = await record({ status: outcome.status, errorCode: outcome.errorCode });
+				throw new LlmProviderError(outcome.errorCode, callId, outcome.detail);
 			}
 		}
 	}

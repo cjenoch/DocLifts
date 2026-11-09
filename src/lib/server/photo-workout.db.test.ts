@@ -408,6 +408,53 @@ describe('photoBlocksForSession and machinesToName', () => {
 			.where(eq(s.equipmentPhotos.id, failedPhoto.id));
 		expect((await photoBlocksForSession(db, alice, sessionId))[failed.id]?.kind).toBe('match');
 	});
+
+	it('unavailable: the last read was a 429/502/503 provider error; any other failure is failed', async () => {
+		const call = async (userId: string, status: s.LlmCallStatus, errorCode: string | null) => {
+			const [row] = await db
+				.insert(s.llmCalls)
+				.values({
+					userId,
+					purpose: 'equipment_from_photo',
+					provider: 'openrouter',
+					model: 'test-model',
+					status,
+					errorCode,
+					latencyMs: 1,
+					promptHash: '0'.repeat(16)
+				})
+				.returning();
+			return row.id;
+		};
+		const sessionId = await openSession();
+		const block = async (userId: string, status: s.LlmCallStatus, errorCode: string | null) => {
+			const p = await photo();
+			const b = await openPhotoBlock(db, alice, sessionId, p.id);
+			await db
+				.update(s.equipmentPhotos)
+				.set({ llmCallId: await call(userId, status, errorCode) })
+				.where(eq(s.equipmentPhotos.id, p.id));
+			return { occurrenceId: b.id, photoId: p.id };
+		};
+		const transient = await Promise.all(
+			['http_429', 'http_502', 'http_503'].map((c) => block(alice, 'provider_error', c))
+		);
+		const other = [
+			await block(alice, 'provider_error', 'http_500'),
+			await block(alice, 'provider_error', 'http_401'),
+			await block(alice, 'timeout', 'timeout'),
+			await block(alice, 'refused', 'hourly_cap')
+		];
+		// Another user's transient call is never read for alice.
+		const foreign = await block(bob, 'provider_error', 'http_429');
+
+		const blocks = await photoBlocksForSession(db, alice, sessionId);
+		for (const b of transient)
+			expect(blocks[b.occurrenceId]).toEqual({ kind: 'unavailable', photoId: b.photoId });
+		for (const b of other)
+			expect(blocks[b.occurrenceId]).toEqual({ kind: 'failed', photoId: b.photoId });
+		expect(blocks[foreign.occurrenceId]?.kind).toBe('reading');
+	});
 });
 
 describe('photoTimeLabel', () => {

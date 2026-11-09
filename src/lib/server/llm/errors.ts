@@ -54,13 +54,32 @@ export class LlmSchemaError extends LlmError {
 	}
 }
 
+/**
+ * What a caller may know about a provider failure beyond its code, to decide
+ * whether to call again (llm/retry.ts). Numbers only: never a header value,
+ * a response body, or the provider's message.
+ */
+export type ProviderErrorDetail = {
+	/** The HTTP status, when the provider answered with one. */
+	status?: number | null;
+	/** The provider's Retry-After, as milliseconds from when the error was seen. */
+	retryAfterMs?: number | null;
+};
+
 /** The provider failed: HTTP error, network error, or no usable response. */
 export class LlmProviderError extends LlmError {
+	/** The HTTP status; null for a network error or anything without one. */
+	readonly status: number | null;
+	/** Retry-After in ms (seconds or an HTTP-date, already converted); null when absent. */
+	readonly retryAfterMs: number | null;
 	constructor(
 		readonly code: string,
-		callId: string
+		callId: string,
+		detail: ProviderErrorDetail = {}
 	) {
 		super(`LLM provider error: ${code}`, callId);
+		this.status = detail.status ?? null;
+		this.retryAfterMs = detail.retryAfterMs ?? null;
 	}
 }
 

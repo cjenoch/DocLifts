@@ -399,7 +399,8 @@ export const actions: Actions = {
 	/**
 	 * Step 2: read a photo block's photo, while sets are logged. Any failure
 	 * (timeout, model error, the daily limit, no placard) leaves the block as it
-	 * is; the page then shows one quiet line. Never an error page.
+	 * is; the page then shows one quiet line. Never an error page. Also the
+	 * block's "Read again" and "Retry identification": the same saved photo.
 	 */
 	readPhoto: async ({ request, params, locals }) => {
 		if (!uuidParamSchema.safeParse(params.id).success) {
@@ -415,6 +416,10 @@ export const actions: Actions = {
 				store: photoStore(),
 				limits: resolvePhotoLimits()
 			});
+			// A transient provider answer, after the automatic retry: the photo is
+			// stored, and the block offers "Retry identification" (2026-11-09).
+			if (outcome && !outcome.ok && outcome.retryable)
+				return { read: 'unavailable' as const, photoId };
 			if (!outcome?.ok) return { read: 'failed' as const, photoId };
 			// A repeat visit names itself (0.6.1): exact code, name guard, a
 			// machine of that model logged on before in this gym.

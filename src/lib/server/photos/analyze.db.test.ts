@@ -6,8 +6,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDbWithUsers, type TestDb } from '../test-db';
 import * as s from '../db/schema';
-import { answeringModel, testComplete } from '../llm/test-models';
-import { LlmNotConfigured, LlmSchemaError } from '../llm';
+import { answeringModel, cappedComplete, scriptedModel, testComplete } from '../llm/test-models';
+import {
+	complete as defaultComplete,
+	LlmNotConfigured,
+	LlmProviderError,
+	LlmRefused,
+	LlmSchemaError
+} from '../llm';
+import { PhotoSafetyError, scanPhoto } from './safety';
 import { MemoryPhotoStore } from './store';
 import { PhotoLimitError, uploadPhoto } from './index';
 import {
@@ -379,6 +386,223 @@ describe('analyzePhoto', () => {
 			// Analysis is not where processing or storing happens.
 			expect(failed).toMatchObject({ processMs: null, storePutMs: null });
 		});
+	});
+});
+
+/**
+ * Identification's retry (2026-11-09): the first production photo error after
+ * PR #65 was an OpenRouter 429 the next calls survived. One automatic retry of
+ * a 429/502/503 against the SAVED photo (no new upload, row, store write,
+ * processing or safety scan), each attempt its own llm_calls row; after that,
+ * a retryable outcome and "Retry identification" on the same photo.
+ */
+describe('identification retry', () => {
+	const OK = { text: JSON.stringify(CANDIDATE) };
+	/** No real waits: the sleep records and returns. */
+	const waits: number[] = [];
+	const retry = {
+		sleep: async (ms: number) => void waits.push(ms),
+		random: () => 0
+	};
+	let counting: CountingPhotoStore;
+	beforeEach(() => {
+		waits.length = 0;
+		counting = new CountingPhotoStore();
+	});
+
+	/** One photo through the real upload, as the gym page does it; the image is handed over. */
+	async function uploaded() {
+		const result = (await uploadPhoto(
+			db,
+			alice,
+			{ gymId, bytes: await smallPng() },
+			{ store: counting, limits }
+		))!;
+		expect(counting.puts).toBe(1);
+		return result;
+	}
+	const photoRows = () =>
+		db.select().from(s.equipmentPhotos).where(eq(s.equipmentPhotos.userId, alice));
+	const objectRows = () => db.select().from(s.photoObjects).where(eq(s.photoObjects.userId, alice));
+	const callRows = async () =>
+		(await calls(alice))
+			.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+			.map((c) => ({ id: c.id, status: c.status, errorCode: c.errorCode }));
+
+	it('429 then ok: identified on the second attempt; two rows; one photo, one object, one write', async () => {
+		const { photo, image } = await uploaded();
+		const model = scriptedModel([{ status: 429 }, OK]);
+		const out = await analyzePhoto(db, alice, photo.id, {
+			store: counting,
+			limits,
+			image,
+			complete: testComplete(model),
+			retry
+		});
+		expect(out).toMatchObject({ ok: true, candidate: CANDIDATE });
+		const rows = await callRows();
+		expect(rows.map((r) => [r.status, r.errorCode])).toEqual([
+			['provider_error', 'http_429'],
+			['ok', null]
+		]);
+		expect(await row(photo.id)).toMatchObject({ status: 'analyzed', llmCallId: rows[1].id });
+		// Both attempts sent the same stored image: never re-uploaded, re-stored or re-read.
+		expect(imageSentTo(model, 0)).toEqual(imageSentTo(model, 1));
+		expect(await photoRows()).toHaveLength(1);
+		expect(await objectRows()).toHaveLength(1);
+		expect(counting.keys()).toHaveLength(1);
+		expect([counting.puts, counting.gets]).toEqual([1, 0]);
+		expect(waits).toEqual([1000]); // 1 s, jitter 0 here
+	});
+
+	it('503 twice: retryable, two rows, the photo kept; Retry identification reads the same photo', async () => {
+		const { photo, image } = await uploaded();
+		const out = await analyzePhoto(db, alice, photo.id, {
+			store: counting,
+			limits,
+			image,
+			complete: testComplete(scriptedModel([{ status: 503 }, { status: 503 }])),
+			retry
+		});
+		expect(out).toMatchObject({ ok: false, retryable: true });
+		const rows = await callRows();
+		expect(rows.map((r) => r.errorCode)).toEqual(['http_503', 'http_503']);
+		// The photo is saved and waiting: uploaded, its last read on record.
+		expect(await row(photo.id)).toMatchObject({ status: 'uploaded', llmCallId: rows[1].id });
+
+		// "Retry identification": the same photo id, read back from the store once.
+		const again = await analyzePhoto(db, alice, photo.id, {
+			store: counting,
+			limits,
+			complete: testComplete(scriptedModel([OK])),
+			retry
+		});
+		expect(again).toMatchObject({ ok: true, candidate: CANDIDATE });
+		expect(await row(photo.id)).toMatchObject({ status: 'analyzed', candidate: CANDIDATE });
+		expect(await photoRows()).toHaveLength(1);
+		expect(await objectRows()).toHaveLength(1);
+		expect([counting.puts, counting.gets]).toEqual([1, 1]);
+		expect(await callRows()).toHaveLength(3);
+	});
+
+	it('honors Retry-After; one past the 45 s budget means no wait, one attempt, retryable', async () => {
+		const { photo, image } = await uploaded();
+		const run = (answers: Parameters<typeof scriptedModel>[0]) => {
+			const model = scriptedModel(answers);
+			return {
+				model,
+				out: analyzePhoto(db, alice, photo.id, {
+					store: counting,
+					limits,
+					image,
+					complete: testComplete(model),
+					retry
+				})
+			};
+		};
+		const waited = run([{ status: 429, retryAfter: '7' }, OK]);
+		expect(await waited.out).toMatchObject({ ok: true });
+		expect(waits).toEqual([7000]);
+
+		waits.length = 0;
+		await db
+			.update(s.equipmentPhotos)
+			.set({ status: 'uploaded', candidate: null })
+			.where(eq(s.equipmentPhotos.id, photo.id));
+		const tooLong = run([{ status: 429, retryAfter: '120' }, OK]);
+		expect(await tooLong.out).toMatchObject({ ok: false, retryable: true });
+		expect(waits).toEqual([]);
+		expect(tooLong.model.doGenerateCalls).toHaveLength(1);
+	});
+
+	it.each([
+		['401', [{ status: 401 }, OK]],
+		['403', [{ status: 403 }, OK]],
+		['500', [{ status: 500 }, OK]],
+		['a schema miss', [{ text: '{"manufacturer": 42}' }, OK]]
+	] as const)('%s: one attempt, not retryable', async (_name, answers) => {
+		const { photo, image } = await uploaded();
+		const model = scriptedModel([...answers]);
+		const out = await analyzePhoto(db, alice, photo.id, {
+			store: counting,
+			limits,
+			image,
+			complete: testComplete(model),
+			retry
+		});
+		expect(out).toMatchObject({ ok: false, retryable: false });
+		expect(model.doGenerateCalls).toHaveLength(1);
+		expect(await calls(alice)).toHaveLength(1);
+		expect(waits).toEqual([]);
+	});
+
+	it('the hourly cap counts the retry: with a cap of 1 it is refused and recorded, not retryable', async () => {
+		const { photo, image } = await uploaded();
+		const model = scriptedModel([{ status: 429 }, OK]);
+		const out = await analyzePhoto(db, alice, photo.id, {
+			store: counting,
+			limits,
+			image,
+			complete: cappedComplete(model, 1),
+			retry
+		});
+		expect(out).toMatchObject({ ok: false, retryable: false });
+		expect(out && !out.ok && out.error).toBeInstanceOf(LlmRefused);
+		expect(model.doGenerateCalls).toHaveLength(1);
+		const rows = await callRows();
+		expect(rows.map((r) => [r.status, r.errorCode])).toEqual([
+			['provider_error', 'http_429'],
+			['refused', 'hourly_cap']
+		]);
+		// The photo's last read is the refusal: the page shows the ordinary failure.
+		expect((await row(photo.id)).llmCallId).toBe(rows[1].id);
+	});
+
+	it('the daily limit holds the retry too: at the last analysis, a 429 is not retried', async () => {
+		const { photo, image } = await uploaded();
+		const model = scriptedModel([{ status: 429 }, OK]);
+		const out = await analyzePhoto(db, alice, photo.id, {
+			store: counting,
+			limits: { ...limits, dailyLimit: 1 },
+			image,
+			complete: testComplete(model),
+			retry
+		});
+		expect(out).toMatchObject({ ok: false, retryable: true });
+		expect(model.doGenerateCalls).toHaveLength(1);
+		expect(await analysesInLastDay(db, alice)).toBe(1);
+	});
+
+	it('the safety scan is never retried: a 429 from it is one call and the photo is not saved', async () => {
+		let scans = 0;
+		const scanner: typeof defaultComplete = async (_db, _user, request) => {
+			scans++;
+			expect(request.purpose).toBe('photo_safety');
+			throw new LlmProviderError('http_429', 'no-row', { status: 429 });
+		};
+		const blocked: typeof defaultComplete = async () => {
+			scans++;
+			return { output: { allowed: false } as never, callId: 'no-row' };
+		};
+		const env = { PHOTO_SAFETY_MODE: 'openrouter' };
+		for (const complete of [scanner, blocked]) {
+			scans = 0;
+			await expect(
+				uploadPhoto(
+					db,
+					alice,
+					{ gymId, bytes: await smallPng() },
+					{
+						store: counting,
+						limits,
+						scan: (d, u, image) => scanPhoto(d, u, image, { env, complete })
+					}
+				)
+			).rejects.toBeInstanceOf(PhotoSafetyError);
+			expect(scans).toBe(1);
+		}
+		expect(await photoRows()).toHaveLength(0);
+		expect(counting.puts).toBe(0);
 	});
 });
 

@@ -48,7 +48,11 @@ const { output, callId } = await complete(db, userId, {
   (the SDK's assistant message type has no image part).
 - One provider attempt per call: the SDK's automatic retries are off, so one
   row is one request and the timeout bounds the whole call. To retry, call
-  again; the retry is capped and recorded like any call.
+  again; the retry is capped and recorded like any call. `completeWithRetry`
+  (below) is the bounded way to do that for transient provider answers.
+- `timeoutMs` (optional) tightens this call's timeout: the call is aborted at
+  whichever comes first, it or `LLM_TIMEOUT_MS`. A retrying caller passes
+  what is left of its own deadline.
 
 ### Errors
 
@@ -68,6 +72,44 @@ written, that database error propagates instead.
 
 Order inside `complete()`: resolve config → refuse if unusable → cap → one
 provider call. Neither refusal reaches the provider.
+
+`LlmProviderError` also carries `status` (the HTTP status, or null) and
+`retryAfterMs` (the provider's `Retry-After`, delay-seconds or an HTTP-date,
+converted to milliseconds; null when absent or unreadable). Only those two
+numbers leave the SDK error: its headers, body and message are not kept,
+logged or stored, and `llm_calls` still records only `http_<status>`.
+
+## Retrying transient answers (2026-11-09)
+
+`completeWithRetry(complete, db, userId, request, policy, deps)` in
+`llm/retry.ts`. It sits above `complete()` and calls it once per attempt, so
+`maxRetries: 0` and the one-request-one-row invariant hold: every attempt has
+its own `llm_calls` row, counts toward the hourly cap, and has its own timeout.
+A retry the cap refuses is a `refused` / `hourly_cap` row, and that refusal is
+what the caller gets.
+
+- **Retried once** (two attempts at most): `LlmProviderError` with HTTP 429,
+  502 or 503 (`TRANSIENT_HTTP_STATUSES`, `isTransientLlmError`;
+  `isTransientErrorCode` reads the same rule off a recorded `error_code`).
+- **Never retried:** any other status (401 and 403 included), network errors,
+  `LlmRefused`, `LlmSchemaError`, `LlmNotConfigured`, `LlmTimeout`. A timeout
+  has spent most of the shared budget, so a second attempt could only be cut
+  short.
+- **The wait:** the provider's `Retry-After` when it sent one; otherwise
+  `baseDelayMs` plus a random `0..jitterMs`.
+- **One deadline**, `budgetMs` from the start, for both attempts and the
+  wait; each attempt's `timeoutMs` is what is left. When the wait plus
+  `minAttemptMs` would pass the deadline, there is no wait and no second
+  attempt.
+- `deps.beforeRetry` may veto the second attempt (the photo caller checks its
+  daily limit).
+- What is thrown is the **last** attempt's error, unchanged, so the caller sees
+  what `llm_calls` recorded last. A caller that gets a transient error back can
+  offer the user a manual retry.
+
+The only caller is photo identification (`photos/analyze.ts`,
+`IDENTIFY_RETRY`: 45 s budget, 5 s minimum attempt, 1 s + up to 1 s jitter;
+`docs/photos.md`). The photo-safety scan is not retried.
 
 ## The table: `llm_calls` (migration 0013)
 
@@ -213,7 +255,10 @@ dependency. Nothing outside `src/lib/server/llm/` changes.
 
 `src/lib/server/llm/llm.db.test.ts`, server project, entirely offline: every
 model is the SDK's `MockLanguageModelV4` from `ai/test`, injected through
-`createLlmClient({ model })`. `llm-schema.db.test.ts` checks the table's
+`createLlmClient({ model })`. `retry.db.test.ts` runs `completeWithRetry`
+over a real `complete()` with scripted provider failures
+(`test-models.ts` `scriptedModel`, the SDK's own `APICallError` with a status
+and `retry-after`), an injected sleep and clock, so nothing waits. `llm-schema.db.test.ts` checks the table's
 constraints and indexes by name; `llm-seam.test.ts` holds the one-seam rule.
 
 SDK names, read from the installed `ai@7.0.123`: structured output is

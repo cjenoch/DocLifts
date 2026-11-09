@@ -13,7 +13,15 @@ import { and, count, eq, gt, inArray, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { equipmentPhotos, llmCalls } from '../db/schema';
 import type { Database } from '../progression';
-import { complete as defaultComplete, LlmError, type CompleteRequest } from '../llm';
+import {
+	complete as defaultComplete,
+	completeWithRetry,
+	isTransientLlmError,
+	LlmError,
+	type CompleteFn,
+	type RetryDeps,
+	type RetryPolicy
+} from '../llm';
 import type { PhotoLimits } from './config';
 import { isUuid, PhotoLimitError } from './index';
 import type { PhotoStore } from './store';
@@ -196,11 +204,30 @@ export function userText(note?: string | null): string {
 		: "Read this machine's placard.";
 }
 
-export type CompleteFn = <T>(
-	db: Database,
-	userId: string,
-	request: CompleteRequest<T>
-) => Promise<{ output: T; callId: string }>;
+export type { CompleteFn };
+
+/**
+ * Identification's retry (owner decision, 2026-11-09; llm/retry.ts has the
+ * rule). One retry of a 429/502/503, the stored image sent again: no new
+ * upload, photo row, processing or safety scan.
+ *
+ * `budgetMs` is the one deadline for both attempts and the wait, and it also
+ * caps each attempt's timeout below LLM_TIMEOUT_MS (verified as 60 s in
+ * production on 2026-11-09). This is the provider budget, not a full upload
+ * deadline: transfer, processing, safety, storage and database bookkeeping
+ * can add time. The page sets no client timeout on the POST.
+ *
+ * Without a Retry-After the wait is 1-2 s (1 s plus up to 1 s of jitter). A
+ * second attempt needs 5 s of budget left after the wait, the slowest normal
+ * read with margin; with less, nothing waits and the user gets the retry
+ * control at once.
+ */
+export const IDENTIFY_RETRY: RetryPolicy = {
+	budgetMs: 45_000,
+	minAttemptMs: 5_000,
+	baseDelayMs: 1_000,
+	jitterMs: 1_000
+};
 
 /** Analyses (calls that reached the provider) for this user in the last 24 hours. */
 export async function analysesInLastDay(db: Database, userId: string): Promise<number> {
@@ -225,8 +252,14 @@ export const analysisLimitMessage = (limit: number) =>
 
 export type AnalyzeOutcome =
 	| { ok: true; candidate: EquipmentCandidate; callId: string }
-	/** The call failed; the photo row is unchanged and `llm_calls` says why. */
-	| { ok: false; error: LlmError };
+	/**
+	 * The call failed; the photo row is unchanged and `llm_calls` says why.
+	 * `retryable`: the last attempt was a transient provider answer
+	 * (`isTransientLlmError`), after the automatic retry or instead of it, so
+	 * the page says identification is temporarily unavailable and offers
+	 * "Retry identification" on the same photo.
+	 */
+	| { ok: false; error: LlmError; retryable: boolean };
 
 async function readAll(body: NodeJS.ReadableStream): Promise<Buffer> {
 	const chunks: Buffer[] = [];
@@ -257,7 +290,12 @@ async function readStored(store: PhotoStore, key: string): Promise<Buffer | null
  * `deps.image` (0.5.3): the processed JPEG `uploadPhoto` just stored, passed
  * by the upload action so the store is not read back in the same request.
  * Without it (re-analysis) the image is read from the store, as before.
- * `deps.timings`, when given, receives `modelMs`: the `complete()` call alone.
+ * `deps.timings`, when given, receives `modelMs`: the model calls alone, both
+ * attempts and the wait between them when identification is retried.
+ *
+ * A transient provider answer (429, 502, 503) is retried once, against the
+ * same stored image, inside `IDENTIFY_RETRY.budgetMs`; each attempt is its own
+ * `llm_calls` row and counts toward the hourly cap and the daily limit.
  */
 export async function analyzePhoto(
 	db: Database,
@@ -270,6 +308,8 @@ export async function analyzePhoto(
 		complete?: CompleteFn;
 		image?: Buffer;
 		timings?: PhotoTimings;
+		/** Clock, sleep and jitter for the retry's wait; tests pass fakes. */
+		retry?: Omit<RetryDeps, 'beforeRetry'>;
 	}
 ): Promise<AnalyzeOutcome | null> {
 	if (!isUuid(photoId)) return null;
@@ -293,22 +333,33 @@ export async function analyzePhoto(
 	const complete = deps.complete ?? defaultComplete;
 	try {
 		const { output, callId } = await timed(deps.timings, 'modelMs', () =>
-			complete(db, userId, {
-				purpose: PHOTO_PURPOSE,
-				kind: 'vision',
-				system: SYSTEM_PROMPT,
-				messages: [
-					{
-						role: 'user',
-						content: [
-							{ type: 'image', image, mediaType: 'image/jpeg' },
-							{ type: 'text', text: userText(deps.note) }
-						]
-					}
-				],
-				schema: EquipmentCandidate,
-				wireSchema: CANDIDATE_WIRE_SCHEMA
-			})
+			completeWithRetry(
+				complete,
+				db,
+				userId,
+				{
+					purpose: PHOTO_PURPOSE,
+					kind: 'vision',
+					system: SYSTEM_PROMPT,
+					messages: [
+						{
+							role: 'user',
+							content: [
+								{ type: 'image', image, mediaType: 'image/jpeg' },
+								{ type: 'text', text: userText(deps.note) }
+							]
+						}
+					],
+					schema: EquipmentCandidate,
+					wireSchema: CANDIDATE_WIRE_SCHEMA
+				},
+				IDENTIFY_RETRY,
+				{
+					...deps.retry,
+					// The retry is an analysis like any other: never past the daily limit.
+					beforeRetry: async () => (await analysesInLastDay(db, userId)) < deps.limits.dailyLimit
+				}
+			)
 		);
 		await db
 			.update(equipmentPhotos)
@@ -336,7 +387,7 @@ export async function analyzePhoto(
 						eq(equipmentPhotos.status, 'uploaded')
 					)
 				);
-			return { ok: false, error };
+			return { ok: false, error, retryable: isTransientLlmError(error) };
 		}
 		throw error;
 	}

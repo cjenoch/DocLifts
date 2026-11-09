@@ -68,6 +68,14 @@ export const workoutUi = {
 	 */
 	photoNotRead: 'This photo is not read yet. Read it or name it now or later.',
 	photoReadAgain: 'Read again',
+	/**
+	 * Identification hit a transient provider answer (429/502/503) and the one
+	 * automatic retry did not get through (owner's wording, 2026-11-09). The
+	 * photo is stored; the control re-runs identification on it. Shown on the
+	 * workout's photo block and on the review page the gym page leads to.
+	 */
+	photoIdentifyUnavailable: 'Photo saved. Identification is temporarily unavailable.',
+	photoRetryIdentify: 'Retry identification',
 	photoNameIt: 'Name it',
 	photoUseThis: 'Use this',
 	photoLater: 'Later',

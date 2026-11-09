@@ -10,7 +10,8 @@ import {
 	removalOutcomeMessage,
 	type StoredRemovalState
 } from '$lib/photo-removal-ui';
-import { privacyDeletions, photoObjects } from '$lib/server/db';
+import { privacyDeletions, photoObjects, llmCalls } from '$lib/server/db';
+import { isTransientErrorCode } from '$lib/server/llm';
 import { subjectHash } from '$lib/server/privacy/ledger';
 import { and, eq } from 'drizzle-orm';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -48,6 +49,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	const resultModelId = photo.matchedModelId ?? photo.createdModelId;
 	const resultModel = resultModelId ? await loadModel(db, userId, resultModelId) : null;
 	const analysis = url.searchParams.get('analysis');
+	// The photo's last read, when it was a transient provider answer (429/502/503,
+	// after the automatic retry): "temporarily unavailable" survives a reload and
+	// a visit from the gym page's list, like the workout block's (2026-11-09).
+	// `analyzePhoto` records a failed read only on an `uploaded` photo.
+	const [lastRead] =
+		photo.status === 'uploaded' && photo.llmCallId
+			? await db
+					.select({ status: llmCalls.status, errorCode: llmCalls.errorCode })
+					.from(llmCalls)
+					.where(and(eq(llmCalls.id, photo.llmCallId), eq(llmCalls.userId, userId)))
+			: [];
+	const unavailable =
+		lastRead?.status === 'provider_error' && isTransientErrorCode(lastRead.errorCode);
 	// A photo that opened a workout block (0.6.0): linking names that block.
 	const block = await unidentifiedBlockOfPhoto(db, userId, photo.id);
 	const [removal] = await db
@@ -84,7 +98,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		matching,
 		resultModel,
 		analysisNotice:
-			analysis === 'limit' ? 'limit' : analysis === 'failed' && !candidate ? 'failed' : null
+			analysis === 'limit'
+				? 'limit'
+				: !candidate && (analysis === 'unavailable' || unavailable)
+					? 'unavailable'
+					: analysis === 'failed' && !candidate
+						? 'failed'
+						: null
 	};
 };
 
@@ -136,7 +156,7 @@ export const actions: Actions = {
 				note
 			});
 			if (!outcome) error(404, 'Photo not found');
-			if (!outcome.ok) notice = '?analysis=failed';
+			if (!outcome.ok) notice = outcome.retryable ? '?analysis=unavailable' : '?analysis=failed';
 		} catch (e) {
 			if (e instanceof PhotoLimitError) notice = '?analysis=limit';
 			else return photoFailure(e);

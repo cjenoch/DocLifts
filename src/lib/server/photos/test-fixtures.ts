@@ -17,12 +17,17 @@ import sharp from 'sharp';
 import type { EquipmentCandidate } from './analyze';
 import { MemoryPhotoStore } from './store';
 
-/** A memory store that counts its reads, to prove which paths read the store back. */
+/** A memory store that counts its reads and writes, to prove which paths touch the store. */
 export class CountingPhotoStore extends MemoryPhotoStore {
 	gets = 0;
+	puts = 0;
 	override async get(key: string) {
 		this.gets++;
 		return super.get(key);
+	}
+	override async put(key: string, body: Buffer, contentType: string) {
+		this.puts++;
+		return super.put(key, body, contentType);
 	}
 }
 

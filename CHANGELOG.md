@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — identification retry — not deployed
+
+- Machine identification from a photo retries a transient provider answer
+  (HTTP 429, 502, 503) once, against the saved photo (no new upload, photo row,
+  processing or safety scan), honoring `Retry-After`, with both attempts and
+  the wait inside one 45 s deadline. Each attempt is its own `llm_calls` row
+  and counts toward the hourly cap and the daily limit. When the retry does
+  not get through, the gym page's review and the workout's photo block say
+  "Photo saved. Identification is temporarily unavailable." with "Retry
+  identification" on the same photo. Not retried: 401/403 and other statuses,
+  timeouts, schema misses, caps, not configured, and the safety scan. Owner
+  request after a production 429 on 2026-11-09. No migration.
+
 ## 2026-11-09 — audit follow-ups, round 2 — deployed, acceptance pending
 
 PR #65 shipped as `bf5df84` after the independent full gate and branch CI.

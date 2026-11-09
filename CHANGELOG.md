@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased — identification retry — not deployed
+## 2026-11-09 — identification retry — deployed, acceptance pending
+
+PR #67 shipped as `0ed52a1`, including the deadline follow-up `0b7d9c1`.
+Web only; no migration, safety rebuild or scheduled-worker update. Production's
+`LLM_TIMEOUT_MS` is verified as 60000. See the
+[release runbook](docs/release-2026-11-09.md) for evidence and pending phone checks.
 
 - Machine identification from a photo retries a transient provider answer
   (HTTP 429, 502, 503) once, against the saved photo (no new upload, photo row,

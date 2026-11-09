@@ -79,7 +79,7 @@ checks real inference on a generated colour image and invalid-input refusals.
 The classifier runs two warm-up inferences before it opens its port, so the
 first upload after a deploy is not a cold scan (on 2026-11-09 one took over the
 app's 5 s limit while later scans took 0.4-0.7 s); the smoke test fails if the
-first scan takes 2.5 s or more. Until the warm-up finishes the healthcheck
+first scan takes 4 s or more (a warm first scan once took 2.86 s in a rehearsal). Until the warm-up finishes the healthcheck
 reports the container unhealthy.
 
 Clean equipment photos measure false positives, latency and cost. Do not collect

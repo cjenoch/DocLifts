@@ -19,10 +19,12 @@ buffer = io.BytesIO()
 image.save(buffer, format="JPEG")
 # The first scan after start must already be warm (server.py warm_up): the
 # app gives the classifier 5 s, and a cold first scan exceeded it on 2026-11-09.
+# 4 s, not tighter: a warm first scan took 2.86 s once in the 2026-11-09
+# rehearsal (0.51 s in production), and the check is for a missing warm-up.
 started = time.monotonic()
 status, result = call(buffer.getvalue())
 first_scan = time.monotonic() - started
-assert first_scan < 2.5, f"first scan took {first_scan:.2f}s; the warm-up did not run"
+assert first_scan < 4.0, f"first scan took {first_scan:.2f}s; the warm-up did not run"
 assert status == 200 and 0 <= result["nsfw"] < 0.5, (status, result)
 assert result["model"] == "Falconsai/nsfw_image_detection@96cb0d0342c7afb80cab76ecc58b265fa44da256"
 assert call(b"not-an-image")[0] == 503

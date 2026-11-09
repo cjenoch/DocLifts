@@ -17,18 +17,13 @@ VPS over SSH.
    passthrough check runs before `up`.
 5. **Smoke.** Containers healthy, the public smoke for the release, and
    `version.json` showing the release sha.
-6. **Refresh Vigla's expected container identity (since 2026-11-09).** Vigla, the
-   monitor on enochnvps, checks DocLifts' containers by an expected identity. Any
-   deploy that recreates a container changes it, and Vigla then alerts on a
-   healthy deploy; identical failures alert only once a day, so a stale identity
-   can also mask a real failure for up to a day. After every `up` that recreates
-   a container:
-   - update Vigla's expected identity for each recreated container;
-   - confirm one successful watch cycle and a heartbeat delivery.
-
-   This step goes away if Vigla is changed to find containers by their Compose
-   project and service labels (`com.docker.compose.project`,
-   `com.docker.compose.service`) instead of a container identity.
+6. **Confirm Vigla saw the deploy.** Vigla, the monitor on enochnvps, finds
+   DocLifts' containers by their Compose project and service labels
+   (`com.docker.compose.project`, `com.docker.compose.service`), so a normal
+   container replacement needs no change to it (since 2026-11-09). A missing or
+   ambiguous match still fails and alerts. Identical failures alert only once a
+   day, so after every `up` confirm one successful watch cycle and a heartbeat
+   delivery rather than waiting for an alert.
 
 7. **Record.** The release record and CHANGELOG; "deployed, acceptance pending"
    until the owner signs off any phone check.

@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, privacyDeletions } from '$lib/server/db';
 import { deletionEnabled } from '$lib/server/privacy/ledger';
+import { deletionJobState } from '$lib/server/privacy/lifecycle';
 import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ cookies }) => {
 	const id = cookies.get('doclifts.deletion');
@@ -16,12 +17,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			: [];
 	return {
 		deletionEnabled: deletionEnabled(),
-		deletionState: receipt
-			? receipt.completedAt
-				? 'completed'
-				: receipt.lastError
-					? 'needs_retry'
-					: 'pending'
-			: null
+		deletionState: receipt ? deletionJobState(receipt) : null
 	};
 };

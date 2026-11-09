@@ -74,7 +74,11 @@ provider access controls independently.
 The worker template retries every minute after the previous run completes and
 has a bounded per-run deadline. Overlapping runs of the same unit are prevented
 by systemd. Inspect `systemctl status`, timer last/next run, and journal counts;
-failures return nonzero and jobs retain a safe stage code. Wire the host's approved
+failures return nonzero and jobs retain a safe stage code. A job another runner
+holds (for example a review-page removal running at the same moment) counts as
+`busy`, not a failure, and is picked up by the next run. The dry run's
+`needsRetry` and `maxAttempts` are the numbers to alert on: `attempts` counts every
+claimed run, and there is no ceiling that would stop retrying a deletion. Wire the host's approved
 alerting channel to failed runs and excessive pending age before calling this
 unattended operation. A timer being enabled alone is not proof of monitoring.
 Do not log raw provider errors, environment contents or account identifiers.

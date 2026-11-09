@@ -6,6 +6,40 @@ import { dropErasedPhotoPlaceholder } from '../photo-workout';
 import { withStorageLock } from './storage-lock';
 import { subjectHash, type Ledger, type LedgerEntry } from './ledger';
 
+/** A deletion job's state, read off `privacy_deletions` in exactly one place.
+ * Completion wins: a row with both `completed_at` and `last_error` (written by
+ * a failure that raced a completion before that was refused) is completed. No
+ * caller maps the columns itself; a SQL filter uses `deletionJobOpen()`. */
+export type DeletionJobState = 'pending' | 'needs_retry' | 'completed';
+export function deletionJobState(row: {
+	completedAt: Date | null;
+	lastError: string | null;
+}): DeletionJobState {
+	if (row.completedAt) return 'completed';
+	return row.lastError ? 'needs_retry' : 'pending';
+}
+
+/** The SQL spelling of "not completed" (`pending` or `needs_retry`). */
+export const deletionJobOpen = () => isNull(s.privacyDeletions.completedAt);
+
+/** What the operator CLI prints about open jobs. `attempts` counts the runs that
+ * claimed a job under its lock (every claim, whatever the outcome), so a job that
+ * keeps failing shows a climbing number next to `needs_retry`. No ceiling: a
+ * deletion is never abandoned; alert on `maxAttempts` and pending age instead. */
+export function deletionJobSummary(
+	rows: { completedAt: Date | null; lastError: string | null; attempts: number }[]
+) {
+	const summary = { pending: 0, needsRetry: 0, maxAttempts: 0 };
+	for (const row of rows) {
+		const state = deletionJobState(row);
+		if (state === 'completed') continue;
+		if (state === 'pending') summary.pending++;
+		else summary.needsRetry++;
+		summary.maxAttempts = Math.max(summary.maxAttempts, row.attempts);
+	}
+	return summary;
+}
+
 const entry = (kind: 'account' | 'photo', id: string, now: Date): LedgerEntry => ({
 	version: 1,
 	kind,
@@ -112,10 +146,11 @@ async function persistIntent(
 			requestedAt: job.requestedAt.toISOString()
 		});
 	} catch {
+		// Never onto a completed job: completed_at and last_error are exclusive.
 		await db
 			.update(s.privacyDeletions)
 			.set({ lastError: 'ledger' })
-			.where(eq(s.privacyDeletions.id, job.id));
+			.where(and(eq(s.privacyDeletions.id, job.id), deletionJobOpen()));
 		throw new Error('Deletion intent pending durable journal acknowledgment');
 	}
 }
@@ -410,8 +445,20 @@ async function purgeAccount(db: Database, userId: string, jobId: string) {
 	});
 }
 
+export type DeletionRunState = 'not_found' | 'busy' | 'pending' | 'failed' | 'completed';
+
 /** One bounded batch; a pending result is never called completion. No scheduler
- * is installed by this change. Apply must be invoked explicitly by the operator. */
+ * is installed by this change. Apply must be invoked explicitly by the operator.
+ *
+ * Two runners on one job (the worker and a review-page removal, or two operator
+ * runs) never mark it for retry. The claim locks the job row `FOR UPDATE SKIP
+ * LOCKED`: a row another runner is claiming or failing is `busy`. An object
+ * another holder has locked (`storage_busy`: a runner, an upload, a retention
+ * sweep) is `busy` too. `busy` writes no `last_error` and is not a failure.
+ * The row lock is held only for the claim and for recording a failure, never
+ * across the journal or object I/O, so two runners can still overlap between
+ * those points; erasure is idempotent per object, and the job only completes
+ * once. A failure is never written onto a completed job. */
 export async function runDeletion(
 	db: Database,
 	userId: string,
@@ -419,14 +466,31 @@ export async function runDeletion(
 	store: PhotoStore,
 	ledger: Ledger,
 	limit = 25
-) {
+): Promise<{ state: DeletionRunState; removed: number }> {
 	if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid batch limit');
-	const [job] = await db
-		.select()
+	// Ownership first, without a lock, so another user's job is `not_found` (D6),
+	// never `busy` while its owner's runner holds the row.
+	const [owned] = await db
+		.select({ id: s.privacyDeletions.id })
 		.from(s.privacyDeletions)
 		.where(and(eq(s.privacyDeletions.id, jobId), eq(s.privacyDeletions.ownerId, userId)));
-	if (!job) return { state: 'not_found' as const, removed: 0 };
-	if (job.completedAt) return { state: 'completed' as const, removed: 0 };
+	if (!owned) return { state: 'not_found', removed: 0 };
+	const claim = await db.transaction(async (tx) => {
+		const [row] = await tx
+			.select()
+			.from(s.privacyDeletions)
+			.where(eq(s.privacyDeletions.id, jobId))
+			.for('update', { skipLocked: true });
+		if (!row) return 'busy' as const;
+		if (deletionJobState(row) === 'completed') return 'completed' as const;
+		await tx
+			.update(s.privacyDeletions)
+			.set({ attempts: sql`${s.privacyDeletions.attempts}+1` })
+			.where(eq(s.privacyDeletions.id, jobId));
+		return row;
+	});
+	if (claim === 'busy' || claim === 'completed') return { state: claim, removed: 0 };
+	const job = claim;
 	let stage = 'ledger';
 	let removed = 0;
 	try {
@@ -438,7 +502,7 @@ export async function runDeletion(
 		});
 		await db
 			.update(s.privacyDeletions)
-			.set({ attempts: sql`${s.privacyDeletions.attempts}+1`, lastError: null })
+			.set({ lastError: null })
 			.where(eq(s.privacyDeletions.id, jobId));
 		stage = 'storage';
 		if (job.kind === 'account') {
@@ -492,14 +556,32 @@ export async function runDeletion(
 			.select()
 			.from(s.privacyDeletions)
 			.where(eq(s.privacyDeletions.id, jobId));
-		return { state: state.completedAt ? ('completed' as const) : ('pending' as const), removed };
-	} catch {
+		return {
+			state: deletionJobState(state) === 'completed' ? 'completed' : 'pending',
+			removed
+		};
+	} catch (e) {
+		// Another holder has one of this job's objects locked: try again later.
+		if (e instanceof Error && e.message === 'storage_busy') return { state: 'busy', removed };
 		// Never persist S3 messages, credential-bearing URLs, payloads or raw DB errors.
-		await db
-			.update(s.privacyDeletions)
-			.set({ lastError: stage })
-			.where(eq(s.privacyDeletions.id, jobId));
-		return { state: 'failed' as const, removed };
+		// Re-checked under the row lock: the failure may have come after the job
+		// completed (a commit, then a failed read), or a photo receipt may have been
+		// completed by another eraser meanwhile. A completed job keeps no error.
+		const state = await db.transaction(async (tx) => {
+			const [row] = await tx
+				.select()
+				.from(s.privacyDeletions)
+				.where(eq(s.privacyDeletions.id, jobId))
+				.for('update');
+			if (!row) return 'not_found' as const;
+			if (deletionJobState(row) === 'completed') return 'completed' as const;
+			await tx
+				.update(s.privacyDeletions)
+				.set({ lastError: stage })
+				.where(eq(s.privacyDeletions.id, jobId));
+			return 'failed' as const;
+		});
+		return { state, removed };
 	}
 }
 

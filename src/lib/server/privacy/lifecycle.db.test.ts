@@ -2,7 +2,7 @@ import { authenticateMcp } from '../mcp/access';
 import { tokenHash, mcpResource } from '../mcp/config';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { setupTestDb, resetTestDb, withTwoUsers } from '../test-db';
+import { setupTestDb, resetTestDb, withTwoUsers, type TestDb } from '../test-db';
 import * as s from '../db/schema';
 import { MemoryPhotoStore, photoKey } from '../photos/store';
 import {
@@ -10,8 +10,11 @@ import {
 	requestPhotoDeletion,
 	runDeletion,
 	erasePhotoObject,
-	reconcileDeletions
+	reconcileDeletions,
+	deletionJobState,
+	deletionJobSummary
 } from './lifecycle';
+import { configureStorageLocks, closeStorageLocks } from './storage-lock';
 import { subjectHash, type LedgerEntry } from './ledger';
 import { sweepRetention } from './retention';
 import { uploadPhoto } from '../photos';
@@ -392,7 +395,12 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			expiresAt: new Date(Date.now() + 100000)
 		});
 		const job = await requestAccountDeletion(h.db, alice, authSession, ledger);
-		expect((await runDeletion(h.db, alice, job!.id, store, ledger)).state).toBe('failed');
+		// The upload holds the object's lock: busy, not a failure, and no retry mark.
+		expect((await runDeletion(h.db, alice, job!.id, store, ledger)).state).toBe('busy');
+		expect(
+			(await h.db.select().from(s.privacyDeletions).where(eq(s.privacyDeletions.id, job!.id)))[0]
+				.lastError
+		).toBeNull();
 		expect(
 			(
 				await h.db.execute(
@@ -614,5 +622,196 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			).not.toBeNull();
 		expect((await h.db.select().from(s.sets).where(eq(s.sets.id, a.set.id)))[0]).toEqual(a.set);
 		expect(await store.get(a.key)).not.toBeNull();
+	});
+	describe('deletion job state (one vocabulary, one runner, no error on a completed job)', () => {
+		const jobRow = (jobId: string) =>
+			h.db
+				.select()
+				.from(s.privacyDeletions)
+				.where(eq(s.privacyDeletions.id, jobId))
+				.then((r) => r[0]);
+		/** An erase that waits until released, so a run can be held mid-flight. */
+		function holdErase(store: MemoryPhotoStore) {
+			let entered!: () => void, release!: () => void;
+			const arrived = new Promise<void>((r) => (entered = r));
+			const held = new Promise<void>((r) => (release = r));
+			const erase = store.erase.bind(store);
+			store.erase = async (key: string) => {
+				entered();
+				await held;
+				await erase(key);
+			};
+			return { arrived, release };
+		}
+
+		it('maps the columns in one place; completion wins over a stale error', () => {
+			const at = new Date();
+			expect(deletionJobState({ completedAt: null, lastError: null })).toBe('pending');
+			expect(deletionJobState({ completedAt: null, lastError: 'storage' })).toBe('needs_retry');
+			expect(deletionJobState({ completedAt: at, lastError: null })).toBe('completed');
+			// The row the old failure path could leave behind.
+			expect(deletionJobState({ completedAt: at, lastError: 'database' })).toBe('completed');
+			expect(
+				deletionJobSummary([
+					{ completedAt: null, lastError: null, attempts: 1 },
+					{ completedAt: null, lastError: 'ledger', attempts: 4 },
+					{ completedAt: at, lastError: null, attempts: 9 }
+				])
+			).toEqual({ pending: 1, needsRetry: 1, maxAttempts: 4 });
+		});
+
+		it('a job row another connection holds is busy: no journal append, no attempt, no error', async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const job = (await requestPhotoDeletion(h.db, alice, a.id, ledger))!;
+			let entered!: () => void, release!: () => void;
+			const arrived = new Promise<void>((r) => (entered = r));
+			const held = new Promise<void>((r) => (release = r));
+			// A second connection holds the row as another runner's claim would.
+			const holder = h.client.begin(async (sql) => {
+				await sql`SELECT 1 FROM privacy_deletions WHERE id=${job.id} FOR UPDATE`;
+				entered();
+				await held;
+			});
+			await arrived;
+			const appended = journal.length;
+			try {
+				expect(await runDeletion(h.db, alice, job.id, store, ledger)).toEqual({
+					state: 'busy',
+					removed: 0
+				});
+				// Another user's job id is not_found, never busy (D6).
+				expect(await runDeletion(h.db, bob, job.id, store, ledger)).toEqual({
+					state: 'not_found',
+					removed: 0
+				});
+			} finally {
+				release();
+				await holder;
+			}
+			expect(journal.length).toBe(appended);
+			expect(await jobRow(job.id)).toMatchObject({
+				attempts: 0,
+				lastError: null,
+				completedAt: null
+			});
+			expect(await store.get(a.key)).not.toBeNull();
+			expect(await runDeletion(h.db, alice, job.id, store, ledger)).toEqual({
+				state: 'completed',
+				removed: 1
+			});
+			expect(await jobRow(job.id)).toMatchObject({ attempts: 1, lastError: null });
+		});
+
+		it('a runner that meets an object another runner is erasing reports busy, not a failure', async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const job = (await requestAccountDeletion(h.db, alice, a.authSession, ledger))!;
+			const { arrived, release } = holdErase(store);
+			const first = runDeletion(h.db, alice, job.id, store, ledger);
+			try {
+				await arrived;
+				expect(await runDeletion(h.db, alice, job.id, store, ledger)).toEqual({
+					state: 'busy',
+					removed: 0
+				});
+				const during = await jobRow(job.id);
+				expect(during).toMatchObject({ lastError: null, completedAt: null });
+				expect(deletionJobState(during)).toBe('pending');
+				expect(await store.get(a.key)).not.toBeNull();
+			} finally {
+				release();
+			}
+			expect((await first).state).toBe('completed');
+			const done = await jobRow(job.id);
+			expect(deletionJobState(done)).toBe('completed');
+			expect(done).toMatchObject({ lastError: null, ownerId: null, attempts: 2 });
+			expect(store.keys()).toEqual([]);
+		});
+
+		it('a failure after the job completed reports completion and writes no error onto it', async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const job = (await requestPhotoDeletion(h.db, alice, a.id, ledger))!;
+			// The erasure commits the receipt's completion; the next plain read fails,
+			// as a dropped connection would.
+			let armed = false;
+			const erase = store.erase.bind(store);
+			store.erase = async (key: string) => {
+				await erase(key);
+				armed = true;
+			};
+			const flaky = new Proxy(h.db, {
+				get(target, prop, receiver) {
+					if (prop === 'select' && armed)
+						return () => {
+							throw new Error('connection lost');
+						};
+					return Reflect.get(target, prop, receiver);
+				}
+			}) as TestDb;
+			configureStorageLocks(
+				flaky,
+				process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/doclifts_test'
+			);
+			let result;
+			try {
+				result = await runDeletion(flaky, alice, job.id, store, ledger);
+			} finally {
+				await closeStorageLocks(flaky);
+			}
+			expect(armed).toBe(true);
+			expect(store.keys()).toEqual([]);
+			const row = await jobRow(job.id);
+			expect(row.completedAt).not.toBeNull();
+			expect(row.lastError).toBeNull();
+			expect(result).toEqual({ state: 'completed', removed: 1 });
+		});
+
+		it('a journal failure never marks a completed receipt for retry', async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const job = (await requestPhotoDeletion(h.db, alice, a.id, ledger))!;
+			const down = {
+				append: async () => {
+					throw new Error('synthetic outage');
+				}
+			};
+			// Positive first: an open receipt does get the stage.
+			await expect(erasePhotoObject(h.db, alice, a.key, store, false, down)).rejects.toThrow(
+				'durable journal'
+			);
+			expect((await jobRow(job.id)).lastError).toBe('ledger');
+			// Completed by another eraser meanwhile; the same failure leaves it alone.
+			await h.db
+				.update(s.privacyDeletions)
+				.set({ completedAt: new Date(), lastError: null })
+				.where(eq(s.privacyDeletions.id, job.id));
+			await expect(erasePhotoObject(h.db, alice, a.key, store, false, down)).rejects.toThrow(
+				'durable journal'
+			);
+			expect(await jobRow(job.id)).toMatchObject({ lastError: null });
+		});
+
+		it('counts every claimed run in attempts, failed ones included, and clears the error on completion', async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const job = (await requestPhotoDeletion(h.db, alice, a.id, ledger))!;
+			const down = {
+				append: async () => {
+					throw new Error('synthetic outage');
+				}
+			};
+			expect((await runDeletion(h.db, alice, job.id, store, down)).state).toBe('failed');
+			expect((await runDeletion(h.db, alice, job.id, store, down)).state).toBe('failed');
+			const failing = await jobRow(job.id);
+			expect(failing).toMatchObject({ attempts: 2, lastError: 'ledger' });
+			expect(deletionJobState(failing)).toBe('needs_retry');
+			expect(deletionJobSummary([failing])).toEqual({ pending: 0, needsRetry: 1, maxAttempts: 2 });
+			expect((await runDeletion(h.db, alice, job.id, store, ledger)).state).toBe('completed');
+			const done = await jobRow(job.id);
+			expect(done).toMatchObject({ attempts: 3, lastError: null });
+			expect(deletionJobState(done)).toBe('completed');
+		});
 	});
 });

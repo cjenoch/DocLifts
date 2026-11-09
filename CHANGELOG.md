@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — exports without a password — not deployed
+
+- Account → Export your data no longer asks for the current password; a live
+  signed-in session (still checked before reading and before returning the
+  file, with the CSRF boundary and the deletion fence) is enough. Owner
+  decision 2026-11-09. A page loaded before the change still sends a password
+  field; it is accepted and ignored.
+- Strong-style CSV dates default to the device's time zone in the form; a blank
+  field uses the zone the phone last reported (`auth.user.time_zone`), else
+  UTC.
+
 ## 2026-11-09 — identification retry — deployed and accepted
 
 PR #67 shipped as `0ed52a1`, including the deadline follow-up `0b7d9c1`.

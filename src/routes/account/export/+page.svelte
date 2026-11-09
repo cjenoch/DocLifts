@@ -1,10 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import PasswordInput from '$lib/PasswordInput.svelte';
 	import { pageTitle } from '$lib/app-shell';
-	let timeZone = $state('UTC');
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
+	// Strong dates default to this device's time zone, then the one it last
+	// reported (stored by the layout), then UTC. Editable for another zone; a
+	// blank field makes the server use the stored zone.
+	let timeZone = $state('');
 	onMount(() => {
-		timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+		timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || data.timeZone || 'UTC';
 	});
 </script>
 
@@ -22,14 +27,6 @@
 		files somewhere private.
 	</p>
 	<form method="POST" action="/account/export/download" class="space-y-5">
-		<PasswordInput
-			id="export-password"
-			name="password"
-			label="Current password"
-			autocomplete="current-password"
-			required
-			maxlength={128}
-		/>
 		<section
 			class="space-y-3 rounded-xl border border-zinc-700 bg-zinc-900 p-4"
 			aria-labelledby="json-heading"
@@ -95,7 +92,7 @@
 					name="timeZone"
 					bind:value={timeZone}
 					maxlength="80"
-					required
+					placeholder="Your phone's time zone"
 					autocomplete="off"
 					autocapitalize="none"
 					spellcheck="false"

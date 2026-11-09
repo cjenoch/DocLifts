@@ -9,8 +9,7 @@ import {
 	freshTestDb,
 	seedTestUser,
 	signInAs,
-	startTestServer,
-	TEST_PASSWORD
+	startTestServer
 } from '$lib/server/test-auth-helpers';
 import { seedExportFixture } from '$lib/server/exports/test-fixtures';
 import * as s from '$lib/server/db/schema';
@@ -50,7 +49,6 @@ run('account downloads (production build)', () => {
 			redirect: 'manual',
 			body: new URLSearchParams({
 				format: 'json',
-				password: TEST_PASSWORD,
 				timeZone: 'UTC',
 				...fields
 			})
@@ -66,7 +64,8 @@ run('account downloads (production build)', () => {
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
 			true
 		);
-		await page.getByLabel('Current password', { exact: true }).fill(TEST_PASSWORD);
+		// No password step (owner decision 2026-11-09); the zone defaults to the phone's.
+		expect(await page.getByLabel('Current password', { exact: true }).count()).toBe(0);
 		await page.getByLabel('Time zone for Strong dates').fill('America/New_York');
 		const files: Record<string, Buffer> = {};
 		for (const [format, label, extension] of [
@@ -105,8 +104,22 @@ run('account downloads (production build)', () => {
 		expect(body).toContain('BOB');
 		expect(body).not.toContain('ALICE');
 	});
-	it('requires current credentials and same-origin bounded form input, rejects account selection and has no GET download', async () => {
-		expect((await post({ password: 'wrong-password' })).status).toBe(400);
+	it('needs no password, defaults Strong dates to the stored zone, and still requires same-origin bounded input', async () => {
+		// Positive first: a live session alone downloads.
+		expect((await post()).status).toBe(200);
+		// A page loaded before the change still sends a password; it is ignored.
+		expect((await post({ password: 'anything' })).status).toBe(200);
+		// A blank zone uses the zone the phone reported.
+		await harness.db
+			.update(s.authUsers)
+			.set({ timeZone: 'America/New_York' })
+			.where(eq(s.authUsers.id, alice));
+		const strong = await post({ format: 'strong', timeZone: '' });
+		expect(strong.status).toBe(200);
+		expect(await strong.text()).toContain('2026-06-09 21:30:00');
+		await harness.db.update(s.authUsers).set({ timeZone: null }).where(eq(s.authUsers.id, alice));
+		const utc = await post({ format: 'strong', timeZone: '' });
+		expect(await utc.text()).not.toContain('2026-06-09 21:30:00');
 		expect((await post({}, cookieA, 'https://evil.example')).status).toBe(403);
 		for (const fields of [
 			{ format: 'unknown' },
@@ -125,7 +138,7 @@ run('account downloads (production build)', () => {
 		});
 		expect(get.status).toBe(405);
 	});
-	it('refuses revoked sessions and accounts fenced for deletion even with the correct password', async () => {
+	it('refuses revoked sessions and accounts fenced for deletion', async () => {
 		await harness.db.delete(s.authSessions).where(eq(s.authSessions.userId, alice));
 		const revoked = await post();
 		expect(revoked.status).toBeGreaterThanOrEqual(300);

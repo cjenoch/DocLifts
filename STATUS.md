@@ -1,7 +1,7 @@
 # DocLifts — current status
 
-Updated October 24, 2026 UTC. Current application: **0.20.0 Alpha**, runtime `9d9dda83`.
-Deployed and automatically verified; owner phone/agent acceptance pending.
+Updated November 9, 2026 UTC. Current application: **0.20.0 Alpha**, runtime `bf5df84`.
+Deployed; owner phone acceptance for the audit follow-ups and safety warm-up remains pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -31,6 +31,22 @@ were checked, and a built-in test notification was submitted. Inbox delivery and
 an actual outage/recovery drill remain unverified. MCP discovery checks do not
 exercise OAuth or authenticated tools. Private configuration evidence is in the
 operator's ops repository.
+
+## November 9 audit follow-ups
+
+[PR #65](https://github.com/cjenoch/DocLifts/pull/65) deployed as `bf5df84` after
+branch CI and the independent full gate (1,247 server tests, 65 components and
+185 browser tests). Migration 0025 passed a restore rehearsal and production
+named-schema checks, with unchanged public/auth table row counts; the migration
+journal now contains 26 entries. Both web and the pinned deletion worker use the
+lease-aware release. The worker dry run found no pending jobs, its normal run
+succeeded, and its timer is active. The PR #64 safety container is unchanged. Public phone-width automation verified
+real sign-in and first use, time-zone storage, the new-machine format prompt,
+a persisted first set and workout completion using a fresh test account.
+
+Local workout days, the new-machine weight-format prompt, photo-removal wording
+and a real phone photo upload still need owner acceptance. See the
+[release runbook](docs/release-2026-11-09.md) for deployment and regression evidence.
 
 ## Deployment and evidence
 

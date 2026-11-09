@@ -1,37 +1,28 @@
-import { and, eq, gt, isNull, or } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { Database } from '../progression';
-import {
-	authSessions,
-	authUsers,
-	oauthAccessToken,
-	oauthClient,
-	oauthConsent,
-	oauthRefreshToken
-} from '../db/auth-schema';
+import { oauthAccessToken, oauthClient, oauthConsent, oauthRefreshToken } from '../db/auth-schema';
 import { MCP_SCOPES, mcpResource, tokenHash } from './config';
+import { grantIsLive } from './grant-validity';
 export type McpPrincipal = { userId: string; clientId: string; scopes: string[] };
-/** Only OAuth access tokens: browser cookies, API keys and refresh tokens are never accepted. */
+/** Only OAuth access tokens: browser cookies, API keys and refresh tokens are never accepted.
+ * The authorization behind the token must pass `grantIsLive`, the same predicate a
+ * refresh must pass; expiry, `revoked`, confirmation and audience are access-token checks. */
 export async function authenticateMcp(
 	db: Database,
 	header: string | null
 ): Promise<McpPrincipal | null> {
 	const match = /^Bearer ([A-Za-z0-9._~+/-]{16,512})$/.exec(header || '');
 	if (!match) return null;
+	const now = new Date();
 	const [row] = await db
-		.select({ token: oauthAccessToken, session: authSessions, client: oauthClient })
+		.select({ token: oauthAccessToken })
 		.from(oauthAccessToken)
-		.innerJoin(authSessions, eq(authSessions.id, oauthAccessToken.sessionId))
-		.innerJoin(authUsers, eq(authUsers.id, authSessions.userId))
-		.innerJoin(oauthClient, eq(oauthClient.clientId, oauthAccessToken.clientId))
 		.where(
 			and(
 				eq(oauthAccessToken.token, tokenHash(match[1])),
-				isNull(authUsers.deletionRequestedAt),
-				gt(oauthAccessToken.expiresAt, new Date()),
+				gt(oauthAccessToken.expiresAt, now),
 				isNull(oauthAccessToken.revoked),
-				gt(authSessions.expiresAt, new Date()),
-				eq(authSessions.userId, oauthAccessToken.userId),
-				or(eq(oauthClient.disabled, false), isNull(oauthClient.disabled))
+				grantIsLive(oauthAccessToken, now)
 			)
 		)
 		.limit(1);

@@ -1,8 +1,9 @@
-import { and, eq, getTableColumns, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
 import { exportFields as f } from './fields';
+import { sessionIsLive, userIsActive } from '../mcp/grant-validity';
 
 export const MAX_EXPORT_ROWS = 50_000;
 export const MAX_EXPORT_BYTES = 32 * 1024 * 1024;
@@ -25,9 +26,9 @@ export async function hasExportSession(db: Database, userId: string, sessionId: 
 		.where(
 			and(
 				eq(s.authUsers.id, userId),
-				isNull(s.authUsers.deletionRequestedAt),
+				userIsActive(),
 				eq(s.authSessions.id, sessionId),
-				gt(s.authSessions.expiresAt, new Date())
+				sessionIsLive()
 			)
 		)
 		.limit(1);

@@ -73,6 +73,17 @@ describe('account export isolation and fidelity', () => {
 		expect(JSON.stringify(theirs)).not.toContain('ALICE');
 		expect(await hasExportSession(h.db, alice, sessionId)).toBe(true);
 		expect(await hasExportSession(h.db, bob, sessionId)).toBe(false);
+		const [{ expiresAt }] = await h.db
+			.select({ expiresAt: s.authSessions.expiresAt })
+			.from(s.authSessions)
+			.where(eq(s.authSessions.id, sessionId));
+		await h.db
+			.update(s.authSessions)
+			.set({ expiresAt: new Date(Date.now() - 1000) })
+			.where(eq(s.authSessions.id, sessionId));
+		expect(await hasExportSession(h.db, alice, sessionId)).toBe(false);
+		await h.db.update(s.authSessions).set({ expiresAt }).where(eq(s.authSessions.id, sessionId));
+		expect(await hasExportSession(h.db, alice, sessionId)).toBe(true);
 		await h.db.delete(s.authSessions).where(eq(s.authSessions.id, sessionId));
 		expect(await hasExportSession(h.db, alice, sessionId)).toBe(false);
 		expect((await h.db.select().from(s.sets)).length).toBe(12);

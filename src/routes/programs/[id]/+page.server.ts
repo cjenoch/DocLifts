@@ -15,6 +15,7 @@ import { requireUser } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
 import { sessionIs } from '$lib/server/workout-state-sql';
 import { sessionPhase } from '$lib/workout-state';
+import { currentProgramVersion } from '$lib/server/program-versions';
 
 const uuidParamSchema = z.string().uuid();
 
@@ -123,8 +124,16 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		);
 	const trashCount = trashCountRow[0]?.count ?? 0;
 
+	// A retired version (replaced by an edit) renders read-only, with a link
+	// to the newest active version of its lineage, or none (owner decision,
+	// 2026-11-08). startSessionForDay refuses a new workout on it regardless.
+	const retired = program.isActive
+		? null
+		: { current: await currentProgramVersion(db, program.userId, program.id) };
+
 	return {
 		program,
+		retired,
 		days: programDays.map((d) => ({
 			...d,
 			openSessionId: openByDay.get(d.id) ?? null

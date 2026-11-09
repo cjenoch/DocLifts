@@ -12,7 +12,8 @@ import { createUser } from './users';
 import { auth } from './auth';
 import { warnIfNoLoginCapableAccount } from './startup-account-check';
 import { authUsers } from './db/auth-schema';
-import { SENTINEL_USER_ID } from './bootstrap';
+import { SENTINEL_EMAIL, SENTINEL_USER_ID } from './bootstrap';
+import { eq } from 'drizzle-orm';
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
 const db = (): TestDb => harness.db;
@@ -93,5 +94,35 @@ describe('startup account warning', () => {
 
 		expect(await warnIfNoLoginCapableAccount(db())).toBe(true);
 		expect(lines.join('\n')).toContain('NO LOGIN-CAPABLE ACCOUNT');
+	});
+
+	it("names a half-claimed sentinel as an interrupted bootstrap, not as 0011's placeholder", async () => {
+		// Control first: the unclaimed sentinel gets the 0011 text.
+		await db().insert(authUsers).values({
+			id: SENTINEL_USER_ID,
+			name: 'Owner',
+			email: SENTINEL_EMAIL,
+			emailVerified: false
+		});
+		let lines = captureWarn();
+		expect(await warnIfNoLoginCapableAccount(db())).toBe(true);
+		expect(lines.join('\n')).toContain('Migration 0011 created the sentinel');
+		expect(lines.join('\n')).not.toContain('partly claimed');
+
+		// The state a crash after the old bootstrap's first statement left.
+		await db()
+			.update(authUsers)
+			.set({ email: 'half@doclifts.invalid', emailVerified: true })
+			.where(eq(authUsers.id, SENTINEL_USER_ID));
+		vi.restoreAllMocks();
+		lines = captureWarn();
+
+		expect(await warnIfNoLoginCapableAccount(db())).toBe(true);
+		const text = lines.join('\n');
+		expect(text).toContain('partly claimed');
+		expect(text).toContain('user-prod.sh bootstrap');
+		expect(text).not.toContain('Migration 0011 created the sentinel');
+		// The operator's email is not written to the container log.
+		expect(text).not.toContain('half@doclifts.invalid');
 	});
 });

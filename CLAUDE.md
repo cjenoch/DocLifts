@@ -45,6 +45,7 @@ These are locked from planning v2.1/v2.2 and reflect substantive design decision
 - Editing a program **deep-copies** the program AND all child rows (`days`, `day_exercises`, `prescribed_sets`), marks the old program inactive, user edits the copy.
 - A shallow copy would create historical-mutation problems. Always deep copy children.
 - `programs.sourceProgramId` (self-FK, nullable) tracks lineage.
+- **A retired version is read-only (2026-11-08).** `is_active = false` on a user program means "replaced by an edit". `startSessionForDay` refuses a new session on it (409, `programUi.startRefused`) after returning any open session for the day, and re-checks the program `FOR SHARE` inside its transaction. The program page renders it without Start or Edit and links to `currentProgramVersion` (`program-versions.ts`, an owner-scoped forward walk of `source_program_id`); `/programs/[id]/edit` redirects a retired version to its page.
 
 ### History lookups always filter incomplete data
 
@@ -220,6 +221,7 @@ first ten minutes of real use. So (SPEC 0.5.0 Part E):
   phone offers the camera, the photo library and files.
 - **Check text as rendered** (`innerText`, a screenshot), not `textContent`:
   Svelte drops whitespace at the start of an `{#if}` block.
+- **One overlay at a time:** the session page's sheets are one `sheet` value, and opening one closes the rest-timer settings. Don't add another `open` boolean for an overlay.
 - **Safe areas:** the page uses `viewport-fit=cover`; anything fixed to an
   edge pads itself with `env(safe-area-inset-*)`.
 - **Specs carry a "how this is used on a phone" line.**
@@ -329,6 +331,7 @@ were syntactically fine and semantically absent.
 
 ## Schema discipline
 
+- `timestamp` columns without a time zone (`sessions.started_at` and others) hold UTC wall time; Drizzle reads and writes them as UTC. Take a day with `to_char(col, …)` and compare with `now() at time zone 'UTC'`; never `col at time zone 'UTC'` or a bare `now()` against such a column, which go through the server's TimeZone (2026-11-08, `/reports`).
 - Volume aggregates (when added post-MVP) MUST filter `target_metric = 'reps'` to avoid mixing planks (seconds) into weight × reps math.
 - All position columns have UNIQUE constraints with their parent (program × day_position, day × exercise_position, day_exercise × set_position).
 - All FK columns have explicit indexes declared. Drizzle does NOT auto-index FK columns; Postgres doesn't either.
@@ -748,6 +751,10 @@ builds — but no item is pre-banned. The "personal tool, not product" framing i
 - `src/lib/server/sessions.ts` — action helpers (`startSessionForDay`, `endSession`, `updateSetInSession`, which locks through `lockSession`), `loadSession` / `loadProgramOwnedSession` by `SessionAccessMode` (`'open' | 'not-trashed' | 'ended' | 'trashed'`), and Trash: `listDeletedSessionsForProgram` / `listDeletedSessionsForUser` (History, 0.5.2), `restoreSoftDeletedSession`, `hardDeleteSession`, `purgeDeletedSessionsForProgram`, all owner-scoped and by id. The route `+page.server.ts` files are thin wrappers around these.
 - `src/lib/server/workout-sets.ts` — in-session set mutation (append set, remove-empty-last-set) for the inline logging UX. Locks the session row, validates done/deleted state, uses a client-supplied `requestId` as the set PK for idempotency, tags appended sets as `machine`-sourced copies (provenance: "Copied from the previous set. Adjust to what you lift."). Never renumbers existing `position`s.
 - `src/lib/AddSheet.svelte` — the add sheet (0.8.0, machines spec Parts I and J), replacing the old add form: Machines and Exercises tabs, no dropdowns, free weights added with no gym or equipment, the weight format asked once per exercise and machine. Its data is `pickerData` in `src/lib/server/picker.ts` (owner-scoped; archived rows and the photo placeholder never appear); its strings and defaults are in `src/lib/picker-ui.ts`. The Exercises page (`/exercises`: rename, body region, hide) uses `src/lib/server/exercise-admin.ts`.
+- `src/lib/server/program-versions.ts` — `programVersionState` and `currentProgramVersion` (retired versions, 2026-11-08); the program page's strings for them are in `src/lib/program-ui.ts`.
+- `src/lib/server/mcp/grant-validity.ts` — `grantIsLive`, the one check that the authorization behind an MCP access or refresh token is live (session live and owned by the token's user, `userIsActive`, `clientIsUsable`, consent present), used by `authenticateMcp` and `requireRefreshSession`; `sessionIsLive` / `userIsActive` also serve `hasExportSession`. Never re-spell them. Refresh-token `revoked` belongs to the provider's rotation-reuse detection; don't add it to the refresh hook.
+- `src/lib/server/privacy/lifecycle.ts` — a deletion job's state is `deletionJobState(row)` (`'pending' | 'needs_retry' | 'completed'`, completion wins); SQL uses `deletionJobOpen()`. Never map `completed_at` / `last_error` by hand. `runDeletion` claims its job `FOR UPDATE SKIP LOCKED` and never holds that lock across journal or object I/O; a contended job or object is `busy`, not a failure, and no path writes `last_error` onto a completed job.
+- `src/lib/server/bootstrap.ts` — `pnpm user:bootstrap`. The sentinel claim is one transaction; its credential row is written by Better Auth's drizzle adapter bound to that transaction (`linkAccount` cannot join it). A new `account.create` database hook must be taught to `claimSentinel`.
 - `src/lib/server/live-edit.ts` — editing a live workout (0.10.0, editor spec Part L): `removeSessionExercise` (a count of logged sets must match), `skipRestOfExercise`, `moveSessionExercise` (positions exchanged through a parking value in one transaction), `swapSessionExercise`, and `applyProgramSwaps` (after `endSession`; fails safe while another workout of the program is open). All under `lockActive` (in `machines.ts`, built on `lockSession`), the exercise found through the session. The page's strings are in `workoutUi`; the swap UI is `AddSheet.svelte`'s swap mode.
 - `src/lib/server/session-lock.ts` — `lockSession(db, userId, sessionId, { within? })`: the only place a session row is locked `FOR UPDATE`. Returns the row in any phase, or null; callers read `sessionPhase()` and refuse in their own words. `{ within: 'not-trashed' }` puts `sessionIs.notTrashed()` in the locking WHERE, so a row trashed in the statement's snapshot is skipped at once instead of waited on while a restore holds it; only `updateSetInSession` passes it (a stale ended-session save must 404 during a restore, as it did before PR #61). `lockActive`, `workout-sets.ts`, `photo-workout.ts` and `updateSetInSession` all use it.
 - `src/lib/request-id.ts` — idempotency token helpers (client generates a per-submit UUID; server keys on it so a double-submit can't double-append).

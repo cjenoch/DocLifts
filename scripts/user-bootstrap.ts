@@ -17,6 +17,8 @@ const USAGE =
 	'Run after `pnpm db:migrate` on a database that has had 0011 applied.\n' +
 	`It claims the ${SENTINEL_USER_ID} sentinel, giving every row backfilled by 0011 a real owner.\n` +
 	'\n' +
+	'It refuses (exit 1) once the sentinel has been claimed; use pnpm user:set-password then.\n' +
+	'\n' +
 	'Prefer --password-stdin so the password is not in the process list or shell history.\n' +
 	'  printf %s "$(pass show doclifts)" | pnpm user:bootstrap --email you@example.com --password-stdin';
 
@@ -51,9 +53,6 @@ runCli(async ({ auth, db }) => {
 					`  user id      ${result.userId}\n` +
 					`  exercises    ${result.starterExercises} starter exercises`
 			);
-			return 0;
-		case 'already-provisioned':
-			console.log(`${result.email} is already provisioned (${result.userId}). Nothing to do.`);
 			return 0;
 	}
 });

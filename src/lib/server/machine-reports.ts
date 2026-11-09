@@ -42,6 +42,16 @@ export async function topExerciseIdentities(db: Database, userId: string) {
 // no owner predicate anywhere, so the page counted the whole database. Moved
 // here and scoped; `requireUser(locals).id` is the only source of the id.
 const DAY_MS = 86_400_000;
+// `sessions.started_at` is a timestamp WITHOUT time zone holding UTC wall time
+// (Drizzle writes and reads it as UTC), and this page's days are UTC days, as
+// History's are. The day is therefore `to_char` of the value itself:
+// `started_at at time zone 'UTC'` turned it into an instant and re-rendered it
+// in the server's TimeZone, so on a server not set to UTC an evening workout
+// west of Greenwich landed on the day before. Windows compare against the
+// current UTC wall time for the same reason: comparing the naive column with
+// `now()` casts it through the server's TimeZone.
+const startedUtcDay = sql<string>`to_char(${sessions.startedAt}, 'YYYY-MM-DD')`;
+const utcNow = sql`(now() at time zone 'UTC')`;
 
 export async function reportSnapshot(db: Database, userId: string) {
 	const [sessionCounts] = await db
@@ -110,7 +120,7 @@ export async function reportSnapshot(db: Database, userId: string) {
 	const byDate = new Map(consistency.map((d) => [d.dateKey, d]));
 	const consistencyRows = await db
 		.select({
-			dateKey: sql<string>`to_char(${sessions.startedAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+			dateKey: startedUtcDay,
 			count: count(sessions.id)
 		})
 		.from(sessions)
@@ -118,10 +128,10 @@ export async function reportSnapshot(db: Database, userId: string) {
 			and(
 				eq(sessions.userId, userId),
 				sessionIs.ended(),
-				sql`${sessions.startedAt} >= now() - interval '14 days'`
+				sql`${sessions.startedAt} >= ${utcNow} - interval '14 days'`
 			)
 		)
-		.groupBy(sql`to_char(${sessions.startedAt} at time zone 'UTC', 'YYYY-MM-DD')`);
+		.groupBy(startedUtcDay);
 	for (const row of consistencyRows) {
 		const bucket = byDate.get(row.dateKey);
 		if (bucket) bucket.count = Number(row.count);
@@ -131,8 +141,12 @@ export async function reportSnapshot(db: Database, userId: string) {
 
 	const [windowCounts] = await db
 		.select({
-			last7: count(sql`CASE WHEN ${sessions.startedAt} >= now() - interval '7 days' THEN 1 END`),
-			last28: count(sql`CASE WHEN ${sessions.startedAt} >= now() - interval '28 days' THEN 1 END`)
+			last7: count(
+				sql`CASE WHEN ${sessions.startedAt} >= ${utcNow} - interval '7 days' THEN 1 END`
+			),
+			last28: count(
+				sql`CASE WHEN ${sessions.startedAt} >= ${utcNow} - interval '28 days' THEN 1 END`
+			)
 		})
 		.from(sessions)
 		.where(and(eq(sessions.userId, userId), sessionIs.ended()));

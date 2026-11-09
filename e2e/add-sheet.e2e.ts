@@ -238,4 +238,63 @@ run('the add sheet and the Exercises page (production build)', () => {
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
+
+	/**
+	 * Audit of main, 2026-11-08. On a phone at 390 px the sheet is full screen,
+	 * so its own Back is the only way back a step: Back from the weight-format
+	 * step returns to the machine list with the chosen exercise still waiting,
+	 * and Escape (keyboard, assistive tech) closes the sheet without adding.
+	 */
+	it('Back from the weight format keeps the chosen exercise; Escape closes without adding', async () => {
+		const page = await signedInPage();
+		const { sheet, sessionId } = await openSheet(page);
+		await sheet.getByRole('tab', { name: ui.exercisesTab }).click();
+		await sheet.getByRole('searchbox', { name: ui.searchExercises }).fill('Leg extension');
+		await sheet.getByTestId('exercise-row').filter({ hasText: 'Leg extension' }).first().click();
+		await sheet.getByTestId('machine-row').filter({ hasText: 'Curl by the door' }).first().click();
+		// Never done on this machine: the format is asked.
+		await sheet.getByText(ui.weightFormat, { exact: true }).waitFor();
+		await sheet.getByRole('button', { name: ui.back, exact: true }).click();
+		expect(await sheet.getByTestId('exercise-context').innerText()).toContain('Leg extension');
+		expect(
+			await sheet.getByTestId('machine-row').filter({ hasText: 'Curl by the door' }).count()
+		).toBeGreaterThan(0);
+
+		await page.keyboard.press('Escape');
+		await expect.poll(() => page.getByRole('dialog').count()).toBe(0);
+		expect(await blocksOf(sessionId)).toHaveLength(0);
+		await page.close();
+	});
+
+	/**
+	 * Audit of main, 2026-11-08: the add, bind and swap sheets were three
+	 * booleans, and the timer settings a fourth overlay at the same z-index.
+	 * On a phone only one may be up at a time; opening a sheet closes the rest.
+	 */
+	it('one overlay at a time: Add over an open Bind sheet leaves one dialog, and closes timer settings', async () => {
+		const page = await signedInPage();
+		const { sheet } = await openSheet(page);
+		await sheet.getByTestId('machine-row').filter({ hasText: 'Curl by the door' }).first().click();
+		await sheet.getByRole('button', { name: /^Leg curl/ }).click();
+		await expect.poll(() => page.getByRole('heading', { name: 'Leg curl' }).count()).toBe(1);
+		await expect.poll(() => page.getByRole('dialog').count()).toBe(0);
+
+		await page.getByRole('button', { name: 'Timer settings', exact: true }).click();
+		await page.getByRole('region', { name: 'Rest timer settings' }).waitFor();
+		// Reached as assistive tech would, past the panel's backdrop.
+		await page.getByRole('button', { name: ui.changeMachine, exact: true }).dispatchEvent('click');
+		await page.getByRole('heading', { name: ui.chooseMachineFor('Leg curl') }).waitFor();
+		expect(await page.getByRole('region', { name: 'Rest timer settings' }).count()).toBe(0);
+
+		await page.locator('footer .jump-add').dispatchEvent('click');
+		await page.getByRole('heading', { name: ui.addExercise, exact: true }).waitFor();
+		expect(await page.getByRole('dialog').count()).toBe(1);
+		expect(await page.getByRole('heading', { name: ui.chooseMachineFor('Leg curl') }).count()).toBe(
+			0
+		);
+		await page.keyboard.press('Escape');
+		await expect.poll(() => page.getByRole('dialog').count()).toBe(0);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
 });

@@ -147,8 +147,41 @@ it('counts an ended session and its completed sets', async () => {
 		completedSets: 2,
 		completionPct: 100
 	});
-	const today = new Date().toISOString().slice(0, 10);
-	expect(result.consistency.find((d) => d.dateKey === today)?.count).toBe(1);
+	// Which cell it lands in is the next test's job, on pinned times: this
+	// session's started_at comes from the column default, which writes the
+	// database server's wall time, so a calendar-day assertion here flaked on a
+	// server set to America/Detroit every evening.
+	expect(result.consistency.reduce((n, d) => n + d.count, 0)).toBe(1);
+});
+
+// An evening workout in America/Detroit is already the next day in UTC, and
+// days on this page (as on History) are UTC days. The bucket must not depend
+// on the database server's TimeZone: `started_at` is a timestamp without time
+// zone holding UTC wall time (Drizzle's convention), and the old
+// `started_at at time zone 'UTC'` re-rendered it in the server's zone, so on a
+// server set to America/Detroit the workout landed on the day before and
+// today's cell read 0. The session times are written by Drizzle (UTC), not by
+// the column default, which writes the server's wall time.
+it('buckets an evening workout on its UTC day whatever the server time zone', async () => {
+	const db = testDb.db!;
+	const sessionId = await endedSessionWithCompletedSets();
+	// Yesterday 00:30 UTC: 19:30 (EST) or 20:30 (EDT) the evening before in Detroit.
+	const utcDay = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+	const now = new Date(`${utcDay}T00:30:00Z`);
+	await db
+		.update(s.sessions)
+		.set({ startedAt: new Date(`${utcDay}T00:10:00Z`), endedAt: new Date(`${utcDay}T00:25:00Z`) })
+		.where(eq(s.sessions.id, sessionId));
+	vi.useFakeTimers({ toFake: ['Date'] });
+	vi.setSystemTime(now);
+	try {
+		const result = await callLoad();
+		expect(result.consistency.at(-1)).toEqual({ dateKey: utcDay, count: 1 });
+		expect(result.consistency.reduce((n, d) => n + d.count, 0)).toBe(1);
+		expect(result.overview).toMatchObject({ last7Sessions: 1, last28Sessions: 1 });
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 // The page's six queries all live in reportSnapshot, owner-scoped. Before (h)

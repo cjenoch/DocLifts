@@ -10,6 +10,7 @@ import {
 	saveProgramDraft
 } from '$lib/server/program-builder';
 import { requireUser } from '$lib/server/request-user';
+import { programVersionState } from '$lib/server/program-versions';
 import { programDraftWithWorkoutDay, WorkoutNotFoundError } from '$lib/server/workout-to-program';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -29,6 +30,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			throw cause;
 		})
 	]);
+	// A retired version cannot be saved (ProgramInactiveError), so its editor
+	// never opens: the retired program page says it was replaced and links to
+	// the current version (owner decision, 2026-11-08). Checked after the draft
+	// loads, so a foreign or absent program is still the 404 above (D6).
+	if ((await programVersionState(db, userId, params.id))?.isActive === false)
+		redirect(303, `/programs/${params.id}`);
 	return {
 		library,
 		requestId: randomUUID(),

@@ -38,7 +38,12 @@ Compose supplies neither.
 
 Tunables: timeout 5 seconds (100 ms to 15 seconds), local NSFW threshold 0.5
 (scores at or above it refuse), and 60 attempts per user per rolling hour.
-Reservations are atomic and count errors and blocked verdicts. The existing
+Reservations are atomic and count errors and blocked verdicts, and also the
+limit's own refusals, so a client that keeps retrying stays refused until it
+pauses (see [llm.md](llm.md#the-photo-safety-path-is-different-on-purpose)).
+A reservation whose process died mid-call stays `refused`/`pending` until the
+retention sweep settles it to `timeout`/`abandoned` after 15 minutes; it still
+counts toward the hour it was made in. The existing
 stored-photo daily cap and OpenRouter key budget remain in force. Deadlines,
 malformed replies, missing keys, a busy service and exceeded caps fail closed.
 

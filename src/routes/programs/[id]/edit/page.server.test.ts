@@ -68,3 +68,19 @@ it('returns HTTP 404 for a system program, which has no editor', async () => {
 	const result = await Promise.resolve(load(event(programId))).catch((cause: unknown) => cause);
 	expect(isHttpError(result, 404)).toBe(true);
 });
+
+it('redirects the editor of a retired version to its read-only page', async () => {
+	// Owner decision 2026-11-08: a retired version's editor never opens, so it
+	// cannot open and then fail on save with "Program is inactive".
+	const s = await import('$lib/server/db/schema');
+	const { duplicateProgramForEditInTransaction } = await import('$lib/server/programs');
+	const [program] = await harness.db.insert(s.programs).values({ name: 'P', userId }).returning();
+	// Positive first: the active version's editor opens.
+	expect(await load(event(program.id))).toMatchObject({ sourceProgramId: program.id });
+	const current = await harness.db.transaction((tx) =>
+		duplicateProgramForEditInTransaction(tx, userId, program.id)
+	);
+	const result = await Promise.resolve(load(event(program.id))).catch((cause: unknown) => cause);
+	expect(result).toMatchObject({ status: 303, location: `/programs/${program.id}` });
+	expect(await load(event(current.id))).toMatchObject({ sourceProgramId: current.id });
+});

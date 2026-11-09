@@ -135,6 +135,34 @@ so a loop that keeps asking cannot keep itself locked out. A restart clears it,
 and a second replica would multiply it; before a second replica, count from
 `llm_calls` instead (the rows are already there).
 
+### The photo-safety path is different on purpose
+
+`complete()` with `safety` set hands off to `completeSafety()` (`llm/safety.ts`),
+which does not use the in-memory cap. It counts `photo_safety` rows in
+`llm_calls` for the last hour under a per-user advisory lock, and it counts
+**every** row: passes, blocks, errors, timeouts and its own `hourly_cap`
+refusals. The rows have to be counted, so that concurrent uploads and restarts
+cannot slip past the limit; that errors and blocked verdicts count is documented
+in [photo-safety.md](photo-safety.md). That its own refusals also count means a
+client that keeps retrying stays refused until it pauses for an hour, the
+opposite of the rule above. It fails closed for an upload path, but it is an
+undocumented difference: an owner decision, not a settled rule.
+
+Before any I/O it inserts a reservation, `refused` / `pending`, and moves it to
+`ok`, `schema_error`, `provider_error` or `timeout` when the call ends. A process
+that dies in between leaves the reservation. The retention sweep
+(`pnpm privacy --mode retention`) settles one older than 15 minutes
+(`ABANDONED_RESERVATION_MINUTES`; the call timeout is at most 15 seconds) to
+`timeout` / `abandoned`, once, before it clears any `error_code`. Without that,
+the cleared row would read as a cap refusal. The settled row keeps its purpose and
+`created_at`, so the hourly count is unchanged.
+
+| Row status / error_code  | Meaning                                               |
+| ------------------------ | ----------------------------------------------------- |
+| `refused` / `pending`    | reservation; the call is running, or its process died |
+| `refused` / `hourly_cap` | the safety hourly limit was reached                   |
+| `timeout` / `abandoned`  | a reservation settled by retention                    |
+
 ## Smoke test: `pnpm llm:ping`
 
 One real call, `purpose: 'ping'`, schema `{ ok: boolean, model: string }`,

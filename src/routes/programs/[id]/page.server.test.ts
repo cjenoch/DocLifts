@@ -206,3 +206,64 @@ it('a system program has no program page: 404, like a missing id', async () => {
 	const result = await Promise.resolve(load(loadEvent(programId))).catch((e: unknown) => e);
 	expect(isHttpError(result, 404)).toBe(true);
 });
+
+// A retired version is read-only, with a link to the current one (owner
+// decision, 2026-11-08). Phone: reached from History's "(archived)" link.
+async function retiredProgram() {
+	const db = testDb.db!;
+	const { duplicateProgramForEditInTransaction } = await import('$lib/server/programs');
+	const [program] = await db.insert(s.programs).values({ name: 'Old', userId }).returning();
+	const [day] = await db
+		.insert(s.days)
+		.values({ programId: program.id, name: 'D', position: 1 })
+		.returning();
+	const current = await db.transaction((tx) =>
+		duplicateProgramForEditInTransaction(tx, userId, program.id)
+	);
+	return { programId: program.id, dayId: day.id, currentId: current.id };
+}
+
+const loadAs = (id: string) =>
+	({ params: { id }, locals: { user: { id: userId } } }) as unknown as Parameters<typeof load>[0];
+
+it('load marks a retired version read-only and names its current version', async () => {
+	const { programId, currentId } = await retiredProgram();
+	// Positive first: the current version is not retired.
+	expect(await load(loadAs(currentId))).toMatchObject({ retired: null });
+	expect(await load(loadAs(programId))).toMatchObject({
+		retired: { current: { id: currentId, name: 'Old' } }
+	});
+});
+
+it('startSession refuses a retired version with 409 and writes no session', async () => {
+	const { programId, dayId, currentId } = await retiredProgram();
+	const { programUi } = await import('$lib/program-ui');
+	const result = await actions.startSession(post(programId, { dayId }));
+	expect(result).toMatchObject({ status: 409, data: { message: programUi.startRefused } });
+	expect(await testDb.db!.select().from(s.sessions)).toHaveLength(0);
+	// The current version's day starts (redirect to the new session).
+	const [currentDay] = await testDb
+		.db!.select()
+		.from(s.days)
+		.where(eq(s.days.programId, currentId));
+	await expect(
+		actions.startSession(post(currentId, { dayId: currentDay.id }))
+	).rejects.toMatchObject({ status: 303 });
+	expect(await testDb.db!.select().from(s.sessions)).toHaveLength(1);
+});
+
+it('load still offers Resume for a workout open on a retired version', async () => {
+	const db = testDb.db!;
+	const [program] = await db.insert(s.programs).values({ name: 'Old', userId }).returning();
+	const [day] = await db
+		.insert(s.days)
+		.values({ programId: program.id, name: 'D', position: 1 })
+		.returning();
+	const open = await startSessionForDay(db, userId, day.id);
+	if (!open.ok) throw new Error(open.message);
+	const { duplicateProgramForEditInTransaction } = await import('$lib/server/programs');
+	await db.transaction((tx) => duplicateProgramForEditInTransaction(tx, userId, program.id));
+	const data = await load(loadAs(program.id));
+	expect(data).toMatchObject({ retired: { current: { name: 'Old' } } });
+	expect(data && 'days' in data ? data.days[0].openSessionId : null).toBe(open.sessionId);
+});

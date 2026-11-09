@@ -199,6 +199,17 @@ The sentinel was then claimed by bootstrap, so `auth."user"` now holds
 row. **The id did not change** — bootstrap claims the existing row rather than
 inserting a new user, which is what keeps every backfilled row attached.
 
+Since 2026-11-08 the claim is one transaction (`claimSentinel` in
+`src/lib/server/bootstrap.ts`): the email/name update, the credential row and
+the starter exercises commit together or not at all, so a failed bootstrap
+leaves the sentinel exactly as 0011 wrote it and a re-run is safe. Bootstrap
+refuses, exiting 1, once the sentinel has a credential row; a password change
+after that is `pnpm user:set-password`. A sentinel with a real email and no
+credential row (only the earlier three-statement claim could leave one) is
+still claimable, and the startup warning names it as an interrupted bootstrap.
+"Unclaimed" in the revert note below means: email `owner@localhost` and no
+`auth."account"` row for the sentinel.
+
 0011 sets the eight `user_id` columns NOT NULL. Order inside the file matters
 and is hand-written, because the generated content alone is insufficient: on a
 database with rows, `SET NOT NULL` fails on the first unowned row. So 0011

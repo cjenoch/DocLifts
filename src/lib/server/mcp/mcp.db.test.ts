@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from 'vitest';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { createUser } from '../users';
 import { setupTestDb, resetTestDbWithUsers } from '../test-db';
 import { createAuth } from '../auth-core';
@@ -749,6 +749,155 @@ describe('MCP scoped tools and bounded requests', () => {
 		expect(await h.db.select().from(s.sets)).toMatchObject([
 			{ id: set.id, executedLoad: 30, notes: 'SET_NOTE' }
 		]);
+	});
+});
+
+describe('MCP grant validity: access and refresh refuse for the same reasons', () => {
+	type Grant = Awaited<ReturnType<typeof grant>>;
+	const rows = async (g: Grant, userId: string) => ({
+		refresh: await h.db
+			.select()
+			.from(s.oauthRefreshToken)
+			.where(
+				and(
+					eq(s.oauthRefreshToken.userId, userId),
+					eq(s.oauthRefreshToken.clientId, g.client.client_id)
+				)
+			),
+		access: await h.db
+			.select()
+			.from(s.oauthAccessToken)
+			.where(
+				and(
+					eq(s.oauthAccessToken.userId, userId),
+					eq(s.oauthAccessToken.clientId, g.client.client_id)
+				)
+			)
+	});
+	/** Positive first: the grant reads and refreshes, then the rotated pair reads. */
+	async function liveGrant(userId: string): Promise<Grant> {
+		const g = await grant(userId);
+		expect(await authenticateMcp(h.db, 'Bearer ' + g.token)).toMatchObject({ userId });
+		const rotated = await refreshGrant(g);
+		expect(rotated.response.status, JSON.stringify(rotated.body)).toBe(200);
+		const next = { ...g, token: rotated.body.access_token, refresh: rotated.body.refresh_token };
+		expect(await authenticateMcp(h.db, 'Bearer ' + next.token)).toMatchObject({ userId });
+		return next;
+	}
+	const conditions: Record<string, (g: Grant, userId: string) => Promise<unknown>> = {
+		'client disabled': (g) =>
+			h.db
+				.update(s.oauthClient)
+				.set({ disabled: true })
+				.where(eq(s.oauthClient.clientId, g.client.client_id)),
+		'consent withdrawn outside revokeConnection': (g, userId) =>
+			h.db
+				.delete(s.oauthConsent)
+				.where(
+					and(eq(s.oauthConsent.userId, userId), eq(s.oauthConsent.clientId, g.client.client_id))
+				),
+		'account fenced for deletion': (_g, userId) =>
+			h.db
+				.update(s.authUsers)
+				.set({ deletionRequestedAt: new Date() })
+				.where(eq(s.authUsers.id, userId)),
+		'login session expired': (g) =>
+			h.db
+				.update(s.authSessions)
+				.set({ expiresAt: new Date(0) })
+				.where(eq(s.authSessions.id, g.session.id))
+	};
+	it.each(Object.keys(conditions))(
+		'%s: refuses access and refresh for that grant only, and removes its family',
+		async (condition) => {
+			const mine = await liveGrant(alice);
+			const theirs = await liveGrant(bob);
+			await conditions[condition](mine, alice);
+
+			expect(await authenticateMcp(h.db, 'Bearer ' + mine.token)).toBeNull();
+			const denied = await refreshGrant(mine);
+			expect(denied.response.status).toBe(400);
+			expect(denied.body).toMatchObject({ error: 'invalid_grant' });
+			expect(denied.body.access_token).toBeUndefined();
+			expect(denied.body.refresh_token).toBeUndefined();
+			// State, not response: the refused authorization's tokens are gone.
+			expect(await rows(mine, alice)).toEqual({ refresh: [], access: [] });
+
+			// The other account's grant is untouched and still reads and refreshes.
+			expect(await authenticateMcp(h.db, 'Bearer ' + theirs.token)).toMatchObject({
+				userId: bob
+			});
+			const still = await refreshGrant(theirs);
+			expect(still.response.status, JSON.stringify(still.body)).toBe(200);
+			expect(await authenticateMcp(h.db, 'Bearer ' + still.body.access_token)).toMatchObject({
+				userId: bob
+			});
+		}
+	);
+	it('never lets another account satisfy the grant: session or consent of a different user', async () => {
+		const mine = await liveGrant(alice);
+		const theirs = await liveGrant(bob);
+		const [mineRefresh] = (await rows(mine, alice)).refresh;
+		expect(mineRefresh).toBeTruthy();
+		// Alice's consent replaced by Bob's consent for the SAME client.
+		await h.db
+			.delete(s.oauthConsent)
+			.where(
+				and(eq(s.oauthConsent.userId, alice), eq(s.oauthConsent.clientId, mine.client.client_id))
+			);
+		await h.db.insert(s.oauthConsent).values({
+			id: randomUUID(),
+			clientId: mine.client.client_id,
+			userId: bob,
+			resources: [mcpResource()],
+			scopes: ['workouts:read', 'programs:read', 'equipment:read', 'offline_access'],
+			createdAt: new Date(),
+			updatedAt: new Date()
+		});
+		expect(await authenticateMcp(h.db, 'Bearer ' + mine.token)).toBeNull();
+		expect((await refreshGrant(mine)).body).toMatchObject({ error: 'invalid_grant' });
+		expect(await rows(mine, alice)).toEqual({ refresh: [], access: [] });
+		// Bob's own grant on his own client is unaffected.
+		expect(await authenticateMcp(h.db, 'Bearer ' + theirs.token)).toMatchObject({ userId: bob });
+
+		// A refresh row bound to Bob's live session is not Alice's live session.
+		const again = await liveGrant(alice);
+		await h.db
+			.update(s.oauthRefreshToken)
+			.set({ sessionId: theirs.session.id })
+			.where(eq(s.oauthRefreshToken.token, tokenHash(again.refresh)));
+		await h.db
+			.update(s.oauthAccessToken)
+			.set({ sessionId: theirs.session.id })
+			.where(eq(s.oauthAccessToken.token, tokenHash(again.token)));
+		expect(await authenticateMcp(h.db, 'Bearer ' + again.token)).toBeNull();
+		expect((await refreshGrant(again)).body).toMatchObject({ error: 'invalid_grant' });
+		expect(await rows(again, alice)).toEqual({ refresh: [], access: [] });
+		expect(await authenticateMcp(h.db, 'Bearer ' + theirs.token)).toMatchObject({ userId: bob });
+	});
+	it('refuses a revoked access token, and a revoked (rotated) refresh token, on their own', async () => {
+		const g = await liveGrant(alice);
+		const other = await liveGrant(alice);
+		await h.db
+			.update(s.oauthAccessToken)
+			.set({ revoked: new Date() })
+			.where(eq(s.oauthAccessToken.token, tokenHash(g.token)));
+		expect(await authenticateMcp(h.db, 'Bearer ' + g.token)).toBeNull();
+		expect(await authenticateMcp(h.db, 'Bearer ' + other.token)).toMatchObject({ userId: alice });
+
+		// The provider marks a rotated refresh token revoked. Presenting it again is
+		// reuse: refused by the provider's own reuse detection, not by grantIsLive.
+		const rotated = await refreshGrant(g);
+		expect(rotated.response.status).toBe(200);
+		const [old] = await h.db
+			.select()
+			.from(s.oauthRefreshToken)
+			.where(eq(s.oauthRefreshToken.token, tokenHash(g.refresh)));
+		expect(old.revoked).toBeInstanceOf(Date);
+		const replay = await refreshGrant(g);
+		expect(replay.response.status).toBe(400);
+		expect(replay.body).toMatchObject({ error: 'invalid_grant' });
+		expect(replay.body.access_token).toBeUndefined();
 	});
 });
 

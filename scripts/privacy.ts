@@ -2,13 +2,15 @@ import { configureStorageLocks, closeStorageLocks } from '../src/lib/server/priv
 /** Deliberately no timer or production wrapper: review activation separately. */
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import * as schema from '../src/lib/server/db/schema';
 import { durableLedger, readLedger } from '../src/lib/server/privacy/ledger';
 import {
 	reconcileDeletions,
 	runDeletion,
-	acknowledgeUploadSettlement
+	acknowledgeUploadSettlement,
+	deletionJobOpen,
+	deletionJobSummary
 } from '../src/lib/server/privacy/lifecycle';
 import {
 	RETENTION_DEFAULTS,
@@ -80,25 +82,35 @@ try {
 			.from(schema.privacyDeletions)
 			.where(
 				and(
-					isNull(schema.privacyDeletions.completedAt),
+					deletionJobOpen(),
 					values.owner ? eq(schema.privacyDeletions.ownerId, values.owner) : undefined
 				)
 			)
 			.orderBy(schema.privacyDeletions.requestedAt)
 			.limit(limit);
+		// Aggregates only: no job, owner or subject identifiers in the output.
+		const before = deletionJobSummary(jobs);
 		if (!values.apply)
-			console.log(JSON.stringify({ mode: 'dry-run', pendingJobs: jobs.length, limit }));
+			console.log(JSON.stringify({ mode: 'dry-run', pendingJobs: jobs.length, ...before, limit }));
 		else {
 			const ledger = durableLedger();
 			const store = createPhotoStore();
-			const counts = { completed: 0, pending: 0, failed: 0, not_found: 0, removed: 0 };
+			// `busy`: another runner holds that job; it is not a failure.
+			const counts = {
+				completed: 0,
+				pending: 0,
+				failed: 0,
+				busy: 0,
+				not_found: 0,
+				removed: 0
+			};
 			for (const job of jobs) {
 				if (!job.ownerId) continue;
 				const result = await runDeletion(db, job.ownerId, job.id, store, ledger, limit);
 				counts[result.state]++;
 				counts.removed += result.removed;
 			}
-			console.log(JSON.stringify(counts));
+			console.log(JSON.stringify({ ...counts, before }));
 			if (counts.failed) process.exitCode = 1;
 		}
 	} else {

@@ -1,5 +1,5 @@
 import { deletionEnabled, durableLedger } from '$lib/server/privacy/ledger';
-import { requestPhotoDeletion, runDeletion } from '$lib/server/privacy/lifecycle';
+import { deletionJobState, requestPhotoDeletion, runDeletion } from '$lib/server/privacy/lifecycle';
 import { privacyDeletions, photoObjects } from '$lib/server/db';
 import { subjectHash } from '$lib/server/privacy/ledger';
 import { and, eq } from 'drizzle-orm';
@@ -41,7 +41,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	// A photo that opened a workout block (0.6.0): linking names that block.
 	const block = await unidentifiedBlockOfPhoto(db, userId, photo.id);
 	const [removal] = await db
-		.select({ completedAt: privacyDeletions.completedAt })
+		.select({ completedAt: privacyDeletions.completedAt, lastError: privacyDeletions.lastError })
 		.from(privacyDeletions)
 		.where(
 			and(
@@ -55,7 +55,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		.where(and(eq(photoObjects.photoId, photo.id), eq(photoObjects.userId, userId)));
 	return {
 		deletionEnabled: deletionEnabled(),
-		removalPending: (!!removal && !removal.completedAt) || (!!object && object.state !== 'stored'),
+		removalPending:
+			(!!removal && deletionJobState(removal) !== 'completed') ||
+			(!!object && object.state !== 'stored'),
 		block,
 		userId,
 		photo: { id: photo.id, status: photo.status, width: photo.width, height: photo.height },

@@ -36,7 +36,10 @@ request or data already sent to a provider or agent.
 
 The public privacy page can show this browser's deletion receipt, using a 30-day
 HttpOnly cookie. It distinguishes pending, retry-needed and completed. Pending is
-not success; an operator must run the worker. Repeated or stale sessions cannot
+not success; an operator must run the worker. Every reader takes that state from
+`deletionJobState()` in `privacy/lifecycle.ts`: completed when `completed_at` is
+set (it wins over any `last_error`), otherwise retry-needed when `last_error` is
+set, otherwise pending. No page or script maps the columns itself. Repeated or stale sessions cannot
 submit a second destructive request. Only minimal completion status is exposed by
 the random receipt capability, never account details.
 
@@ -133,6 +136,11 @@ logs or command examples. The default is dry-run. Choose exactly one of `--owner
 (the opaque account ID) or `--all`. Output contains counts/status, not account
 content, keys, provider messages or database errors.
 
+Before clearing model-call details, each owner's retention sweep settles
+abandoned photo-safety reservations (`refused`/`pending`, older than 15
+minutes) to `timeout`/`abandoned`, reported as `abandoned` in dry-run and
+apply totals.
+
 ```sh
 pnpm privacy --mode retention --all --limit 25
 pnpm privacy --mode retention --owner ACCOUNT_ID --details-days 30 --records-days 90 --expired-auth-days 7 --discarded-days 30
@@ -143,7 +151,20 @@ pnpm privacy --mode deletions --all --apply --limit 25
 
 Use `nextAfter` with `--after` to continue the account scan. Repeat bounded deletion
 passes until no jobs remain; a failed batch exits nonzero, and `last_error` records
-only the failing stage (`ledger`, `storage`, `database`). Expired authentication
+only the failing stage (`ledger`, `storage`, `database`). A failure is never written
+onto a completed job (it is re-checked under the job row's lock), and completion
+clears `last_error`. A run claims its job with `FOR UPDATE SKIP LOCKED` and counts
+the claim in `attempts`, whatever the outcome. A job whose row another runner is
+claiming, or one of whose objects another holder has locked (a second runner, an
+upload, a retention sweep), is `busy`: no error is recorded and the batch does not
+fail. The row lock is not held across journal or object I/O, so two runners can
+still overlap between those points; each object's erasure is serialized and
+idempotent, and the job completes once. The dry run prints `pendingJobs` (open
+jobs), split into `pending` and `needsRetry`, with `maxAttempts`; apply prints the
+outcome counts (`completed`, `pending`, `failed`, `busy`, `not_found`, `removed`)
+and the same summary as `before`. Aggregates only, never job or owner identifiers.
+There is no retry ceiling: a deletion is never abandoned. Alert on `needsRetry`
+with a climbing `maxAttempts`, and on pending age. Expired authentication
 parents remain while any child token references them; each pass removes only its
 selected owner’s eligible rows, without cascades into live or foreign tokens. Alert on pending age,
 retry failures and missing worker runs when scheduling is separately approved.

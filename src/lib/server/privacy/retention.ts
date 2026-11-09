@@ -4,6 +4,7 @@ import * as s from '../db/schema';
 import type { Ledger } from './ledger';
 import { erasePhotoObject } from './lifecycle';
 import type { PhotoStore } from '../photos/store';
+import { SAFETY_PURPOSE } from '../llm/safety';
 
 export const RETENTION_DEFAULTS = {
 	detailsDays: 30,
@@ -12,6 +13,10 @@ export const RETENTION_DEFAULTS = {
 	discardedDays: 30
 };
 export type RetentionPolicy = typeof RETENTION_DEFAULTS;
+/** A photo-safety reservation (`refused`/`pending`, written by completeSafety
+ * before any I/O) is settled within the call timeout, at most 15 seconds. One
+ * still pending after this long belongs to a process that died mid-call. */
+export const ABANDONED_RESERVATION_MINUTES = 15;
 export function validateRetention(policy: RetentionPolicy) {
 	for (const value of Object.values(policy))
 		if (!Number.isInteger(value) || value < 1 || value > 3650)
@@ -56,8 +61,34 @@ export async function sweepRetention(
 			verifications: 0,
 			discarded: 0,
 			failed: 0,
+			abandoned: 0,
 			applied: !!options.apply
 		};
+	// Settle abandoned safety reservations first: the details pass below clears
+	// error_code, after which a stuck `refused`/`pending` row would read as a cap
+	// refusal. `timeout`/`abandoned` is terminal, so a row is settled once. The
+	// row keeps its purpose and created_at, so the safety hourly cap (which counts
+	// every photo_safety row) counts it exactly as before.
+	const abandonedReservation = and(
+		eq(s.llmCalls.userId, userId),
+		eq(s.llmCalls.purpose, SAFETY_PURPOSE),
+		eq(s.llmCalls.status, 'refused'),
+		eq(s.llmCalls.errorCode, 'pending'),
+		lt(s.llmCalls.createdAt, new Date(now.getTime() - ABANDONED_RESERVATION_MINUTES * 60000)),
+		sql`${s.llmCalls.createdAt} < now() - make_interval(mins => ${ABANDONED_RESERVATION_MINUTES})`
+	);
+	const abandoned = await db
+		.select({ id: s.llmCalls.id })
+		.from(s.llmCalls)
+		.where(abandonedReservation)
+		.orderBy(s.llmCalls.createdAt, s.llmCalls.id)
+		.limit(limit);
+	if (options.apply)
+		for (const row of abandoned)
+			await db
+				.update(s.llmCalls)
+				.set({ status: 'timeout', errorCode: 'abandoned' })
+				.where(and(eq(s.llmCalls.id, row.id), abandonedReservation));
 	const details = await db
 		.select({ id: s.llmCalls.id })
 		.from(s.llmCalls)
@@ -97,6 +128,7 @@ export async function sweepRetention(
 		verifications: 0,
 		discarded: 0,
 		failed: 0,
+		abandoned: abandoned.length,
 		applied: !!options.apply
 	};
 	if (options.apply) {

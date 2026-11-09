@@ -10,6 +10,7 @@ import { browserSuite, authenticatedPage, violations } from './browser';
  *
  * Prerequisites and skip rules are the same as csp.e2e.ts.
  */
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { eq } from 'drizzle-orm';
@@ -23,7 +24,9 @@ import {
 import * as s from '$lib/server/db/schema';
 import { startQuickSession } from '$lib/server/quick-workouts';
 import { addSessionExercise, createGym } from '$lib/server/machines';
-import { endSession } from '$lib/server/sessions';
+import { endSession, softDeleteEndedSession, startSessionForDay } from '$lib/server/sessions';
+import { blankSetDraft } from '$lib/program-draft';
+import { saveProgramDraft } from '$lib/server/program-builder';
 import { workoutUi } from '$lib/workout-ui';
 
 const { run, executablePath } = browserSuite();
@@ -170,6 +173,75 @@ run('Trash on History (production build)', () => {
 			.toBe(`${workoutUi.historyTrashHeading} (0)`);
 		expect(await listLink(page).count()).toBe(0);
 
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
+
+	/**
+	 * Audit of main, 2026-11-08: the program page's "Empty Trash" kept PURGE
+	 * typed after a Cancel, so the second attempt was one tap. On a phone the
+	 * button sits under a thumb on the program page; the word must be typed
+	 * again every time.
+	 */
+	it('Empty Trash: Cancel forgets PURGE, the second attempt must type it again', async () => {
+		const db = harness.db;
+		const [press] = await db
+			.select()
+			.from(s.exercises)
+			.where(eq(s.exercises.userId, userId))
+			.limit(1);
+		const program = await saveProgramDraft(db, userId, {
+			requestId: randomUUID(),
+			sourceProgramId: null,
+			draft: {
+				name: 'Purge program',
+				description: null,
+				days: [
+					{
+						name: 'Purge day',
+						notes: null,
+						alternateGroupId: null,
+						exercises: [
+							{
+								exerciseId: press.id,
+								newExercise: null,
+								tier: 'secondary',
+								progressionPolicy: 'standard',
+								notes: null,
+								sets: [{ ...blankSetDraft(), initialLoad: 50 }]
+							}
+						]
+					}
+				]
+			}
+		});
+		const [day] = await db.select().from(s.days).where(eq(s.days.programId, program.id));
+		const started = await startSessionForDay(db, userId, day.id);
+		if (!started.ok) throw new Error(started.message);
+		await endSession(db, userId, started.sessionId);
+		expect((await softDeleteEndedSession(db, userId, started.sessionId)).ok).toBe(true);
+		const purged = async () =>
+			(await db.select().from(s.sessions).where(eq(s.sessions.id, started.sessionId))).length === 0;
+
+		const page = await signedInPage();
+		await page.goto(`${origin}/programs/${program.id}`, { waitUntil: 'networkidle' });
+		await page.getByRole('button', { name: /^Trash \(1\)/ }).click();
+		const empty = page.getByRole('button', { name: 'Empty Trash (1)', exact: true });
+		const word = page.getByRole('textbox', { name: 'Type PURGE to confirm' });
+		const go = page.getByRole('button', { name: 'Permanently delete', exact: true });
+		await empty.click();
+		await word.fill('PURGE');
+		expect(await go.isEnabled()).toBe(true);
+		await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+		expect(await purged()).toBe(false);
+
+		await empty.click();
+		expect(await word.inputValue()).toBe('');
+		expect(await go.isEnabled()).toBe(false);
+		// Typed again, it goes through: the workout's row is gone.
+		await word.fill('PURGE');
+		await go.click();
+		await expect.poll(purged).toBe(true);
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});

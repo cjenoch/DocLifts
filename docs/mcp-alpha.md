@@ -48,13 +48,25 @@ request and tool execution check current token expiry, resource, account session
 client enabled state and consent. Revoking from the app deletes that user's
 consent, access tokens and refresh tokens for the client; other users untouched.
 
+One predicate, `grantIsLive` in `src/lib/server/mcp/grant-validity.ts`, decides
+whether the authorization behind a token is still live, and both MCP access and
+refresh apply it: the token's login session exists, belongs to the token's user
+and is unexpired; the account is not fenced for deletion; the client is not
+disabled; and the user's consent for that client still exists. A refresh is
+therefore refused for every reason an access is. Checks on the token itself stay
+with its kind: access-token expiry, `revoked`, confirmation and audience in
+`authenticateMcp`; refresh-token expiry, `revoked` (rotation-reuse detection) and
+resource subsetting in the OAuth provider. The provider, not app code, writes
+`revoked` (on rotation, the revocation endpoint and end-session).
+
 Refresh grants also require their original browser session to remain live, owned
 by the same account, and unexpired. Signing out the current session ends refresh
 for its connected grants; an unrelated session's grants remain usable. Password
 change retires the previous sessions and their refresh grants while the new
 current-device session can authorize a fresh connection. The provider integration
 checks the binding before rotation and before returning a successful result,
-rejecting absent, expired or mismatched bindings with `invalid_grant`. Rejected
+rejecting absent, expired or mismatched bindings, a disabled client, withdrawn
+consent and a fenced account with `invalid_grant`. Rejected
 authorization families are removed on the attempted refresh, including rows
 orphaned before this policy was installed; this is not an eager global sweep.
 Concurrent teardown can still leave token rows after the final check. MCP keeps

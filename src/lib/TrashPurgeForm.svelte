@@ -20,6 +20,16 @@
 	let confirming = $state(false);
 	let typed = $state('');
 	let message = $state('');
+	/**
+	 * Leaves the confirmation and forgets what was typed: a Cancel, then a second
+	 * "Empty Trash", must ask for PURGE again (audit, 2026-11-08). Before, the
+	 * word stayed in the field and the second attempt was one tap.
+	 */
+	function dismiss() {
+		confirming = false;
+		typed = '';
+		message = '';
+	}
 </script>
 
 <form
@@ -35,8 +45,10 @@
 		message = '';
 		return async ({ result, update }) => {
 			try {
-				if (result.type === 'success') await update({ reset: false });
-				else
+				if (result.type === 'success') {
+					await update({ reset: false });
+					dismiss();
+				} else
 					message =
 						result.type === 'failure'
 							? String(result.data?.message ?? 'Please try again.')
@@ -65,9 +77,10 @@
 				disabled={busy}
 			/>
 			<div class="actions">
-				<button type="button" disabled={busy} onclick={() => (confirming = false)}>Cancel</button
-				><button type="submit" class="destructive" disabled={busy || typed !== 'PURGE'}
-					>{busy ? 'Purging…' : 'Permanently delete'}</button
+				<button type="button" disabled={busy} onclick={dismiss}>Cancel</button><button
+					type="submit"
+					class="destructive"
+					disabled={busy || typed !== 'PURGE'}>{busy ? 'Purging…' : 'Permanently delete'}</button
 				>
 			</div>
 		</div>

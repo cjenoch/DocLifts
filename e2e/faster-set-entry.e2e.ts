@@ -385,4 +385,31 @@ run('faster set entry (production build)', () => {
 		expect((await stored())!.seconds).toBe(ui.defaultRestSeconds);
 		await page.close();
 	});
+	/**
+	 * Audit of main, 2026-11-08. On a phone, glanced at between sets: "+30 s"
+	 * after a rest ran out restarts it for 30 s, and the "Rest finished" line
+	 * goes with it, so the line never contradicts a clock counting down.
+	 */
+	it('+30 s on a finished rest runs again from now and clears the finished line', async () => {
+		const page = await signedInPage();
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		await page.getByRole('button', { name: 'Timer settings', exact: true }).click();
+		await page.getByLabel('Rest duration', { exact: true }).selectOption('5');
+		await page.getByRole('button', { name: 'Close timer settings', exact: true }).click();
+		await page.getByRole('button', { name: 'Start rest', exact: true }).click();
+		await expect
+			.poll(() => page.getByText(ui.restFinished, { exact: true }).count(), { timeout: 8000 })
+			.toBe(1);
+		await page.getByRole('button', { name: ui.restAdd, exact: true }).click();
+		expect(await page.getByText(ui.restFinished, { exact: true }).count()).toBe(0);
+		expect(await page.getByText(ui.restFinishedNoSound, { exact: true }).count()).toBe(0);
+		const left = await seconds(page);
+		expect(left).toBeGreaterThan(ui.restAddSeconds - 3);
+		expect(left).toBeLessThanOrEqual(ui.restAddSeconds);
+		const readout = page.getByRole('button', { name: ui.restDismiss, exact: true });
+		expect((await readout.innerText()).startsWith(ui.restOver)).toBe(false);
+		// Leave the next test an idle clock.
+		await readout.click();
+		await page.close();
+	});
 });

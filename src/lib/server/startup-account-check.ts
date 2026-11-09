@@ -40,11 +40,15 @@ export async function warnIfNoLoginCapableAccount(db: Database): Promise<boolean
 	// No ::uuid cast. postgres-js binds this parameter as text, and Postgres has
 	// no `text = uuid` operator, so the cast turns the query into an error rather
 	// than a comparison. `id` is already uuid, so plain equality is correct.
-	const [sentinel] = await db.execute<{ present: boolean }>(sql`
-		select exists (
-			select 1 from "auth"."user" where "id" = ${SENTINEL_USER_ID}
-		) as present
+	const [sentinel] = await db.execute<{ email: string }>(sql`
+		select "email" from "auth"."user" where "id" = ${SENTINEL_USER_ID}
 	`);
+	// A sentinel that already carries a real email but has no credential row is
+	// a claim that stopped part-way: the pre-2026-11-08 bootstrap ran three
+	// separate statements and could crash after the first. Saying "0011 created
+	// the sentinel (owner@localhost)" about it would describe a row that no
+	// longer looks like that. bootstrap completes it on a re-run.
+	const halfClaimed = sentinel !== undefined && sentinel.email !== SENTINEL_EMAIL;
 
 	console.warn(
 		[
@@ -56,25 +60,34 @@ export async function warnIfNoLoginCapableAccount(db: Database): Promise<boolean
 			'  No account can sign in. The app is serving, but every user is',
 			'  redirected to /login and no credentials will work.',
 			'',
-			...(sentinel?.present
+			...(halfClaimed
 				? [
-						`  Migration 0011 created the sentinel (${SENTINEL_EMAIL}) and`,
-						'  pointed every pre-existing row at it. The sentinel has no password',
-						'  by design. To claim that data for a real account:',
+						'  The 0011 sentinel was partly claimed: its email is no longer',
+						`  ${SENTINEL_EMAIL}, but it has no password, so an earlier bootstrap`,
+						'  stopped part-way. Re-run it to finish the claim:',
 						'',
-						"      scripts/user-prod.sh bootstrap --email you@example.com --password '...'",
-						'',
-						'  Your existing workouts become visible the moment that runs.',
+						'      printf \'%s\' "$(pass show doclifts)" | scripts/user-prod.sh bootstrap --email you@example.com --password-stdin',
 						''
 					]
-				: [
-						'  No sentinel found either, so this is an empty installation.',
-						'',
-						"      scripts/user-prod.sh bootstrap --email you@example.com --password '...'",
-						'',
-						'  will create the first account.',
-						''
-					])
+				: sentinel
+					? [
+							`  Migration 0011 created the sentinel (${SENTINEL_EMAIL}) and`,
+							'  pointed every pre-existing row at it. The sentinel has no password',
+							'  by design. To claim that data for a real account:',
+							'',
+							'      printf \'%s\' "$(pass show doclifts)" | scripts/user-prod.sh bootstrap --email you@example.com --password-stdin',
+							'',
+							'  Your existing workouts become visible the moment that runs.',
+							''
+						]
+					: [
+							'  No sentinel found either, so this is an empty installation.',
+							'',
+							'      printf \'%s\' "$(pass show doclifts)" | scripts/user-prod.sh bootstrap --email you@example.com --password-stdin',
+							'',
+							'  will create the first account.',
+							''
+						])
 		].join('\n')
 	);
 	return true;

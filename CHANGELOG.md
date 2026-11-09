@@ -2,8 +2,9 @@
 
 ## Unreleased — audit follow-ups, round 2 — not deployed
 
-Needs migration 0025 (rehearse first: docs/migrations.md, "0025") and a rebuild
-of the photo-safety image.
+Needs migration 0025 (rehearse first: docs/migrations.md, "0025"). The
+photo-safety warm-up already shipped in PR #64 (fb8b038); this branch only
+loosens its smoke limit to 4 s.
 
 - Workout days follow your time zone, taken automatically from the phone's
   browser: History, /reports, the program page's 14-day strip, the workout
@@ -12,9 +13,11 @@ of the photo-safety image.
   Owner decision 2026-11-09.
 - /reports: "last 7/28 days" count local calendar days ending today, matching
   the 14-day strip (they were rolling 24-hour periods).
-- Photo safety: the classifier runs two warm-up scans before it accepts
-  uploads, so the first upload after a deploy no longer times out on a cold
-  model (seen once on 2026-11-09 after the 10b75b2 deploy).
+- Photo safety (deployed in PR #64, acceptance pending: a phone upload): the
+  classifier runs two warm-up scans before it accepts uploads, so the first
+  upload after a deploy no longer times out on a cold model (seen once on
+  2026-11-09 after the 10b75b2 deploy). The smoke test's first-scan limit is
+  4 s.
 - Add sheet: a machine named in the sheet always asks for its weight format,
   and a free weight remembers its newest format across old equipment rows.
 - Account deletion: one runner per job through a 15-minute lease

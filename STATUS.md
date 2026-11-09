@@ -1,7 +1,8 @@
 # DocLifts — current status
 
-Updated November 9, 2026 UTC. Current application: **0.20.0 Alpha**, runtime `0ed52a1`.
-Deployed; the owner accepted the audit follow-ups, safety warm-up and identification retry on November 9, 2026.
+Updated November 9, 2026 UTC. Current application: **0.20.0 Alpha**, runtime `ba1069b`.
+Deployed; PR #70 export changes await owner phone acceptance. The earlier audit
+follow-ups, safety warm-up and identification retry were accepted on November 9.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -31,6 +32,24 @@ were checked, and a built-in test notification was submitted. Inbox delivery and
 an actual outage/recovery drill remain unverified. MCP discovery checks do not
 exercise OAuth or authenticated tools. Private configuration evidence is in the
 operator's ops repository.
+
+## November 9 export update
+
+[PR #70](https://github.com/cjenoch/DocLifts/pull/70) deployed as `ba1069b`.
+A live signed-in session can export without re-entering a password, per the
+owner's November 9 decision. Live-session checks before reading and returning,
+the deletion fence, CSRF boundary, bounded form and admission limits remain.
+Stale pages may send a password; it is ignored. Strong dates default to the
+device zone; a blank value uses the stored zone, then UTC.
+
+The independent full gate passed 1,293 server tests (three configured skips),
+69 components, build and all 186 browser tests. CI, Docker and CodeQL passed
+on `44b26d7`. No migration was needed, and safety and the scheduled worker are
+unchanged. Public phone-width automation verified no password field, Detroit
+prefill, all three parsed downloads, blank-zone fallback, stale-page
+compatibility, explicit UTC and cross-origin refusal; the test account's
+training-data fingerprint was unchanged. Phone acceptance for this release: no export password field,
+America/Detroit in the Strong zone box, and all three downloads work.
 
 ## November 9 identification retry
 

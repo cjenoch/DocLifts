@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased — exports without a password — not deployed
+## 2026-11-09 — exports without a password — deployed, acceptance pending
+
+PR #70 shipped as `ba1069b`. No migration; web only changed. Owner phone
+acceptance is for this export update; the prior audit, safety and retry
+releases were already accepted. See the [release runbook](docs/release-2026-11-09.md).
 
 - Account → Export your data no longer asks for the current password; a live
   signed-in session (still checked before reading and before returning the

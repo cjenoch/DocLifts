@@ -546,10 +546,7 @@ export async function runDeletion(
 			subjectHash: job.subjectHash,
 			requestedAt: job.requestedAt.toISOString()
 		});
-		await db
-			.update(s.privacyDeletions)
-			.set({ lastError: null })
-			.where(eq(s.privacyDeletions.id, jobId));
+		await db.update(s.privacyDeletions).set({ lastError: null }).where(mine);
 		stage = 'storage';
 		if (job.kind === 'account') {
 			if (!store.listOwned) throw new Error('Owner-prefix object inventory unavailable');
@@ -623,11 +620,15 @@ export async function runDeletion(
 				.for('update');
 			if (!row) return 'not_found' as const;
 			if (deletionJobState(row) === 'completed') return 'completed' as const;
-			// The failure and the release in one statement.
+			// This run outlived its lease and another runner has claimed the job:
+			// the job is that runner's now. Writing the failure here would also
+			// clear its claim and let a third runner in, so write nothing.
+			if (row.claimedUntil?.getTime() !== job.claimedUntil!.getTime()) return 'busy' as const;
+			// The failure and the release in one statement, on this run's claim only.
 			await tx
 				.update(s.privacyDeletions)
 				.set({ lastError: stage, claimedUntil: null })
-				.where(and(eq(s.privacyDeletions.id, jobId), deletionJobOpen()));
+				.where(and(mine, deletionJobOpen()));
 			return 'failed' as const;
 		});
 		return { state, removed };

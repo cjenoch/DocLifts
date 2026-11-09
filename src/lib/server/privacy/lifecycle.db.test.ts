@@ -853,6 +853,45 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			});
 		});
 
+		it("a run that outlived its lease never clears the next runner's claim, also when it fails", async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const job = (await requestPhotoDeletion(h.db, alice, a.id, ledger))!;
+			// Positive first: a failure inside this run's own lease is recorded and releases.
+			const down = {
+				append: async () => {
+					throw new Error('synthetic outage');
+				}
+			};
+			expect((await runDeletion(h.db, alice, job.id, store, down)).state).toBe('failed');
+			expect(await jobRow(job.id)).toMatchObject({ lastError: 'ledger', claimedUntil: null });
+
+			// Now the run's lease runs out mid-flight, another runner claims the job
+			// (a later claimed_until), and then this run fails.
+			const replacement = new Date(Date.now() + 10 * 60_000);
+			replacement.setMilliseconds(0);
+			const overtaken = {
+				append: async () => {
+					await h.db
+						.update(s.privacyDeletions)
+						.set({ claimedUntil: replacement, lastError: null })
+						.where(eq(s.privacyDeletions.id, job.id));
+					throw new Error('synthetic outage');
+				}
+			};
+			expect(await runDeletion(h.db, alice, job.id, store, overtaken)).toEqual({
+				state: 'busy',
+				removed: 0
+			});
+			// The replacement's claim stands and no failure was written over it, so a
+			// third runner is still refused.
+			const row = await jobRow(job.id);
+			expect(row.claimedUntil!.getTime()).toBe(replacement.getTime());
+			expect(row.lastError).toBeNull();
+			expect((await runDeletion(h.db, alice, job.id, store, ledger)).state).toBe('busy');
+			expect(await store.get(a.key)).not.toBeNull();
+		});
+
 		it('a failure after the job completed reports completion and writes no error onto it', async () => {
 			const store = new MemoryPhotoStore();
 			const a = await fixture(alice, store);

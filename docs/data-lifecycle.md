@@ -165,6 +165,8 @@ journal append, no attempt, no error, and the batch does not fail. Another user'
 job is `not_found`, never `busy`. Every exit of a claimed run releases the lease
 (a recorded failure in the same statement as `last_error`), and only the lease
 that run set, so a crashed runner's job is reclaimable once its lease expires.
+A run that outlived its lease and finds another runner's claim on the job writes
+no failure (that would clear the new claim) and reports `busy`.
 The run fits the lease: it starts no new object once 3 minutes of it are left
 (`DELETION_LEASE_STOP_MS`, more than one object's worst case of about a minute)
 and returns `pending` for the next run. The photo review page says so in its own

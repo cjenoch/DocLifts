@@ -1,7 +1,7 @@
 # DocLifts — current status
 
-Updated November 9, 2026 UTC. Current application: **0.20.0 Alpha**, runtime `bf5df84`.
-Deployed; owner phone acceptance for the audit follow-ups and safety warm-up remains pending.
+Updated November 9, 2026 UTC. Current application: **0.20.0 Alpha**, runtime `0ed52a1`.
+Deployed; owner phone acceptance for the audit follow-ups and identification retry remains pending.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -31,6 +31,24 @@ were checked, and a built-in test notification was submitted. Inbox delivery and
 an actual outage/recovery drill remain unverified. MCP discovery checks do not
 exercise OAuth or authenticated tools. Private configuration evidence is in the
 operator's ops repository.
+
+## November 9 identification retry
+
+[PR #67](https://github.com/cjenoch/DocLifts/pull/67) deployed as `0ed52a1`.
+Photo identification retries 429/502/503 once against the saved photo, honors
+Retry-After and shares a 45-second provider budget across the attempts and wait.
+The deadline is rechecked after the quota query and retry wait. The independent
+gate passed 1,293 server tests (three configured skips), 69 components and
+186 browser tests; branch CI, Docker and CodeQL passed on `0b7d9c1`.
+
+Web only changed. The safety container and the pinned deletion worker remain
+unchanged, migration count stays 26, and `LLM_TIMEOUT_MS` is verified as 60000.
+Public automation uploaded a generated image and reached review in 3.6 s;
+the audit confirmed one photo, one stored object, one safety scan and one
+successful identification call. No transient error occurred in that smoke.
+Phone acceptance is a normal identification and Retry identification if a
+transient failure occurs. Full-upload latency is not capped by the provider
+budget. See the [release runbook](docs/release-2026-11-09.md).
 
 ## November 9 audit follow-ups
 

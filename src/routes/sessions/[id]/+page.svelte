@@ -46,7 +46,7 @@
 	const currentSet = (g: PageData['groups'][number]) =>
 		guidedSets[g.key] ?? g.sets.find((s) => !isCompleted(s))?.id ?? g.sets.at(-1)?.id;
 	function savedSet(id: string) {
-		timer?.start();
+		timer?.start(id);
 		const group = data.groups.find((g) => g.sets.some((s) => s.id === id));
 		if (group) {
 			const next = group.sets.find((s) => s.id !== id && !isCompleted(s));
@@ -772,6 +772,18 @@
 		background: #0d1421f5;
 		border-top: 1px solid #303c50;
 		padding: 10px 16px max(12px, env(safe-area-inset-bottom));
+		/* No filter on the footer itself: a backdrop-filter makes it the
+		   containing block for position: fixed descendants, which anchored the
+		   rest-timer settings panel to the footer and left its lower half,
+		   "Try alert" included, below the screen. The blur sits on a layer
+		   behind the content instead. */
+		isolation: isolate;
+	}
+	footer::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: -1;
 		backdrop-filter: blur(12px);
 	}
 	.footer-inner {

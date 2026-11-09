@@ -17,7 +17,8 @@
  * owner's id (D5), and the owner chain `gym_equipment.gym_id -> gyms.user_id`
  * is in every statement; another user's row is "not found" (D6).
  */
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, not, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
 	equipmentModels,
@@ -32,10 +33,18 @@ import {
 	type MachineMergeMoved
 } from './db/schema';
 import type { Database } from './progression';
-import { createMachine, MachineInputError } from './machines';
+import {
+	createMachine,
+	MachineInputError,
+	machineIsReferenced,
+	photoPendingRemoval,
+	relinkMachinePhotos
+} from './machines';
 import { modelReadableBy, modelVisibleTo } from './catalog';
 import { defaultMachineLabel } from '../catalog-labels';
 import { sessionIs } from './workout-state-sql';
+import { photoMachineLabelPattern, untouchedPhotoPlaceholder } from './photo-workout';
+import { workoutUi } from '../workout-ui';
 
 export const FINISH_WORKOUT_FIRST = 'Finish the open workout that uses it first.';
 
@@ -86,17 +95,6 @@ async function machinesInOpenWorkout(db: Database, userId: string, machineIds: s
 			)
 		);
 	return row.n > 0;
-}
-
-/** Anything at all that points at this machine. */
-async function machineIsReferenced(db: Database, machineId: string) {
-	const [row] = await db.execute<{ used: boolean }>(sql`
-		SELECT EXISTS (SELECT 1 FROM ${sets} WHERE ${sets.gymEquipmentId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${sessionExercises} WHERE ${sessionExercises.gymEquipmentId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${equipmentPhotos} WHERE ${equipmentPhotos.gymEquipmentId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${machineMerges} WHERE ${machineMerges.droppedId} = ${machineId} OR ${machineMerges.keptId} = ${machineId})
-			OR EXISTS (SELECT 1 FROM ${gymEquipment} WHERE ${gymEquipment.mergedIntoId} = ${machineId}) AS used`);
-	return Boolean(row?.used);
 }
 
 /** Anything at all that points at this gym: machines, workouts, photos. */
@@ -492,10 +490,18 @@ export async function mergePreview(
 	if (kept.machine.equipmentType !== dropped.machine.equipmentType) return null;
 	const a = await historyOf(db, keptId);
 	const b = await historyOf(db, droppedId);
+	// The photos that will move: one pending removal is unlinked, not moved
+	// (`relinkMachinePhotos`), so it is not counted.
 	const [photos] = await db
 		.select({ n: count() })
 		.from(equipmentPhotos)
-		.where(eq(equipmentPhotos.gymEquipmentId, droppedId));
+		.where(
+			and(
+				eq(equipmentPhotos.gymEquipmentId, droppedId),
+				eq(equipmentPhotos.userId, userId),
+				not(photoPendingRemoval())
+			)
+		);
 	const conventions = new Set([...a.conventions, ...b.conventions]);
 	const hasModel = (m: typeof kept.machine) => m.equipmentModelId != null;
 	const suggestedKeptId =
@@ -557,15 +563,11 @@ export async function mergeMachines(db: Database, userId: string, gymId: string,
 					.where(eq(sessionExercises.gymEquipmentId, droppedId))
 					.returning({ id: sessionExercises.id })
 			).map((r) => r.id),
+			// A photo pending removal is unlinked, not moved, and not listed, so
+			// undo leaves it alone (0024 lets it lose its link and nothing else).
 			photos: (
-				await tx
-					.update(equipmentPhotos)
-					.set({ gymEquipmentId: keptId })
-					.where(
-						and(eq(equipmentPhotos.gymEquipmentId, droppedId), eq(equipmentPhotos.userId, userId))
-					)
-					.returning({ id: equipmentPhotos.id })
-			).map((r) => r.id)
+				await relinkMachinePhotos(tx, userId, eq(equipmentPhotos.gymEquipmentId, droppedId), keptId)
+			).moved
 		};
 		if (kept.equipmentModelId) {
 			const exerciseIds = await exercisesLoggedOn(tx, [keptId]);
@@ -650,17 +652,18 @@ export async function undoMerge(db: Database, userId: string, mergeId: string) {
 						eq(sessionExercises.gymEquipmentId, merge.keptId)
 					)
 				);
+		// A listed photo that has since become pending removal (discarded after
+		// the merge) is unlinked rather than moved back.
 		if (photoIds.length)
-			await tx
-				.update(equipmentPhotos)
-				.set({ gymEquipmentId: merge.droppedId })
-				.where(
-					and(
-						inArray(equipmentPhotos.id, photoIds),
-						eq(equipmentPhotos.gymEquipmentId, merge.keptId),
-						eq(equipmentPhotos.userId, userId)
-					)
-				);
+			await relinkMachinePhotos(
+				tx,
+				userId,
+				and(
+					inArray(equipmentPhotos.id, photoIds),
+					eq(equipmentPhotos.gymEquipmentId, merge.keptId)
+				)!,
+				merge.droppedId
+			);
 		await tx
 			.update(gymEquipment)
 			.set({ archivedAt: null, mergedIntoId: null })
@@ -672,4 +675,182 @@ export async function undoMerge(db: Database, userId: string, mergeId: string) {
 			.returning();
 		return undone;
 	});
+}
+
+// ---------- one-time cleanup: legacy photo placeholders (2026-11-08) ----------
+//
+// Before c5bb02c, `openPhotoBlock` did not link its photo to the placeholder
+// machine it made, so `dropPhotoPlaceholderMachine` has no evidence for those
+// machines and keeps them for good once their block has left them. This finds
+// them and archives them (never deletes), for `pnpm photo:placeholders`.
+//
+// `gym_equipment` has no `created_at` (and no `updated_at`), and in the cases
+// that orphan a placeholder (block removed, workout deleted) the photo's
+// `session_exercise_id` is already null. So there is no timestamp to pair the
+// machine with its photo. The one clock a placeholder carries is its label
+// ("Photo 2:32 PM", the phone's local time), and the corroboration below pairs
+// its minute with a photo's `created_at`. Every candidate is listed either way;
+// the evidence says how sure the listing is.
+
+/** Minutes a photo row may land after the label's minute: resize, upload and processing. */
+export const PHOTO_LABEL_WINDOW_MINUTES = 2;
+
+export type LegacyPlaceholderEvidence =
+	/**
+	 * A photo of this user at this gym, linked to no machine, whose `created_at`
+	 * minute is 0..PHOTO_LABEL_WINDOW_MINUTES after the label's minute. The
+	 * hour is not compared: the label is the phone's local time, `created_at`
+	 * is UTC, and the user's time zone is not stored.
+	 */
+	| { kind: 'photo-time'; photoId: string; photoCreatedAt: Date }
+	/** The shape and the label only: a machine the user named "Photo 2:32 PM" looks the same. */
+	| { kind: 'label-only' };
+
+export type LegacyPhotoPlaceholder = {
+	machineId: string;
+	gymId: string;
+	gymName: string;
+	label: string;
+	evidence: LegacyPlaceholderEvidence;
+};
+
+export type LegacyPlaceholderSkip = {
+	machineId: string;
+	reason: 'not-found' | 'locked' | 'changed' | 'open-workout' | 'referenced';
+};
+
+/**
+ * Still exactly what `openPhotoBlock` leaves: `untouchedPhotoPlaceholder`, the
+ * same rule the workout and erasure cleanups read (the closest thing to "never
+ * edited" without an `updated_at`).
+ */
+const placeholderShaped = untouchedPhotoPlaceholder;
+
+/** Why this machine is not (or no longer) a legacy placeholder, or null when it is one. */
+async function legacyPlaceholderRefusal(
+	db: Database,
+	userId: string,
+	m: typeof gymEquipment.$inferSelect
+): Promise<LegacyPlaceholderSkip['reason'] | null> {
+	if (!placeholderShaped(m)) return 'changed';
+	if (await machinesInOpenWorkout(db, userId, [m.id])) return 'open-workout';
+	if (await machineIsReferenced(db, m.id)) return 'referenced';
+	return null;
+}
+
+/** True when a photo created at `createdAt` lands 0..window minutes after the label's minute. */
+export function photoTimeMatchesLabel(label: string, createdAt: Date): boolean {
+	const minute = photoMachineLabelPattern.exec(label)?.[1];
+	if (minute === undefined) return false;
+	const after = (createdAt.getUTCMinutes() - Number(minute) + 60) % 60;
+	return after <= PHOTO_LABEL_WINDOW_MINUTES;
+}
+
+async function placeholderEvidence(
+	db: Database,
+	userId: string,
+	m: typeof gymEquipment.$inferSelect
+): Promise<LegacyPlaceholderEvidence> {
+	const photos = await db
+		.select({ id: equipmentPhotos.id, createdAt: equipmentPhotos.createdAt })
+		.from(equipmentPhotos)
+		.where(
+			and(
+				eq(equipmentPhotos.userId, userId),
+				eq(equipmentPhotos.gymId, m.gymId),
+				isNull(equipmentPhotos.gymEquipmentId)
+			)
+		)
+		.orderBy(asc(equipmentPhotos.createdAt), asc(equipmentPhotos.id));
+	const match = photos.find((p) => photoTimeMatchesLabel(m.localLabel, p.createdAt));
+	return match
+		? { kind: 'photo-time', photoId: match.id, photoCreatedAt: match.createdAt }
+		: { kind: 'label-only' };
+}
+
+/**
+ * This user's legacy photo placeholders: placeholder-shaped (`placeholderShaped`),
+ * in one of this user's gyms, on no open workout, and nothing pointing at them
+ * (`machineIsReferenced`: sets, blocks, photos, merges). Read-only.
+ */
+export async function legacyPhotoPlaceholders(
+	db: Database,
+	userId: string
+): Promise<LegacyPhotoPlaceholder[]> {
+	const rows = await db
+		.select({ machine: gymEquipment, gymName: gyms.name })
+		.from(gymEquipment)
+		.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
+		.where(
+			and(
+				eq(gyms.userId, userId),
+				isNull(gymEquipment.equipmentModelId),
+				eq(gymEquipment.equipmentType, workoutUi.photoPlaceholderType),
+				isNull(gymEquipment.archivedAt),
+				isNull(gymEquipment.mergedIntoId)
+			)
+		)
+		.orderBy(asc(gyms.name), asc(gymEquipment.localLabel), asc(gymEquipment.id));
+	const found: LegacyPhotoPlaceholder[] = [];
+	for (const { machine, gymName } of rows) {
+		if (await legacyPlaceholderRefusal(db, userId, machine)) continue;
+		found.push({
+			machineId: machine.id,
+			gymId: machine.gymId,
+			gymName,
+			label: machine.localLabel,
+			evidence: await placeholderEvidence(db, userId, machine)
+		});
+	}
+	return found;
+}
+
+/**
+ * Archive these legacy placeholders, as `removeMachine` archives
+ * (`archived_at`; `restoreMachine` brings one back). Each machine is its own
+ * transaction: locked `FOR UPDATE SKIP LOCKED` (a writer adding a reference
+ * holds `FOR KEY SHARE`, so it is skipped, never waited on), then every
+ * condition of `legacyPhotoPlaceholders` is checked again on the locked row.
+ * Another user's id, or a missing one, is `not-found` (D6). Never deletes.
+ */
+export async function archiveLegacyPhotoPlaceholders(
+	db: Database,
+	userId: string,
+	machineIds: string[]
+): Promise<{ archived: string[]; skipped: LegacyPlaceholderSkip[] }> {
+	const archived: string[] = [];
+	const skipped: LegacyPlaceholderSkip[] = [];
+	for (const machineId of [...new Set(machineIds)]) {
+		if (!uuid.safeParse(machineId).success) {
+			skipped.push({ machineId, reason: 'not-found' });
+			continue;
+		}
+		const reason = await db.transaction(async (tx) => {
+			const own = () =>
+				tx
+					.select({ machine: gymEquipment })
+					.from(gymEquipment)
+					.innerJoin(gyms, eq(gyms.id, gymEquipment.gymId))
+					.where(and(eq(gymEquipment.id, machineId), eq(gyms.userId, userId)));
+			const [locked] = await own().for('update', { of: gymEquipment, skipLocked: true });
+			if (!locked) return (await own()).length ? ('locked' as const) : ('not-found' as const);
+			const refusal = await legacyPlaceholderRefusal(tx, userId, locked.machine);
+			if (refusal) return refusal;
+			await tx
+				.update(gymEquipment)
+				.set({ archivedAt: new Date() })
+				.where(and(eq(gymEquipment.id, machineId), isNull(gymEquipment.archivedAt)));
+			return null;
+		});
+		if (reason) skipped.push({ machineId, reason });
+		else archived.push(machineId);
+	}
+	return { archived, skipped };
+}
+
+/** One digest of a candidate list, order-insensitive: the dry run prints it, apply must match it. */
+export function placeholderFingerprint(machineIds: string[]): string {
+	return createHash('sha256')
+		.update([...machineIds].sort().join('\n'))
+		.digest('hex');
 }

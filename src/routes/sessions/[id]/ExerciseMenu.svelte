@@ -66,7 +66,10 @@
 					edits.startRemove(occurrenceId, group.exerciseName);
 				}}>{workoutUi.remove}</button
 			>
-		{:else if loggedCount > 0}
+		{:else if loggedCount === 0}
+			<!-- A photo block: swap and remove appear once its machine is named. -->
+			<p class="menu-note">{workoutUi.photoBlockMenuNote}</p>
+		{:else}
 			<p class="menu-note">{workoutUi.swapLocked}</p>
 			{#if loggedCount < group.sets.length}
 				<form method="POST" action="?/skipRest" use:enhance={edits.editSubmit}>

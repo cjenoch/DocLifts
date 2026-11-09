@@ -11,6 +11,7 @@ import { LlmNotConfigured, LlmSchemaError } from '../llm';
 import { MemoryPhotoStore } from './store';
 import { PhotoLimitError, uploadPhoto } from './index';
 import {
+	analysesInLastDay,
 	analyzePhoto,
 	CANDIDATE_WIRE_SCHEMA,
 	EquipmentCandidate,
@@ -19,6 +20,13 @@ import {
 	userText
 } from './analyze';
 import { emptyTimings } from './timings';
+import {
+	ERASED_PROMPT_HASH,
+	requestAccountDeletion,
+	requestPhotoDeletion,
+	runDeletion
+} from '../privacy/lifecycle';
+import type { LedgerEntry } from '../privacy/ledger';
 import {
 	CountingPhotoStore,
 	FIXTURE_CANDIDATE as CANDIDATE,
@@ -91,7 +99,7 @@ describe('analyzePhoto', () => {
 		expect(parts[1].text).toBe(userText('code is on the seat post'));
 	});
 
-	it('a malformed output -> row stays uploaded, llm_calls has schema_error', async () => {
+	it('a malformed output -> row stays uploaded, llm_call_id names the schema_error call', async () => {
 		const photo = await upload();
 		const out = await analyzePhoto(db, alice, photo.id, {
 			store,
@@ -103,9 +111,33 @@ describe('analyzePhoto', () => {
 		expect(out?.ok).toBe(false);
 		expect(out && !out.ok && out.error).toBeInstanceOf(LlmSchemaError);
 		const after = await row(photo.id);
-		expect(after).toMatchObject({ status: 'uploaded', candidate: null, llmCallId: null });
 		const [call] = await calls(alice);
 		expect(call).toMatchObject({ purpose: PHOTO_PURPOSE, status: 'schema_error' });
+		// The failed read is recorded on the photo (Phase 2, 2f), so the workout
+		// page can show it as failed after a reload.
+		expect(after).toMatchObject({ status: 'uploaded', candidate: null, llmCallId: call.id });
+	});
+
+	it('a failed re-read keeps the call that produced the candidate', async () => {
+		const photo = await upload();
+		await analyzePhoto(db, alice, photo.id, {
+			store,
+			limits,
+			complete: testComplete(answeringModel(JSON.stringify(CANDIDATE)))
+		});
+		const [ok] = await calls(alice);
+		expect((await row(photo.id)).llmCallId).toBe(ok.id);
+		const out = await analyzePhoto(db, alice, photo.id, {
+			store,
+			limits,
+			complete: testComplete(answeringModel('{"manufacturer": 42}'))
+		});
+		expect(out?.ok).toBe(false);
+		expect(await row(photo.id)).toMatchObject({
+			status: 'analyzed',
+			candidate: CANDIDATE,
+			llmCallId: ok.id
+		});
 	});
 
 	it('a reply that leaves keys out is analyzed, the missing ones read as unknown', async () => {
@@ -185,7 +217,9 @@ describe('analyzePhoto', () => {
 		});
 		expect(out && !out.ok && out.error).toBeInstanceOf(LlmNotConfigured);
 		expect((await row(photo.id)).status).toBe('uploaded');
-		expect(await calls(alice)).toMatchObject([{ status: 'refused', errorCode: 'not_configured' }]);
+		const [refused] = await calls(alice);
+		expect(refused).toMatchObject({ status: 'refused', errorCode: 'not_configured' });
+		expect((await row(photo.id)).llmCallId).toBe(refused.id);
 	});
 
 	it('re-analysis replaces the candidate; a stored value round-trips through the schema', async () => {
@@ -345,5 +379,117 @@ describe('analyzePhoto', () => {
 			// Analysis is not where processing or storing happens.
 			expect(failed).toMatchObject({ processMs: null, storePutMs: null });
 		});
+	});
+});
+
+/**
+ * Owner review P2 (PR #62): removing a photo deleted its llm_calls row, which
+ * dropped the 24-hour analysis count and refunded the daily cap — for failed
+ * reads (linked since this PR) and successful ones (linked since 0.4.0). The
+ * erasure now keeps the row as usage metadata with every detail cleared.
+ */
+describe('the analysis cap survives photo removal', () => {
+	const one = { ...limits, dailyLimit: 1 };
+	const journal: LedgerEntry[] = [];
+	const ledger = { append: async (e: LedgerEntry) => void journal.push(e) };
+	const malformed = '{"manufacturer": 42, "loading_type": ["plate"]}';
+	const callRow = async (id: string) =>
+		(await db.select().from(s.llmCalls).where(eq(s.llmCalls.id, id)))[0];
+	const objectRows = (key: string) =>
+		db.select().from(s.photoObjects).where(eq(s.photoObjects.storageKey, key));
+
+	/** The review page's "Remove saved photo": request, then one bounded pass. */
+	async function removeLikeReviewPage(photoId: string) {
+		const job = await requestPhotoDeletion(db, alice, photoId, ledger);
+		expect(job).not.toBeNull();
+		expect((await runDeletion(db, alice, job!.id, store, ledger, 1)).state).toBe('completed');
+	}
+
+	/** A further analysis at a limit of one: refused, and no model is called. */
+	async function expectCapStillHolds() {
+		const next = await upload();
+		const model = answeringModel(JSON.stringify(CANDIDATE));
+		await expect(
+			analyzePhoto(db, alice, next.id, { store, limits: one, complete: testComplete(model) })
+		).rejects.toBeInstanceOf(PhotoLimitError);
+		expect(model.doGenerateCalls).toHaveLength(0);
+	}
+
+	for (const [name, reply, status] of [
+		['a failed read (malformed output)', malformed, 'schema_error'],
+		['a successful read', JSON.stringify(CANDIDATE), 'ok']
+	] as const)
+		it(`${name}: removing its photo keeps the cap and keeps no image or model output`, async () => {
+			const first = await upload();
+			await analyzePhoto(db, alice, first.id, {
+				store,
+				limits: one,
+				complete: testComplete(answeringModel(reply))
+			});
+			const [call] = await calls(alice);
+			// Positive first: the call is recorded, linked, carries its output, and counts.
+			expect(call).toMatchObject({ purpose: PHOTO_PURPOSE, status });
+			expect(call.output).not.toBeNull();
+			expect((await row(first.id)).llmCallId).toBe(call.id);
+			expect(await analysesInLastDay(db, alice)).toBe(1);
+			await expectCapStillHolds();
+
+			// Another user cannot request the removal; nothing changes.
+			expect(await requestPhotoDeletion(db, bob, first.id, ledger)).toBeNull();
+			expect(await callRow(call.id)).toEqual(call);
+
+			await removeLikeReviewPage(first.id);
+
+			// The photo, its inventory row and its object are gone.
+			expect(await row(first.id)).toBeUndefined();
+			expect(await objectRows(first.storageKey)).toEqual([]);
+			expect(await store.get(first.storageKey)).toBeNull();
+			// The call stays as usage metadata only.
+			const kept = await callRow(call.id);
+			expect(kept).toEqual({
+				...call,
+				output: null,
+				promptText: null,
+				errorCode: null,
+				promptHash: ERASED_PROMPT_HASH
+			});
+			// ...so the 24-hour count does not drop, and the cap still refuses.
+			expect(await analysesInLastDay(db, alice)).toBe(1);
+			await expectCapStillHolds();
+			expect(await calls(alice)).toHaveLength(1);
+		});
+
+	it('account deletion still removes every llm_calls row, kept or still linked', async () => {
+		const kept = await upload();
+		const pending = await upload();
+		for (const photo of [kept, pending])
+			await analyzePhoto(db, alice, photo.id, {
+				store,
+				limits,
+				complete: testComplete(answeringModel(JSON.stringify(CANDIDATE)))
+			});
+		const keptCall = (await row(kept.id)).llmCallId!;
+		const pendingCall = (await row(pending.id)).llmCallId!;
+		await removeLikeReviewPage(kept.id);
+		expect(await callRow(keptCall)).toMatchObject({ output: null, status: 'ok' });
+
+		// A photo job still pending when the account is fenced: the fence refuses an
+		// update to llm_calls, so this erasure deletes the call instead of failing.
+		const photoJob = await requestPhotoDeletion(db, alice, pending.id, ledger);
+		const sessionId = crypto.randomUUID();
+		await db.insert(s.authSessions).values({
+			id: sessionId,
+			userId: alice,
+			token: crypto.randomUUID(),
+			expiresAt: new Date(Date.now() + 86400000)
+		});
+		const accountJob = await requestAccountDeletion(db, alice, sessionId, ledger);
+		expect(accountJob).not.toBeNull();
+		expect((await runDeletion(db, alice, photoJob!.id, store, ledger, 1)).state).toBe('completed');
+		expect(await callRow(pendingCall)).toBeUndefined();
+		expect(await callRow(keptCall)).toBeDefined();
+
+		expect((await runDeletion(db, alice, accountJob!.id, store, ledger)).state).toBe('completed');
+		expect(await calls(alice)).toEqual([]);
 	});
 });

@@ -60,6 +60,14 @@ narrower than `bindSessionMachine`, and different in two ways:
   hand, or a program's planned exercise, is "not found" to it, so the refusal
   to rebind a machine after values are saved stays exactly as it is.
 
+A photo block is a block on the placeholder exercise whose photo is not
+discarded (`waitingForPhotoName` / `isPhotoBlock` in `photo-workout.ts`, the
+one rule the page and the server both read). `bindSessionMachine` and
+`swapSessionExercise` refuse a photo block. Once its photo is discarded it is
+an ordinary unnamed block: both work under their usual gates, and its "Photo"
+placeholder machine is deleted when the block leaves it and nothing else points
+at it (`dropPhotoPlaceholderMachine`).
+
 One machine per model per gym: when the gym already has the model, the block
 joins that machine, its photos move with it, and the placeholder is deleted
 once nothing references it.
@@ -86,11 +94,41 @@ Machines spec Parts G, H and K (`src/lib/server/machine-admin.ts`):
   names they recorded. Sets in different load conventions stay separate
   histories after the merge, because the convention is part of the key.
   `machine_merges` lists every moved id, and undo moves back exactly those.
+  A photo pending removal (discarded, not erased yet) is the exception: the
+  0024 fence lets it lose its link and nothing else, so merge and undo set its
+  `gym_equipment_id` to null instead of moving it (`relinkMachinePhotos`), and
+  it is never in the `moved` list. The merge preview does not count it.
+
+**The machine-use lock (2026-11-08).** Every path that attaches a machine to a
+workout, that is, points a block's or a set's `gym_equipment_id` at it
+(`addSessionExercise` and `bindSessionMachine` through `machineSnapshot`,
+`identifySessionExercise` joining an existing machine, `appendWorkoutSet`
+copying the source set's machine), first calls `lockMachineForUse`: the machine
+and its gym are locked `FOR SHARE`, and the locked rows are re-checked (this
+user's, in the chosen gym, neither archived nor merged). Every path that takes
+a machine away (`removeMachine`, `mergeMachines`, `removeGym`,
+`archiveLegacyPhotoPlaceholders`) locks `FOR UPDATE` first and only then checks
+for open workouts, so the two serialise:
+
+- archive first: the attach waits, then reads the archived (or deleted) row and
+  refuses ("Machine not found in selected gym"; "Machine not found" when naming);
+- attach first: Remove and Merge wait, then see the new block and refuse
+  ("Finish the open workout that uses it first."); the legacy archive, which
+  uses `SKIP LOCKED`, skips the machine as `locked`.
+
+A plain read was not enough: the block's foreign key waits only for the row to
+exist, so an attach that read the machine before the archive committed went
+through, and an open workout pointed at an archived machine. Lock order is the
+session first (`lockSession`), then the machine; no archive path locks a
+session. Starting a workout attaches no machine (a planned exercise has none
+until chosen, and the quick start chooses only the gym), and a swap only
+clears one.
 
 The photo flow (`identifySessionExercise`) still merges a placeholder into an
 existing machine and deletes the placeholder directly, as in 0.6.0; it does
 not yet go through `mergeMachines`, which would leave an archived "Photo …"
-row behind each time.
+row behind each time. It deletes the placeholder only when nothing at all
+points at it any more (`machineIsReferenced`: blocks, sets, photos, merges).
 
 ## Free weights (0.8.0)
 

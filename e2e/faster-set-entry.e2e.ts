@@ -304,4 +304,85 @@ run('faster set entry (production build)', () => {
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
+	it('Try alert during a running rest previews without ending it; dismissing a finished rest clears its line', async () => {
+		const page = await signedInPage();
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		const settings = async (duration: string) => {
+			await page.getByRole('button', { name: 'Timer settings', exact: true }).click();
+			await page.getByLabel('Rest duration', { exact: true }).selectOption(duration);
+			await page.getByLabel('Visual alert', { exact: true }).selectOption('pulse');
+		};
+		await settings('300');
+		await page.getByRole('button', { name: 'Close timer settings', exact: true }).click();
+		await page.getByRole('button', { name: 'Start rest', exact: true }).click();
+		const readout = page.getByRole('button', { name: ui.restDismiss, exact: true });
+		await expect.poll(() => readout.innerText()).toContain(ui.restLabel);
+
+		await page.getByRole('button', { name: 'Timer settings', exact: true }).click();
+		await page.getByRole('button', { name: 'Try alert', exact: true }).click();
+		// The preview ran (the pulse), and the rest is still running: time left, no finished line.
+		await expect.poll(() => page.locator('.timer-line.pulse').count()).toBe(1);
+		expect(await page.getByTestId('rest-clock').innerText()).toMatch(/^[45]:\d\d$/);
+		expect((await readout.innerText()).startsWith(ui.restOver)).toBe(false);
+		expect(await page.getByText(ui.restFinished, { exact: true }).count()).toBe(0);
+		expect(await page.getByText(ui.restFinishedNoSound, { exact: true }).count()).toBe(0);
+
+		// A rest that runs out says so; dismissing it leaves nothing under the idle clock.
+		await readout.click();
+		await settings('5');
+		await page.getByRole('button', { name: 'Close timer settings', exact: true }).click();
+		await page.getByRole('button', { name: 'Start rest', exact: true }).click();
+		await expect
+			.poll(() => page.getByText(ui.restFinished, { exact: true }).count(), { timeout: 8000 })
+			.toBe(1);
+		await readout.click();
+		expect(await page.getByTestId('rest-timer').count()).toBe(0);
+		expect(await page.getByText(ui.restFinished, { exact: true }).count()).toBe(0);
+		await page.close();
+	});
+	it('re-saving the set that started a rest keeps it, +30 s included; saving another set starts a fresh one', async () => {
+		const page = await signedInPage();
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		await page.getByLabel('Workout layout', { exact: true }).selectOption('table');
+		const stored = () =>
+			page.evaluate(
+				(id) =>
+					JSON.parse(localStorage.getItem(`doclifts:rest:${id}`) ?? 'null') as {
+						startedAt: number;
+						seconds: number;
+					} | null,
+				sessionId
+			);
+		const rows = page.locator('li[id^="set-"]');
+		const first = rows.nth(0);
+		const second = rows.nth(1);
+
+		await first.getByRole('spinbutton', { name: 'Reps', exact: true }).fill('9');
+		await first.getByRole('button', { name: ui.saveSet(1), exact: true }).click();
+		await expect.poll(async () => (await stored())?.seconds).toBe(ui.defaultRestSeconds);
+		await page.getByRole('button', { name: ui.restAdd, exact: true }).click();
+		const extended = (await stored())!;
+		expect(extended.seconds).toBe(ui.defaultRestSeconds + ui.restAddSeconds);
+
+		// A correction to the same set: the rest and its +30 s stay.
+		await page.waitForTimeout(1100);
+		await first.getByRole('spinbutton', { name: 'Reps', exact: true }).fill('10');
+		await first.getByRole('button', { name: ui.saveSet(1), exact: true }).click();
+		await expect
+			.poll(async () => {
+				const r = await harness.db.select().from(s.sets).where(eq(s.sets.sessionId, sessionId));
+				return r.some((x) => x.executedReps === 10);
+			})
+			.toBe(true);
+		expect(await stored()).toMatchObject({
+			startedAt: extended.startedAt,
+			seconds: ui.defaultRestSeconds + ui.restAddSeconds
+		});
+
+		// The next set: a fresh rest, without the old +30 s.
+		await second.getByRole('button', { name: ui.saveSet(2), exact: true }).click();
+		await expect.poll(async () => (await stored())?.startedAt).toBeGreaterThan(extended.startedAt);
+		expect((await stored())!.seconds).toBe(ui.defaultRestSeconds);
+		await page.close();
+	});
 });

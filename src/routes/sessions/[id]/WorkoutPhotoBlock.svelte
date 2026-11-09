@@ -25,8 +25,11 @@
 
 {#if block}
 	{@const pb = block}
-	<div class="photo-block" data-testid="photo-block">
-		{#if pb.kind === 'reading' && (photos.readingIds.includes(pb.photoId) || photos.autoRead.includes(pb.photoId))}
+	{@const inFlight = photos.readingIds.includes(pb.photoId) || photos.autoRead.includes(pb.photoId)}
+	<!-- `reading` and `failed` both have no candidate yet: either can be read again. -->
+	{@const unread = pb.kind === 'reading' || pb.kind === 'failed'}
+	<div class="photo-block" data-testid="photo-block" data-kind={pb.kind}>
+		{#if unread && inFlight}
 			<p class="photo-line" aria-live="polite">{workoutUi.photoReading}</p>
 		{:else if pb.kind === 'match' && !photos.laterIds.includes(occurrenceId)}
 			<form method="POST" action="?/identify" use:enhance class="identify">
@@ -70,10 +73,13 @@
 				</div>
 				<a class="other" href="/photos/{pb.photoId}/review">{workoutUi.photoOtherMachine}</a>
 			</form>
+		{:else if pb.kind === 'reading' && !photos.failedIds.includes(pb.photoId)}
+			<!-- No read on record and none running (the page was left mid-read): nothing failed. -->
+			<p class="photo-line">{workoutUi.photoNotRead}</p>
 		{:else if pb.kind !== 'match'}
 			<p class="photo-line">{workoutUi.photoReadFailed}</p>
 		{/if}
-		{#if pb.kind === 'reading'}
+		{#if unread}
 			<form
 				method="POST"
 				action="?/readPhoto"
@@ -82,9 +88,9 @@
 				use:readOnce={photos.autoRead.includes(pb.photoId)}
 			>
 				<input type="hidden" name="photoId" value={pb.photoId} />
-				{#if !photos.readingIds.includes(pb.photoId) && !photos.autoRead.includes(pb.photoId)}<button
-						>{workoutUi.photoReadAgain}</button
-					><a href="/photos/{pb.photoId}/review">{workoutUi.photoNameIt}</a>{/if}
+				{#if !inFlight}<button>{workoutUi.photoReadAgain}</button><a
+						href="/photos/{pb.photoId}/review">{workoutUi.photoNameIt}</a
+					>{/if}
 			</form>
 		{:else if pb.kind === 'none' || photos.laterIds.includes(occurrenceId)}
 			<div class="photo-actions">

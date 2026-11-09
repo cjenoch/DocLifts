@@ -2,6 +2,44 @@
 
 ## Unreleased — one workout-state vocabulary — not deployed
 
+- Phase 2 (server guards and workout-page fixes):
+  - The server now refuses what the workout page already hid: swapping or
+    binding a machine to a photo block ("Name this machine from its photo
+    first."), binding a machine to a free weight, and restoring from Trash a
+    workout that was trashed before it ended.
+  - Finishing a workout with "From now on" swaps reports "the program changed"
+    instead of an error when the program is replaced at the same moment, and
+    no longer misses a workout of that program started at the same moment.
+  - A photo whose read failed now offers Read again and Name it, also after a
+    reload; a photo not read yet says so instead of claiming a failure.
+  - The exercise menu on an unnamed photo block says why swap and remove are
+    missing.
+  - The rest timer's "Try alert" no longer overwrites a running rest's status,
+    and dismissing a finished rest clears its message.
+  - The rest timer's settings panel opens fully on screen during a workout.
+    It was anchored to the workout bar, so its lower half — "Try alert"
+    included — sat below the screen.
+  - Removing a block or permanently deleting a workout after its photo was
+    discarded works again; migration 0024 (`0024_privacy_fence_unlink.sql`)
+    lets a photo pending removal lose its block and machine links, and
+    nothing else. The empty "Photo" machine now goes when the block leaves it,
+    right after Discard.
+  - A "Photo" machine you renamed or set up (stack, increment, model) is never
+    deleted when its block leaves it or its photo is erased; only one still
+    exactly as the app made it goes.
+  - Merging a machine, and undoing a merge, no longer fails when one of its
+    photos was discarded: that photo's machine link is cleared instead of
+    moved, and the merge preview no longer counts it. Naming a photo block
+    into an existing machine had the same failure and is fixed too.
+  - Adding, changing or naming a machine in a workout while the same machine
+    is being removed, merged or archived now waits and then says "not found",
+    instead of leaving the open workout on an archived machine.
+
+- Operator tool: `pnpm photo:placeholders` (production:
+  `scripts/photo-placeholders-prod.sh`) archives the unused "Photo 2:32 PM"
+  placeholder machines left by workouts before this release. Dry run by
+  default; archive only, restorable from the gym page.
+
 - No user-visible change. Internal: `sessionPhase`, `setStatus` and
   `workoutCapabilities` (`src/lib/workout-state.ts`) and the SQL fragments in
   `workout-state-sql.ts` replace 87 hand-spelled session predicates and 25 set

@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { workoutUi as ui } from '$lib/workout-ui';
 	let { sessionId, userId }: { sessionId: string; userId: string } = $props();
-	type Rest = { startedAt: number; seconds: number };
+	/** `setId`: the set whose save started this rest; absent for a rest started by hand. */
+	type Rest = { startedAt: number; seconds: number; setId?: string };
 	let rest = $state<Rest | null>(null),
 		now = $state(Date.now()),
 		settings = $state(false);
@@ -49,19 +50,31 @@
 			status = 'Sound is unavailable; visual alerts still work.';
 		}
 	}
-	export function start() {
+	/**
+	 * Start a rest. From a set save, `setId` is that set: re-saving the set that
+	 * started a rest still counting down (a correction) keeps it, with any +30 s;
+	 * any other save, or the Start button, begins a fresh rest (owner decision,
+	 * 2026-11-08).
+	 */
+	export function start(setId?: string) {
 		if (!ui.restTimerEnabled) return;
-		keep({ startedAt: Date.now(), seconds: duration });
+		if (setId && rest?.setId === setId && left > 0) return;
+		keep({ startedAt: Date.now(), seconds: duration, ...(setId ? { setId } : {}) });
 		status = '';
 	}
+	/** The end of a rest: the line under the clock, then the visual and the chime. */
 	function alert() {
+		status = ui.restFinished;
+		if (!signal()) status = ui.restFinishedNoSound;
+	}
+	/**
+	 * The visual alert and, when on, the chime. Writes no status, so "Try alert"
+	 * can preview it during a running rest. False when sound is on but blocked.
+	 */
+	function signal(): boolean {
 		alertCount += 1;
-		status = 'Rest finished · ready for your next set';
-		if (!sound) return;
-		if (!audio || audio.state !== 'running') {
-			status = 'Rest finished · tap the clock to enable sound in this tab';
-			return;
-		}
+		if (!sound) return true;
+		if (!audio || audio.state !== 'running') return false;
 		for (const [offset, hz] of [
 			[0, 660],
 			[0.19, 880]
@@ -82,6 +95,7 @@
 				gain.disconnect();
 			};
 		}
+		return true;
 	}
 	onMount(() => {
 		try {
@@ -96,7 +110,11 @@
 				saved.seconds > 0 &&
 				saved.seconds <= 86400
 			) {
-				rest = saved;
+				rest = {
+					startedAt: saved.startedAt,
+					seconds: saved.seconds,
+					...(typeof saved.setId === 'string' ? { setId: saved.setId } : {})
+				};
 				alerted = Date.now() >= saved.startedAt + saved.seconds * 1000;
 			}
 		} catch {
@@ -137,7 +155,11 @@
 						type="button"
 						class="readout"
 						aria-label={ui.restDismiss}
-						onclick={() => keep(null)}
+						onclick={() => {
+							keep(null);
+							// Nothing to report under an idle clock.
+							status = '';
+						}}
 						><span>{left ? ui.restLabel : ui.restOver}</span><output data-testid="rest-clock"
 							>{clock(left)}</output
 						></button
@@ -200,7 +222,8 @@
 			onclick={() => {
 				prepare();
 				settings = false;
-				setTimeout(alert, 100);
+				// During a running rest, a preview only: the clock and its line stay as they are.
+				setTimeout(() => (rest && left > 0 ? signal() : alert()), 100);
 			}}>Try alert</button
 		>
 	</div>

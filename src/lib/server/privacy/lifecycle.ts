@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, lte, sql } from 'drizzle-orm';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
 import type { PhotoStore } from '../photos/store';
+import { dropErasedPhotoPlaceholder } from '../photo-workout';
 import { withStorageLock } from './storage-lock';
 import { subjectHash, type Ledger, type LedgerEntry } from './ledger';
 
@@ -156,9 +157,18 @@ export async function requestPhotoDeletion(
 		const record = entry('photo', photoId, now);
 		await inventoryPhotos(tx, userId);
 		// Hide immediately. The key remains in the outbox until erasure succeeds.
+		// A confirmed photo's machine link is dropped here, while its status still
+		// says confirmed: once it reads `discarded`, erasure could not tell it from
+		// a workout photo's placeholder evidence (dropErasedPhotoPlaceholder) and
+		// might delete the user's machine. An unconfirmed photo keeps its link,
+		// which is that evidence.
 		await tx
 			.update(s.equipmentPhotos)
-			.set({ status: 'discarded', candidate: null })
+			.set({
+				status: 'discarded',
+				candidate: null,
+				...(photo.status === 'confirmed' ? { gymEquipmentId: null } : {})
+			})
 			.where(eq(s.equipmentPhotos.id, photoId));
 		await tx
 			.update(s.photoObjects)
@@ -180,6 +190,45 @@ async function completePhotoReceipt(db: Database, photoId: string) {
 				eq(s.privacyDeletions.subjectHash, subjectHash('photo', photoId))
 			)
 		);
+}
+
+/** Stands in for `prompt_hash` once its photo is erased. The real hash covers the
+ * image's sha256 and the user's note, so it is image-derived; the column is NOT
+ * NULL, so a fixed non-hex marker replaces it instead of a null. */
+export const ERASED_PROMPT_HASH = 'erased';
+
+/** The model call a just-erased photo pointed at. Deleting it would refund the
+ * daily analysis cap (`analysesInLastDay` counts these rows), so for a live
+ * account the row stays as usage metadata only: output, prompt text, error code
+ * and the image-derived prompt hash are cleared now, exactly the details the
+ * retention sweep clears at 30 days, and the unreferenced row then leaves with
+ * the 90-day usage sweep. A fenced account (account deletion, or a photo job
+ * still running after one) cannot be updated — the write fence refuses it — and
+ * is purged whole anyway, so its row is deleted as before. A call another photo
+ * still references is left alone. Runs inside the erasure transaction. */
+async function releasePhotoCall(
+	tx: Database,
+	userId: string,
+	callId: string,
+	accountDeletion: boolean
+) {
+	const unreferenced = sql`NOT EXISTS (SELECT 1 FROM equipment_photos WHERE llm_call_id=${callId})`;
+	const target = and(eq(s.llmCalls.userId, userId), eq(s.llmCalls.id, callId), unreferenced);
+	// FOR SHARE, as privacy_assert_active takes it: a concurrent account fence
+	// waits for this transaction, so the update below cannot race into the fence.
+	const [owner] = await tx
+		.select({ deletionRequestedAt: s.authUsers.deletionRequestedAt })
+		.from(s.authUsers)
+		.where(eq(s.authUsers.id, userId))
+		.for('share');
+	if (accountDeletion || !owner || owner.deletionRequestedAt) {
+		await tx.delete(s.llmCalls).where(target);
+		return;
+	}
+	await tx
+		.update(s.llmCalls)
+		.set({ output: null, promptText: null, errorCode: null, promptHash: ERASED_PROMPT_HASH })
+		.where(target);
 }
 
 /** No remote call is made inside a DB transaction. A crash after erasure merely
@@ -227,16 +276,19 @@ export async function erasePhotoObject(
 				.delete(s.equipmentPhotos)
 				.where(and(eq(s.equipmentPhotos.id, object.photoId), eq(s.equipmentPhotos.userId, userId)))
 				.returning();
-			if (photo?.llmCallId)
-				await tx
-					.delete(s.llmCalls)
-					.where(
-						and(
-							eq(s.llmCalls.userId, userId),
-							eq(s.llmCalls.id, photo.llmCallId),
-							sql`NOT EXISTS (SELECT 1 FROM equipment_photos WHERE llm_call_id=${photo.llmCallId})`
-						)
-					);
+			if (photo?.llmCallId) await releasePhotoCall(tx, userId, photo.llmCallId, accountDeletion);
+			// The empty placeholder machine a discarded workout photo made goes with
+			// it (docs/data-lifecycle.md). Live accounts only: a fenced account is
+			// purged whole, machines included. Contained in a savepoint; never fails this.
+			if (photo?.gymEquipmentId && !accountDeletion) {
+				const [owner] = await tx
+					.select({ deletionRequestedAt: s.authUsers.deletionRequestedAt })
+					.from(s.authUsers)
+					.where(eq(s.authUsers.id, userId))
+					.for('share');
+				if (owner && !owner.deletionRequestedAt)
+					await dropErasedPhotoPlaceholder(tx, userId, photo);
+			}
 			await tx
 				.delete(s.photoObjects)
 				.where(and(eq(s.photoObjects.storageKey, key), eq(s.photoObjects.userId, userId)));

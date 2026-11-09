@@ -67,11 +67,11 @@ Photos that were never decided are listed on the gym's photo page under
 
 ## Limits
 
-| Variable            | Default    | Meaning                                                                                                                                                      |
-| ------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `PHOTO_MAX_BYTES`   | `10485760` | Largest upload accepted (10 MB), checked before decoding.                                                                                                    |
-| `PHOTO_DAILY_LIMIT` | `20`       | Uploads per user per sliding 24 h (every photo row counts, discarded too). Analyses are counted separately against the same number. `0` refuses all.         |
-| `BODY_SIZE_LIMIT`   | `12M`      | adapter-node's request body ceiling. Its own default, 512K, refuses every phone photo before the app sees it. Keep it above `PHOTO_MAX_BYTES` plus a little. |
+| Variable            | Default    | Meaning                                                                                                                                                                                                                                             |
+| ------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PHOTO_MAX_BYTES`   | `10485760` | Largest upload accepted (10 MB), checked before decoding.                                                                                                                                                                                           |
+| `PHOTO_DAILY_LIMIT` | `20`       | Uploads per user per sliding 24 h (every photo row counts, discarded too). Analyses are counted separately against the same number, and still count after the photo is removed (privacy removal keeps the call as usage metadata). `0` refuses all. |
+| `BODY_SIZE_LIMIT`   | `12M`      | adapter-node's request body ceiling. Its own default, 512K, refuses every phone photo before the app sees it. Keep it above `PHOTO_MAX_BYTES` plus a little.                                                                                        |
 
 **Pixels and memory (0.5.3).** Two more limits are named constants in
 `photos/process.ts`, not env settings (no compose line):
@@ -520,8 +520,124 @@ finish goes to the finished workout's page, which says "N machines to name",
 and Home says it too. Identify works on a finished workout. The review page
 (`/photos/[id]/review`) is the full path: for a photo that opened a block,
 Link and Create name that block (no second machine) and return to the workout.
-A discarded photo leaves its block as "Unidentified machine" and drops it from
-the count.
+
+**What counts as a photo block (owner review P2, 2026-11-08).** A photo block is
+a block on the placeholder exercise **whose photo is not discarded**. One
+predicate says so, `waitingForPhotoName` in `photo-workout.ts` (with
+`isPhotoBlock` for one block), and everything reads it: the session page's
+`photoBlocks` (the naming card, and the hidden Swap, Remove and Change machine),
+the server's refusals in `bindSessionMachine` and `swapSessionExercise`, Home's
+count, the review page's `unidentifiedBlockOfPhoto`, `identifySessionExercise`
+and the repeat-visit naming. Before, the page left out a discarded photo's
+block while the server still refused it, so Swap and Change machine showed
+and answered 400 with no way to name the machine.
+
+A discarded (or erased) photo leaves its block as an ordinary unnamed block,
+"Unidentified machine" on its "Photo" machine, out of the count and with no
+naming card. Nothing names it from the discarded photo. With nothing logged,
+Swap replaces the exercise and clears the machine, Change machine works under
+its usual rules (same equipment type, nothing logged), and Remove drops it.
+With a set logged, swap is closed for the usual reason ("Logged sets: swap is
+closed"), and the block stays as logged.
+
+When such a block leaves its "Photo" machine (swap, change machine, remove),
+`dropPhotoPlaceholderMachine` deletes that machine only on positive evidence
+that the app made it for that block: a photo of this user whose
+`session_exercise_id` is the block and whose `gym_equipment_id` is the machine
+(`openPhotoBlock` and `undoPhotoIdentify` write both links; any status,
+discarded included), the block on the placeholder exercise, and the machine
+still placeholder-shaped (no model, `machine-stack`, not archived or merged).
+The label is not evidence: a machine the user named "Photo Finish" is never
+deleted.
+
+Evidence says the app made the machine; it does not say nobody touched it
+since (owner review P2, 2026-11-08: a placeholder renamed "West stack" with a
+200 lb stack and a 10 lb increment was deleted with its block). So the machine,
+re-read on the row the cleanup has locked, must also be **untouched**
+(`untouchedPhotoPlaceholder`): every column the user can edit still at the value
+`openPhotoBlock` inserted. Those columns are the label (still exactly the
+generated "Photo <time>", `photoMachineLabelPattern`; the time is the phone's
+and is stored nowhere else, so any label of exactly that format passes), the
+stack and the increment (null), the model (none) and the type (`machine-stack`),
+and it is not archived or merged. Anything else is the user's machine now and is
+kept, by this cleanup, by erasure's (`dropErasedPhotoPlaceholder`) and by the
+legacy archive below, which read the same rule. Without that evidence the machine is kept, and the user can remove it
+from the gym page; that is the case for a photo erased before the block left
+it, a placeholder made before this rule, and a photo confirmed onto another
+machine. A placeholder that holds logged sets, or anything else pointing at
+it, stays, as history.
+
+**Discard, then swap (the write fence, 0022 and 0024).** Both Discard paths
+(`discardPhoto`, and `requestPhotoDeletion` once removal is enabled) leave the
+photo's object `delete_pending` until it is erased. 0022's trigger refused any
+UPDATE of that photo row (23514), including the `ON DELETE SET NULL` Postgres
+runs on `session_exercise_id` when the block is deleted, so Remove and
+permanently deleting a trashed workout failed after Discard. Since migration
+0024 the fence allows exactly one change to a pending photo: `session_exercise_id`
+and/or `gym_equipment_id` going to null, every other column unchanged. Status,
+candidate, and pointing a link at a different row are still refused, and a
+fenced account is refused first, as before. So Swap, Change machine and Remove
+succeed at once after Discard, and `dropPhotoPlaceholderMachine` unlinks the
+pending evidence photo and deletes the placeholder in the same edit (23514 is
+still contained as a backstop, rolling back only the savepoint).
+
+At erasure, `erasePhotoObject`, after deleting an unconfirmed photo row that
+still points at an untouched placeholder, calls `dropErasedPhotoPlaceholder`,
+which deletes that machine if nothing points at it any more
+(`machineIsReferenced`), under `FOR UPDATE SKIP LOCKED` in a savepoint that
+never fails the erasure; the untouched rule is checked on the locked row. Live accounts only; an account being deleted is purged
+whole. A machine a `confirmed` photo points at is never deleted at erasure.
+This is now a backstop for a placeholder the swap-time cleanup kept (the
+machine was locked by another writer, or still referenced then).
+
+What remains is one leftover case: the photo is **erased while its block is
+still on the placeholder**. The machine is referenced at erasure and kept, the
+photo row (the only evidence) is gone, and the later swap, change or remove
+finds no evidence and keeps it too. With removal enabled the review page
+erases at once, so this is the usual order there when the user discards first
+and swaps second; with removal not enabled it happens only when the retention
+sweep erases the photo (after `discardedDays`, 30) before the block leaves the
+placeholder, typically a workout left with an unnamed block. The machine stays
+in the gym list until the user removes it from the gym page.
+
+**A photo pending removal is never moved to another machine (2026-11-08).**
+0024 lets a pending photo lose its links and nothing else, so the paths that
+re-point photos from one machine to another (machine merge and its undo, and
+`identifySessionExercise` joining an existing machine) go through
+`relinkMachinePhotos` in `machines.ts`: it locks the photos, then sets a pending
+photo's `gym_equipment_id` to null and moves the rest. Before, Merge and Undo
+answered 500 (23514) when the dropped machine held a discarded photo. The merge
+preview counts only the photos that will move.
+
+**Legacy placeholders (one-time cleanup, 2026-11-08).** Placeholders made
+before the photo carried the machine link have no evidence, so the rule above
+keeps them once their block has left them. `pnpm photo:placeholders`
+(`scripts/photo-placeholders-prod.sh` in production) lists, per user, the
+unmodeled `machine-stack` machines with exactly the placeholder label
+(`photoMachineLabelPattern`), no stack or increment typed in, not archived or
+merged, on no open workout and with nothing pointing at them, and archives
+them with `--apply`; it never deletes, and Restore on the gym page brings one
+back. `gym_equipment` has no `created_at`, so the machine cannot be paired
+with its photo by time; the dry run marks a candidate "strong" when a photo
+of that user at that gym, linked to no machine, was created 0-2 minutes after
+the label's minute (the label is the phone's local time, so the hour is not
+compared), and "weak" (label only) otherwise. A machine the user typed in as
+"Photo 7:15 PM" is listed as weak; read the dry run before confirming.
+
+The cleanup is best-effort and never fails the edit. It locks the machine with
+`FOR UPDATE SKIP LOCKED` before counting references, so a machine another
+transaction is still writing a reference to (its FK check holds `FOR KEY
+SHARE`) is skipped and kept instead of waited on and then failing with 23503.
+It runs in a savepoint: a reference, lock or deadlock error rolls back only
+the cleanup.
+
+Discarding a photo does not remove its block, even an empty one on an open
+workout. A photo leaves through more than one path (the review page's Discard,
+which is `discardPhoto` or, with deletion enabled, the privacy deletion path;
+the review page's Remove; and the operator's `reconcileDeletions`), and the
+privacy ones also erase the photo row; removing the block in some of them only
+would make the outcome depend on which button was used. The block's own Remove
+does it in one tap.
 
 **Data.** Migration 0018: `equipment_photos.session_exercise_id`, nullable,
 `ON DELETE SET NULL`, indexed, so the photo stays with the workout record after

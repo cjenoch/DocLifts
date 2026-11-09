@@ -123,12 +123,4 @@ export function utcWallOfLocal(localWall: string, timeZone: string): SQL {
 }
 
 /** 'YYYY-MM-DD' of an instant in `timeZone`, in JS (matches the SQL above). */
-export function dayKeyIn(date: Date, timeZone: string): string {
-	// en-CA formats as YYYY-MM-DD.
-	return new Intl.DateTimeFormat('en-CA', {
-		timeZone,
-		year: 'numeric',
-		month: '2-digit',
-		day: '2-digit'
-	}).format(date);
-}
+export { dayKeyIn } from '$lib/local-day';

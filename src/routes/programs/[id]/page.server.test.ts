@@ -267,3 +267,35 @@ it('load still offers Resume for a workout open on a retired version', async () 
 	expect(data).toMatchObject({ retired: { current: { name: 'Old' } } });
 	expect(data && 'days' in data ? data.days[0].openSessionId : null).toBe(open.sessionId);
 });
+
+// Phone: the program page's 14-day strip is read at the gym in the evening; an
+// 8 pm Detroit workout must land on that day, as History shows it (2026-11-09).
+it("load counts an evening workout on the user's local day", async () => {
+	const db = testDb.db!;
+	const [program] = await db.insert(s.programs).values({ name: 'P', userId }).returning();
+	const [day] = await db
+		.insert(s.days)
+		.values({ programId: program.id, name: 'D', position: 1 })
+		.returning();
+	const started = await startSessionForDay(db, userId, day.id);
+	if (!started.ok) throw new Error(started.message);
+	// 00:30 UTC on Nov 9 is 19:30 on Nov 8 in Detroit.
+	const at = new Date('2026-11-09T00:30:00Z');
+	await db
+		.update(s.sessions)
+		.set({ startedAt: at, endedAt: new Date('2026-11-09T01:15:00Z') })
+		.where(eq(s.sessions.id, started.sessionId));
+
+	// Positive first: no stored zone counts the UTC day, as before.
+	const utc = await load(loadAs(program.id));
+	expect(utc && 'sessionsByDay' in utc ? utc.sessionsByDay : null).toEqual({ '2026-11-09': 1 });
+
+	await db
+		.update(s.authUsers)
+		.set({ timeZone: 'America/Detroit' })
+		.where(eq(s.authUsers.id, userId));
+	const local = await load(loadAs(program.id));
+	expect(local && 'sessionsByDay' in local ? local.sessionsByDay : null).toEqual({
+		'2026-11-08': 1
+	});
+});

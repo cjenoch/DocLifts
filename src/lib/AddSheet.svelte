@@ -255,9 +255,17 @@
 			!picker.exercises.some((e) => e.name.toLowerCase() === query)
 	);
 
+	/**
+	 * The weight format last used for this exercise: on this machine, or, with
+	 * no machine, as a free weight (`${exerciseId}|`). A machine named just now
+	 * has no id and no memory, so its format is always asked: keyed by its
+	 * missing id it read the machine-less memory and was added in that format
+	 * without a question (2026-11-09).
+	 */
 	function rememberedFormat(exercise: ExerciseChoice, machine: MachineChoice | null) {
 		if (!exercise.id) return null;
-		const key = machine ? `${exercise.id}|${machine.id ?? ''}` : `${exercise.id}|`;
+		if (machine && !machine.id) return null;
+		const key = machine ? `${exercise.id}|${machine.id}` : `${exercise.id}|`;
 		return picker.conventions[key] ?? null;
 	}
 

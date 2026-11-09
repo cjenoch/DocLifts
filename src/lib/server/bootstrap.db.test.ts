@@ -380,6 +380,75 @@ describe('user:create', () => {
 		expect(account.providerId).toBe('credential');
 	});
 
+	it('writes the user and exactly one credential row, or neither when a step fails', async () => {
+		// Positive first: one user, ONE credential row, and it signs in.
+		const ok = await createUser(auth, db(), {
+			email: 'whole@doclifts.invalid',
+			password: 'correct-horse-battery',
+			name: 'Whole'
+		});
+		const okRows = await db().select().from(authAccounts).where(eq(authAccounts.userId, ok.id));
+		expect(okRows).toHaveLength(1);
+		expect(okRows[0]).toMatchObject({ providerId: 'credential', accountId: ok.id });
+		const signedIn = await auth.api.signInEmail({
+			body: { email: 'whole@doclifts.invalid', password: 'correct-horse-battery' }
+		});
+		expect(signedIn.user.id).toBe(ok.id);
+
+		// Fail the LAST write (the credential row) with a trigger, so the user
+		// row has already been written when it fails. No test seam in
+		// production code.
+		await harness.client.unsafe(`
+			create function create_user_test_fail() returns trigger language plpgsql as $$
+			begin raise exception 'injected credential failure'; end $$;
+			create trigger create_user_test_fail before insert on auth.account
+				for each row execute function create_user_test_fail();
+		`);
+		try {
+			await expect(
+				createUser(auth, db(), {
+					email: 'half@doclifts.invalid',
+					password: 'correct-horse-battery',
+					name: 'Half'
+				})
+			).rejects.toMatchObject({
+				cause: expect.objectContaining({ message: 'injected credential failure' })
+			});
+		} finally {
+			await harness.client.unsafe(`
+				drop trigger create_user_test_fail on auth.account;
+				drop function create_user_test_fail();
+			`);
+		}
+
+		// Nothing of it survived: no user row (so no orphan that can never sign
+		// in), and so no starter list either.
+		expect(await findUserByEmail(db(), 'half@doclifts.invalid')).toBeNull();
+		const [users] = await harness.client<{ n: number }[]>`
+			select count(*)::int as n from auth.user`;
+		expect(users.n).toBe(1);
+		const [lists] = await harness.client<{ n: number }[]>`
+			select count(*)::int as n from exercises where user_id <> ${ok.id}`;
+		expect(lists.n).toBe(0);
+
+		// And a re-run is not refused as a duplicate: it creates the account.
+		const again = await createUser(auth, db(), {
+			email: 'half@doclifts.invalid',
+			password: 'correct-horse-battery',
+			name: 'Half'
+		});
+		const againRows = await db()
+			.select()
+			.from(authAccounts)
+			.where(eq(authAccounts.userId, again.id));
+		expect(againRows).toHaveLength(1);
+		const exercisesOfAgain = await db()
+			.select()
+			.from(s.exercises)
+			.where(eq(s.exercises.userId, again.id));
+		expect(exercisesOfAgain).toHaveLength(STARTER_EXERCISES.length);
+	});
+
 	it('rejects a duplicate email rather than creating a second row', async () => {
 		await createUser(auth, db(), {
 			email: 'dupe@example.com',

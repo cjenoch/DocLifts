@@ -269,6 +269,71 @@ refused (23514 `Account unavailable`); row counts are unchanged.
 Revert: rerun 0022's `CREATE FUNCTION` body as `CREATE OR REPLACE` (no data
 changes to undo).
 
+## 0025 — one credential row per account
+
+`0025_account_unique_privacy_claim_tz.sql` (generated, then hand-ordered):
+
+- **`auth_account_provider_account_unique`**: a unique index on
+  `auth.account (provider_id, account_id)`. It replaces the plain
+  `auth_account_provider_pair_idx` on the same columns (dropped). Before it,
+  nothing stopped a second credential row for one user, although two comments
+  said something did.
+- **`privacy_deletions_completed_no_error_check`**: `completed_at IS NULL OR
+last_error IS NULL`. The migration first clears `last_error` on every
+  completed job (`deletionJobState()` already let completion win, so no reader
+  changes).
+- **`privacy_deletions.claimed_until`** (timestamptz, nullable, no default): a
+  deletion job's claim expiry, written only by `privacy/lifecycle.ts`.
+- **`auth.user.time_zone`** (text, nullable; an IANA name, NULL = UTC) with
+  **`auth_user_time_zone_length_check`** (NULL or 1 to 64 characters). It is
+  not a Better Auth field: Better Auth's update-user endpoint drops it, and only
+  DocLifts server code writes it.
+
+**Duplicates stop it.** The unique index cannot be built over existing
+duplicate pairs, and the migration never chooses which credential to delete. A
+`DO` block counts them first and raises
+`0025 refused: auth.account has N (provider_id, account_id) pair(s) held by M rows`
+(SQLSTATE 23505). The migrator runs the chain in one transaction, so nothing
+from 0025 is applied and the database is as 0024 left it.
+
+**Preflight, on a restore of the nightly dump (never production):**
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -d doclifts_scratch -f scripts/auth-account-duplicates.sql
+```
+
+It is read-only (`BEGIN TRANSACTION READ ONLY` … `ROLLBACK`) and prints a count,
+then each duplicate row's id, user id, timestamps and whether it has a password.
+It never prints a hash, a token or an email. Zero pairs: run the full chain on
+the restore, then `migrate-prod.sh`.
+
+**If it finds rows**, stop and report them to the owner; do not migrate. The
+only expected case is `provider_id = 'credential'` with `account_id = user_id`:
+one user with two password rows, from a pre-0025 double claim or create. Sign-in
+reads whichever row comes first, so which password works is undefined. The fix,
+with the owner's go, on production after a verified dump:
+
+1. `scripts/user-prod.sh set-password --email <that user> --password-stdin`,
+   the password from the owner's own shell. `updatePassword` writes every credential row of the user,
+   so the duplicates now hold the same hash.
+2. Delete all but the most recently updated row of that pair, by row id, in one
+   transaction that first re-checks the pair still has exactly the rows the
+   preflight listed.
+3. Rerun the preflight on a fresh dump: zero pairs. Then migrate.
+
+Any other provider in the list is not a known path in this app: report it and
+leave it alone.
+
+Verify after applying (rule 3): `\d auth.account` shows
+`auth_account_provider_account_unique` and no `auth_account_provider_pair_idx`;
+`pg_constraint` lists both CHECKs by name; `select count(*) from
+privacy_deletions where completed_at is not null and last_error is not null` is 0;
+`\d privacy_deletions` and `\d auth.user` show the two new nullable columns;
+row counts are unchanged.
+Revert (no data to restore except the cleared `last_error` text on completed
+jobs, which no reader used): drop the two CHECKs and the two columns, drop the
+unique index and recreate `auth_account_provider_pair_idx`.
+
 ## Later
 
 Not scheduled. Recorded so the reasoning survives the end of the ownership work.

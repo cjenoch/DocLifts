@@ -267,6 +267,67 @@ run('the add sheet and the Exercises page (production build)', () => {
 	});
 
 	/**
+	 * 2026-11-09: a machine named in the sheet has no id yet, and its weight
+	 * format was looked up under the key a machine-less memory uses
+	 * (`${exerciseId}|`), so an exercise with one was added on the new machine
+	 * in that format without a question. The fixture is a past machine-less
+	 * "Calf raise" block recorded in 'unknown' (older data; today's paths write
+	 * a machine block with a machine). On a phone: the question is one tap.
+	 */
+	it('a machine named in the sheet asks for its weight format; the block is saved in the one chosen', async () => {
+		const [past] = await harness.db
+			.select({ id: s.sessions.id })
+			.from(s.sessions)
+			.where(eq(s.sessions.userId, userId))
+			.orderBy(s.sessions.startedAt)
+			.limit(1);
+		const [calf] = await harness.db
+			.select()
+			.from(s.exercises)
+			.where(and(eq(s.exercises.userId, userId), eq(s.exercises.name, 'Calf raise')));
+		await harness.db.insert(s.sessionExercises).values({
+			sessionId: past.id,
+			exerciseId: calf.id,
+			exerciseName: calf.name,
+			position: 99,
+			equipmentType: 'machine-stack',
+			loadConvention: 'unknown',
+			tier: 'secondary',
+			progressionPolicy: 'standard'
+		});
+
+		const page = await signedInPage();
+		const { sheet, sessionId } = await openSheet(page);
+		await sheet.getByRole('tab', { name: ui.exercisesTab }).click();
+		await sheet.getByRole('searchbox', { name: ui.searchExercises }).fill('Calf raise');
+		await sheet.getByTestId('exercise-row').filter({ hasText: 'Calf raise' }).first().click();
+		await sheet.getByRole('button', { name: ui.addByName }).click();
+		await sheet.getByLabel(ui.machineName).fill('Calf machine');
+		await sheet.getByRole('button', { name: ui.add, exact: true }).click();
+		// Asked, not added in the remembered 'unknown'.
+		await sheet.getByText(ui.weightFormat, { exact: true }).waitFor({ timeout: 5000 });
+		expect(await blocksOf(sessionId)).toHaveLength(0);
+		await sheet.getByRole('button', { name: 'Per hand / arm' }).click();
+		await sheet.getByRole('button', { name: ui.add, exact: true }).click();
+		await expect.poll(() => page.getByRole('heading', { name: 'Calf raise' }).count()).toBe(1);
+		const [block] = await blocksOf(sessionId);
+		expect(block).toMatchObject({
+			exerciseId: calf.id,
+			machineLabel: 'Calf machine',
+			loadConvention: 'per_arm'
+		});
+		expect(block.gymEquipmentId).not.toBeNull();
+		const blockSets = await harness.db
+			.select({ loadConvention: s.sets.loadConvention })
+			.from(s.sets)
+			.where(eq(s.sets.sessionExerciseId, block.id));
+		expect(blockSets.length).toBeGreaterThan(0);
+		expect(blockSets.every((r) => r.loadConvention === 'per_arm')).toBe(true);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
+
+	/**
 	 * Audit of main, 2026-11-08: the add, bind and swap sheets were three
 	 * booleans, and the timer settings a fourth overlay at the same z-index.
 	 * On a phone only one may be up at a time; opening a sheet closes the rest.

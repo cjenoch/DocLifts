@@ -176,6 +176,13 @@
       "when": 1794182511691,
       "tag": "0024_privacy_fence_unlink",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794218186783,
+      "tag": "0025_account_unique_privacy_claim_tz",
+      "breakpoints": true
     }
   ]
 }

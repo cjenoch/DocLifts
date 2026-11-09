@@ -1,5 +1,15 @@
 import { deletionEnabled, durableLedger } from '$lib/server/privacy/ledger';
-import { deletionJobState, requestPhotoDeletion, runDeletion } from '$lib/server/privacy/lifecycle';
+import {
+	deletionJobState,
+	requestPhotoDeletion,
+	runDeletion,
+	type DeletionRunState
+} from '$lib/server/privacy/lifecycle';
+import {
+	photoRemovalUi,
+	removalOutcomeMessage,
+	type StoredRemovalState
+} from '$lib/photo-removal-ui';
 import { privacyDeletions, photoObjects } from '$lib/server/db';
 import { subjectHash } from '$lib/server/privacy/ledger';
 import { and, eq } from 'drizzle-orm';
@@ -53,11 +63,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		.select({ state: photoObjects.state })
 		.from(photoObjects)
 		.where(and(eq(photoObjects.photoId, photo.id), eq(photoObjects.userId, userId)));
+	// Stored state only, through deletionJobState. An inventoried object past
+	// `stored` with no open job is still on its way out: pending.
+	const job = removal ? deletionJobState(removal) : null;
+	const removalState: StoredRemovalState | null =
+		job === 'pending' || job === 'needs_retry'
+			? job
+			: object && object.state !== 'stored'
+				? 'pending'
+				: null;
 	return {
 		deletionEnabled: deletionEnabled(),
-		removalPending:
-			(!!removal && deletionJobState(removal) !== 'completed') ||
-			(!!object && object.state !== 'stored'),
+		removal: removalState,
 		block,
 		userId,
 		photo: { id: photo.id, status: photo.status, width: photo.width, height: photo.height },
@@ -82,29 +99,30 @@ function inputFailure(e: unknown) {
 
 const review = (id: string) => `/photos/${id}/review`;
 
+/** This request's removal batch: completed goes on; `busy` (another runner holds
+ * the job or its object), `pending` and `failed` each say what is true. */
+function removalOutcome(state: DeletionRunState) {
+	if (state === 'completed') redirect(303, '/account?photoRemoved=1');
+	if (state === 'not_found') error(404, 'Photo not found');
+	return fail(503, { message: removalOutcomeMessage(state), removal: state });
+}
+
 export const actions: Actions = {
 	remove: async ({ params, locals, request }) => {
 		const userId = requireUser(locals).id;
-		if (!deletionEnabled()) return fail(503, { message: 'Photo removal is not enabled yet.' });
+		if (!deletionEnabled()) return fail(503, { message: photoRemovalUi.disabled });
 		if ((await request.formData()).get('confirmRemoval') !== 'yes')
-			return fail(400, { message: 'Confirm that you want to remove this image.' });
+			return fail(400, { message: photoRemovalUi.confirmRequired });
 		let ledger, job;
 		try {
 			ledger = durableLedger();
 			job = await requestPhotoDeletion(db, userId, params.id, ledger);
 		} catch {
-			return fail(503, {
-				message:
-					'Removal could not be durably acknowledged. The image may already be hidden; contact support before retrying.'
-			});
+			return fail(503, { message: photoRemovalUi.notAcknowledged });
 		}
 		if (!job) error(404, 'Photo not found');
 		const result = await runDeletion(db, userId, job.id, photoStore(), ledger, 1);
-		if (result.state !== 'completed')
-			return fail(503, {
-				message: 'Photo hidden. Object removal is pending an operator retry; it has not finished.'
-			});
-		redirect(303, '/account?photoRemoved=1');
+		return removalOutcome(result.state);
 	},
 	analyze: async ({ params, request, locals }) => {
 		const userId = requireUser(locals).id;
@@ -179,16 +197,11 @@ export const actions: Actions = {
 				ledger = durableLedger();
 				job = await requestPhotoDeletion(db, userId, params.id, ledger);
 			} catch {
-				return fail(503, {
-					message:
-						'Removal could not be durably acknowledged. The image may already be hidden; contact support before retrying.'
-				});
+				return fail(503, { message: photoRemovalUi.notAcknowledged });
 			}
 			if (!job) error(404, 'Photo not found');
 			const result = await runDeletion(db, userId, job.id, photoStore(), ledger, 1);
-			if (result.state !== 'completed')
-				return fail(503, { message: 'Photo hidden. Object cleanup is pending an operator retry.' });
-			redirect(303, '/account?photoRemoved=1');
+			return removalOutcome(result.state);
 		}
 		try {
 			if (!(await discardPhoto(db, userId, params.id, photoStore()))) error(404, 'Photo not found');

@@ -1,7 +1,8 @@
-import { and, count, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
 import { days, importedWorkouts, programs, sessions, workoutLogImports } from './db/schema';
 import type { Database } from './progression';
 import { sessionIs } from './workout-state-sql';
+import { utcWallOfLocal } from './user-time-zone';
 
 /**
  * Reads behind `/history` and `/imported-history`.
@@ -28,6 +29,39 @@ export async function historyForMonth(
 	rangeStart: Date,
 	rangeEnd: Date
 ) {
+	return historyBetween(
+		db,
+		userId,
+		gte(sessions.startedAt, rangeStart),
+		lt(sessions.startedAt, rangeEnd)
+	);
+}
+
+/**
+ * The workouts of one calendar month in the user's own time zone (owner
+ * decision, 2026-11-09): `month` is 'YYYY-MM', `timeZone` an IANA name
+ * already validated by user-time-zone.ts ('UTC' when none is stored). The
+ * bounds are the local month's first instant and the next month's, turned
+ * into UTC wall time in SQL, so they compare with `started_at` (UTC wall
+ * time) whatever the server's TimeZone is.
+ */
+export async function historyForLocalMonth(
+	db: Database,
+	userId: string,
+	month: string,
+	timeZone: string
+) {
+	const [y, m] = month.split('-').map(Number);
+	const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+	return historyBetween(
+		db,
+		userId,
+		sql`${sessions.startedAt} >= ${utcWallOfLocal(`${month}-01 00:00:00`, timeZone)}`,
+		sql`${sessions.startedAt} < ${utcWallOfLocal(`${next}-01 00:00:00`, timeZone)}`
+	);
+}
+
+function historyBetween(db: Database, userId: string, from: SQL, to: SQL) {
 	return db
 		.select({
 			id: sessions.id,
@@ -44,14 +78,7 @@ export async function historyForMonth(
 		.from(sessions)
 		.innerJoin(days, eq(days.id, sessions.dayId))
 		.innerJoin(programs, eq(programs.id, sessions.programId))
-		.where(
-			and(
-				eq(sessions.userId, userId),
-				sessionIs.notTrashed(),
-				gte(sessions.startedAt, rangeStart),
-				lt(sessions.startedAt, rangeEnd)
-			)
-		)
+		.where(and(eq(sessions.userId, userId), sessionIs.notTrashed(), from, to))
 		.orderBy(desc(sessions.startedAt));
 }
 

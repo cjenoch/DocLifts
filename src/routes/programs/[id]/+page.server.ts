@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { dayKeyIn, userTimeZone, zoneOrUtc } from '$lib/server/user-time-zone';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, days, programs, sessions } from '$lib/server/db';
 import {
@@ -94,9 +95,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		.orderBy(desc(sessions.startedAt))
 		.limit(20);
 
+	const timeZone = zoneOrUtc(await userTimeZone(db, requireUser(locals).id));
 	const sessionsByDay = recentSessions.reduce<Record<string, number>>((acc, s) => {
 		if (sessionPhase(s) !== 'ended') return acc;
-		const key = new Date(s.startedAt).toISOString().slice(0, 10);
+		// The user's local day, as History and /reports count it (2026-11-09).
+		const key = dayKeyIn(new Date(s.startedAt), timeZone);
 		acc[key] = (acc[key] ?? 0) + 1;
 		return acc;
 	}, {});

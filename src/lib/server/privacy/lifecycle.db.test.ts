@@ -1,6 +1,6 @@
 import { authenticateMcp } from '../mcp/access';
 import { tokenHash, mcpResource } from '../mcp/config';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { setupTestDb, resetTestDb, withTwoUsers, type TestDb } from '../test-db';
 import * as s from '../db/schema';
@@ -12,7 +12,8 @@ import {
 	erasePhotoObject,
 	reconcileDeletions,
 	deletionJobState,
-	deletionJobSummary
+	deletionJobSummary,
+	DELETION_LEASE_MS
 } from './lifecycle';
 import { configureStorageLocks, closeStorageLocks } from './storage-lock';
 import { subjectHash, type LedgerEntry } from './ledger';
@@ -117,6 +118,39 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 		});
 		return { gym, model, machine, exercise, program, day, session, set, id, key, authSession };
 	}
+	it('a deletion request needs a live session of an active account (session-liveness.ts)', async () => {
+		const store = new MemoryPhotoStore();
+		const a = await fixture(alice, store);
+		const b = await fixture(bob, store);
+		const fencedAt = async (userId: string) =>
+			(await h.db.select().from(s.authUsers).where(eq(s.authUsers.id, userId)))[0]
+				.deletionRequestedAt;
+		// Positive first: a live session of an active account is accepted and fenced.
+		expect(await requestAccountDeletion(h.db, alice, a.authSession, ledger)).not.toBeNull();
+		expect(await fencedAt(alice)).not.toBeNull();
+		expect(journal).toHaveLength(1);
+		// An expired session: refused, nothing fenced, nothing journaled.
+		await h.db
+			.update(s.authSessions)
+			.set({ expiresAt: new Date(Date.now() - 1000) })
+			.where(eq(s.authSessions.id, b.authSession));
+		expect(await requestAccountDeletion(h.db, bob, b.authSession, ledger)).toBeNull();
+		expect(await fencedAt(bob)).toBeNull();
+		// A live session of an account already fenced: refused, no second journal entry.
+		await h.db
+			.update(s.authSessions)
+			.set({ expiresAt: new Date(Date.now() + 60000) })
+			.where(eq(s.authSessions.id, b.authSession));
+		await h.db
+			.update(s.authUsers)
+			.set({ deletionRequestedAt: new Date() })
+			.where(eq(s.authUsers.id, bob));
+		expect(await requestAccountDeletion(h.db, bob, b.authSession, ledger)).toBeNull();
+		expect(journal).toHaveLength(1);
+		expect(
+			await h.db.select().from(s.privacyDeletions).where(eq(s.privacyDeletions.ownerId, bob))
+		).toEqual([]);
+	});
 	it('revokes access immediately; object failure retains keys and restart retry removes only that account', async () => {
 		const store = new MemoryPhotoStore();
 		const a = await fixture(alice, store);
@@ -703,7 +737,7 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			expect(await jobRow(job.id)).toMatchObject({ attempts: 1, lastError: null });
 		});
 
-		it('a runner that meets an object another runner is erasing reports busy, not a failure', async () => {
+		it('a second runner while the first holds the lease is busy: no journal append, no attempt', async () => {
 			const store = new MemoryPhotoStore();
 			const a = await fixture(alice, store);
 			const job = (await requestAccountDeletion(h.db, alice, a.authSession, ledger))!;
@@ -711,13 +745,23 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			const first = runDeletion(h.db, alice, job.id, store, ledger);
 			try {
 				await arrived;
+				// Positive first: the first runner's claim is on the row, live.
+				const during = await jobRow(job.id);
+				expect(during.claimedUntil!.getTime()).toBeGreaterThan(Date.now());
+				expect(during).toMatchObject({ attempts: 1, lastError: null, completedAt: null });
+				const appended = journal.length;
 				expect(await runDeletion(h.db, alice, job.id, store, ledger)).toEqual({
 					state: 'busy',
 					removed: 0
 				});
-				const during = await jobRow(job.id);
-				expect(during).toMatchObject({ lastError: null, completedAt: null });
-				expect(deletionJobState(during)).toBe('pending');
+				// Refused at the claim: nothing appended, counted or marked.
+				expect(journal.length).toBe(appended);
+				expect(await jobRow(job.id)).toMatchObject({
+					attempts: 1,
+					lastError: null,
+					claimedUntil: during.claimedUntil
+				});
+				expect(deletionJobState(await jobRow(job.id))).toBe('pending');
 				expect(await store.get(a.key)).not.toBeNull();
 			} finally {
 				release();
@@ -725,8 +769,127 @@ describe('privacy lifecycle with isolated DB and memory objects', () => {
 			expect((await first).state).toBe('completed');
 			const done = await jobRow(job.id);
 			expect(deletionJobState(done)).toBe('completed');
-			expect(done).toMatchObject({ lastError: null, ownerId: null, attempts: 2 });
+			expect(done).toMatchObject({
+				lastError: null,
+				ownerId: null,
+				attempts: 1,
+				claimedUntil: null
+			});
 			expect(store.keys()).toEqual([]);
+		});
+
+		it('an expired lease is reclaimable; a live one is busy until it expires', async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const b = await fixture(bob, store);
+			const expired = (await requestPhotoDeletion(h.db, alice, a.id, ledger))!;
+			const live = (await requestPhotoDeletion(h.db, bob, b.id, ledger))!;
+			const lease = (jobId: string, at: string) =>
+				h.db.execute(
+					sql`UPDATE privacy_deletions SET claimed_until = now() + ${at}::interval WHERE id = ${jobId}`
+				);
+			// A runner that died: its claim ran out a minute ago. Positive first.
+			await lease(expired.id, '-1 minute');
+			expect(await runDeletion(h.db, alice, expired.id, store, ledger)).toEqual({
+				state: 'completed',
+				removed: 1
+			});
+			expect(await jobRow(expired.id)).toMatchObject({ attempts: 1, claimedUntil: null });
+			// A runner still within its lease.
+			await lease(live.id, '1 minute');
+			const appended = journal.length;
+			expect(await runDeletion(h.db, bob, live.id, store, ledger)).toEqual({
+				state: 'busy',
+				removed: 0
+			});
+			expect(journal.length).toBe(appended);
+			expect(await jobRow(live.id)).toMatchObject({ attempts: 0, lastError: null });
+			expect(await store.get(b.key)).not.toBeNull();
+			// Another user is not_found, never busy, even on a leased job (D6).
+			expect((await runDeletion(h.db, alice, live.id, store, ledger)).state).toBe('not_found');
+			await lease(live.id, '-1 second');
+			expect((await runDeletion(h.db, bob, live.id, store, ledger)).state).toBe('completed');
+		});
+
+		it('completion, a recorded failure and a lease-bounded stop all release the claim', async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const job = (await requestPhotoDeletion(h.db, alice, a.id, ledger))!;
+			const down = {
+				append: async () => {
+					throw new Error('synthetic outage');
+				}
+			};
+			// Failure: the error and the release land together, so the next run claims.
+			expect((await runDeletion(h.db, alice, job.id, store, down)).state).toBe('failed');
+			expect(await jobRow(job.id)).toMatchObject({ lastError: 'ledger', claimedUntil: null });
+			// A batch that reaches the lease's stop margin starts no object and
+			// releases: the clock jumps past it while the journal append runs.
+			let skew = 0;
+			const now = Date.now.bind(Date);
+			const clock = vi.spyOn(Date, 'now').mockImplementation(() => now() + skew);
+			try {
+				const slow = {
+					append: async (entry: LedgerEntry) => {
+						journal.push(entry);
+						skew = DELETION_LEASE_MS;
+					}
+				};
+				expect(await runDeletion(h.db, alice, job.id, store, slow)).toEqual({
+					state: 'pending',
+					removed: 0
+				});
+			} finally {
+				clock.mockRestore();
+			}
+			expect(await store.get(a.key)).not.toBeNull();
+			expect(await jobRow(job.id)).toMatchObject({ attempts: 2, claimedUntil: null });
+			// Completion.
+			expect((await runDeletion(h.db, alice, job.id, store, ledger)).state).toBe('completed');
+			expect(await jobRow(job.id)).toMatchObject({
+				attempts: 3,
+				lastError: null,
+				claimedUntil: null
+			});
+		});
+
+		it("a run that outlived its lease never clears the next runner's claim, also when it fails", async () => {
+			const store = new MemoryPhotoStore();
+			const a = await fixture(alice, store);
+			const job = (await requestPhotoDeletion(h.db, alice, a.id, ledger))!;
+			// Positive first: a failure inside this run's own lease is recorded and releases.
+			const down = {
+				append: async () => {
+					throw new Error('synthetic outage');
+				}
+			};
+			expect((await runDeletion(h.db, alice, job.id, store, down)).state).toBe('failed');
+			expect(await jobRow(job.id)).toMatchObject({ lastError: 'ledger', claimedUntil: null });
+
+			// Now the run's lease runs out mid-flight, another runner claims the job
+			// (a later claimed_until), and then this run fails.
+			const replacement = new Date(Date.now() + 10 * 60_000);
+			replacement.setMilliseconds(0);
+			const overtaken = {
+				append: async () => {
+					await h.db
+						.update(s.privacyDeletions)
+						.set({ claimedUntil: replacement, lastError: null })
+						.where(eq(s.privacyDeletions.id, job.id));
+					throw new Error('synthetic outage');
+				}
+			};
+			expect(await runDeletion(h.db, alice, job.id, store, overtaken)).toEqual({
+				state: 'busy',
+				removed: 0
+			});
+			// The replacement's claim stands and no failure was written over it, so a
+			// third runner is still refused.
+			const row = await jobRow(job.id);
+			expect(row.claimedUntil!.getTime()).toBe(replacement.getTime());
+			expect(row.lastError).toBeNull();
+			expect((await runDeletion(h.db, alice, job.id, store, ledger)).state).toBe('busy');
+			expect(await store.get(a.key)).not.toBeNull();
 		});
 
 		it('a failure after the job completed reports completion and writes no error onto it', async () => {

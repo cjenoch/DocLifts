@@ -2,6 +2,7 @@ import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { days, exercises, programs, sessionExercises, sessions, sets } from './db/schema';
 import type { Database } from './progression';
 import { historyFilter, sessionIs, setIs } from './workout-state-sql';
+import { dayKeyIn, localDayKey, userTimeZone, utcWallOfLocal, zoneOrUtc } from './user-time-zone';
 export async function topExerciseIdentities(db: Database, userId: string) {
 	const exerciseName = sql<string>`coalesce(${sessionExercises.exerciseName}, ${exercises.name})`;
 	return db
@@ -38,22 +39,25 @@ export async function topExerciseIdentities(db: Database, userId: string) {
 		.limit(10);
 }
 
+const DAY_MS = 86_400_000;
+
 // Every read behind /reports. The route used to run six of these inline with
 // no owner predicate anywhere, so the page counted the whole database. Moved
 // here and scoped; `requireUser(locals).id` is the only source of the id.
-const DAY_MS = 86_400_000;
-// `sessions.started_at` is a timestamp WITHOUT time zone holding UTC wall time
-// (Drizzle writes and reads it as UTC), and this page's days are UTC days, as
-// History's are. The day is therefore `to_char` of the value itself:
-// `started_at at time zone 'UTC'` turned it into an instant and re-rendered it
-// in the server's TimeZone, so on a server not set to UTC an evening workout
-// west of Greenwich landed on the day before. Windows compare against the
-// current UTC wall time for the same reason: comparing the naive column with
-// `now()` casts it through the server's TimeZone.
-const startedUtcDay = sql<string>`to_char(${sessions.startedAt}, 'YYYY-MM-DD')`;
-const utcNow = sql`(now() at time zone 'UTC')`;
-
+//
+// Days are the user's own (owner decision, 2026-11-09): the zone the phone's
+// browser reported (user-time-zone.ts), or UTC while none is stored, which is
+// exactly the behaviour before. `sessions.started_at` is a timestamp WITHOUT
+// time zone holding UTC wall time, so its local day is
+// `to_char((started_at at time zone 'UTC') at time zone $tz, ...)`, and a
+// window starts at the UTC wall time of a local midnight. None of it reads
+// the server's TimeZone: PR #63 found `started_at at time zone 'UTC'` alone
+// re-rendered through it and moved evening workouts west of Greenwich to the
+// day before. "Last N days" are the N local calendar days ending today, the
+// same days the 14-day strip shows.
 export async function reportSnapshot(db: Database, userId: string) {
+	const timeZone = zoneOrUtc(await userTimeZone(db, userId));
+	const startedLocalDay = localDayKey(sessions.startedAt, timeZone);
 	const [sessionCounts] = await db
 		.select({
 			totalNotDeleted: count(sessions.id),
@@ -111,16 +115,18 @@ export async function reportSnapshot(db: Database, userId: string) {
 			s.totalSets > 0 ? Math.round((Number(s.completedSets) / Number(s.totalSets)) * 1000) / 10 : 0
 	}));
 
-	const now = new Date();
+	// Today's local date in the user's zone, and the 14 local days ending
+	// today. Each window below starts at the UTC wall time of one of these
+	// local midnights, so the strip and the 7/28-day counts share one clock.
+	const todayUtc = Date.parse(`${dayKeyIn(new Date(), timeZone)}T00:00:00Z`);
+	const localDayAgo = (n: number) => new Date(todayUtc - n * DAY_MS).toISOString().slice(0, 10);
+	const startOfLocalDayAgo = (n: number) => utcWallOfLocal(`${localDayAgo(n)} 00:00:00`, timeZone);
 	const consistency: Array<{ dateKey: string; count: number }> = [];
-	for (let i = 13; i >= 0; i--) {
-		const d = new Date(now.getTime() - i * DAY_MS);
-		consistency.push({ dateKey: d.toISOString().slice(0, 10), count: 0 });
-	}
+	for (let i = 13; i >= 0; i--) consistency.push({ dateKey: localDayAgo(i), count: 0 });
 	const byDate = new Map(consistency.map((d) => [d.dateKey, d]));
 	const consistencyRows = await db
 		.select({
-			dateKey: startedUtcDay,
+			dateKey: startedLocalDay,
 			count: count(sessions.id)
 		})
 		.from(sessions)
@@ -128,10 +134,12 @@ export async function reportSnapshot(db: Database, userId: string) {
 			and(
 				eq(sessions.userId, userId),
 				sessionIs.ended(),
-				sql`${sessions.startedAt} >= ${utcNow} - interval '14 days'`
+				sql`${sessions.startedAt} >= ${startOfLocalDayAgo(13)}`
 			)
 		)
-		.groupBy(startedUtcDay);
+		// By position: the zone is a bound parameter, so the same expression
+		// written twice is two parameters, and Postgres will not match them.
+		.groupBy(sql`1`);
 	for (const row of consistencyRows) {
 		const bucket = byDate.get(row.dateKey);
 		if (bucket) bucket.count = Number(row.count);
@@ -141,17 +149,14 @@ export async function reportSnapshot(db: Database, userId: string) {
 
 	const [windowCounts] = await db
 		.select({
-			last7: count(
-				sql`CASE WHEN ${sessions.startedAt} >= ${utcNow} - interval '7 days' THEN 1 END`
-			),
-			last28: count(
-				sql`CASE WHEN ${sessions.startedAt} >= ${utcNow} - interval '28 days' THEN 1 END`
-			)
+			last7: count(sql`CASE WHEN ${sessions.startedAt} >= ${startOfLocalDayAgo(6)} THEN 1 END`),
+			last28: count(sql`CASE WHEN ${sessions.startedAt} >= ${startOfLocalDayAgo(27)} THEN 1 END`)
 		})
 		.from(sessions)
 		.where(and(eq(sessions.userId, userId), sessionIs.ended()));
 
 	return {
+		timeZone,
 		overview: {
 			totalSessions: sessionCounts.totalNotDeleted,
 			endedSessions: sessionCounts.endedNotDeleted,

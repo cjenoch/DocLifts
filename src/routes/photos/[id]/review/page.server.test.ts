@@ -4,7 +4,7 @@
  * cross-tenant answers: B's GET of A's image is a 404, B's link on A's photo
  * is a 404 with no row, and B cannot link to A's owned model.
  */
-import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDb, withTwoUsers, type TestDb } from '$lib/server/test-db';
 
@@ -19,9 +19,24 @@ vi.mock('$lib/server/db', async () => {
 	};
 });
 
+// The removal actions need a journal; this stands in for the broker. Everything
+// else in the module is real.
+const journal = vi.hoisted(() => ({ entries: [] as unknown[] }));
+vi.mock('$lib/server/privacy/ledger', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/server/privacy/ledger')>()),
+	durableLedger: () => ({
+		append: async (entry: unknown) => {
+			journal.entries.push(entry);
+		}
+	})
+}));
+
 import { actions, load } from './+page.server';
+import { photoRemovalUi, removalStatusLine, type StoredRemovalState } from '$lib/photo-removal-ui';
 import { GET } from '../image/+server';
 import * as s from '$lib/server/db/schema';
+import { subjectHash } from '$lib/server/privacy/ledger';
+import { deletionJobState } from '$lib/server/privacy/lifecycle';
 import { MemoryPhotoStore, setPhotoStoreForTests } from '$lib/server/photos/store';
 import { uploadPhoto } from '$lib/server/photos';
 import { CountingPhotoStore, FIXTURE_CANDIDATE, smallPng } from '$lib/server/photos/test-fixtures';
@@ -115,7 +130,7 @@ const machinesAt = (gym: string) =>
 
 it('review: the owner sees the candidate and the exact match preselected; another user a 404', async () => {
 	const photo = await analyzedPhoto(alice, alicesGym);
-	const page = await loadAs(alice, photo.id);
+	const page = (await loadAs(alice, photo.id)) as { removal: StoredRemovalState | null };
 	expect(page).toMatchObject({
 		candidate: FIXTURE_CANDIDATE,
 		candidateLoadingType: 'machine-plate',
@@ -194,5 +209,95 @@ it('discard: the object is gone (image 404) and the row is discarded; B cannot d
 	await expect(getImage(alice, photo.id)).rejects.toMatchObject({ status: 404 });
 	await expect(loadAs(alice, photo.id)).resolves.toMatchObject({
 		photo: { status: 'discarded' }
+	});
+});
+
+describe('removal says what is true: busy, failed and pending are different lines', () => {
+	let enabled: string | undefined;
+	beforeEach(() => {
+		enabled = process.env.PRIVACY_DELETION_ENABLED;
+		process.env.PRIVACY_DELETION_ENABLED = '1';
+		journal.entries = [];
+	});
+	afterEach(() => {
+		if (enabled === undefined) delete process.env.PRIVACY_DELETION_ENABLED;
+		else process.env.PRIVACY_DELETION_ENABLED = enabled;
+	});
+	const remove = (user: string, id: string) =>
+		actions.remove(post(user, id, { confirmRemoval: 'yes' }));
+	const jobOf = async (photoId: string) =>
+		(
+			await harness.db
+				.select()
+				.from(s.privacyDeletions)
+				.where(eq(s.privacyDeletions.subjectHash, subjectHash('photo', photoId)))
+		)[0];
+
+	it('an uncontended removal finishes, and the page has no removal line to show', async () => {
+		// Positive first: the path the other cases leave from.
+		const photo = await analyzedPhoto(alice, alicesGym);
+		await expect(remove(alice, photo.id)).rejects.toMatchObject({
+			status: 303,
+			location: '/account?photoRemoved=1'
+		});
+		expect(await store.get(photo.storageKey)).toBeNull();
+		expect(deletionJobState(await jobOf(photo.id))).toBe('completed');
+	});
+
+	it('busy: another holder has the object; "in progress", no retry mark, and the page says pending', async () => {
+		const photo = await analyzedPhoto(alice, alicesGym);
+		// Another runner (or an upload) holds the object's storage lock.
+		const holder = await harness.client.reserve();
+		try {
+			await holder`SELECT pg_advisory_lock(hashtextextended(${photo.storageKey}, 29))`;
+			const result = await remove(alice, photo.id);
+			expect(result).toMatchObject({
+				status: 503,
+				data: { message: photoRemovalUi.outcome.busy, removal: 'busy' }
+			});
+			expect(photoRemovalUi.outcome.busy).not.toMatch(/retry/i);
+			const job = await jobOf(photo.id);
+			expect(job.lastError).toBeNull();
+			expect(deletionJobState(job)).toBe('pending');
+			expect(await store.get(photo.storageKey)).not.toBeNull();
+			const page = (await loadAs(alice, photo.id)) as { removal: StoredRemovalState | null };
+			expect(page.removal).toBe('pending');
+			expect(removalStatusLine(page.removal)).toBe(photoRemovalUi.status.pending);
+		} finally {
+			await holder`SELECT pg_advisory_unlock_all()`;
+			holder.release();
+		}
+		// Once the holder lets go, the same removal finishes.
+		await expect(remove(alice, photo.id)).rejects.toMatchObject({ status: 303 });
+		expect(await store.get(photo.storageKey)).toBeNull();
+	});
+
+	it('failed: the store refuses; "waiting for an operator retry", and the page says needs_retry', async () => {
+		const photo = await analyzedPhoto(alice, alicesGym);
+		store.erase = async () => {
+			throw new Error('fictional store outage');
+		};
+		expect(await remove(alice, photo.id)).toMatchObject({
+			status: 503,
+			data: { message: photoRemovalUi.outcome.failed, removal: 'failed' }
+		});
+		const job = await jobOf(photo.id);
+		expect(job.lastError).toBe('storage');
+		const page = (await loadAs(alice, photo.id)) as { removal: StoredRemovalState | null };
+		expect(page.removal).toBe('needs_retry');
+		expect(removalStatusLine(page.removal)).toBe(photoRemovalUi.status.needs_retry);
+		// Another user's POST on the same photo is a 404, and nothing about the job moves.
+		await expect(remove(bob, photo.id)).rejects.toMatchObject({ status: 404 });
+		expect((await jobOf(photo.id)).attempts).toBe(job.attempts);
+	});
+
+	it('the three run outcomes and the two stored states are five distinct lines', () => {
+		const lines = [
+			...Object.values(photoRemovalUi.outcome),
+			photoRemovalUi.status.pending,
+			photoRemovalUi.status.needs_retry
+		];
+		expect(new Set(lines).size).toBe(5);
+		expect(removalStatusLine(null)).toBe(photoRemovalUi.status.done);
 	});
 });

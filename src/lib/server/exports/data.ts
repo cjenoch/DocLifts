@@ -3,7 +3,7 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 import type { Database } from '../progression';
 import * as s from '../db/schema';
 import { exportFields as f } from './fields';
-import { sessionIsLive, userIsActive } from '../mcp/grant-validity';
+import { sessionIsLive, userIsActive } from '../session-liveness';
 
 export const MAX_EXPORT_ROWS = 50_000;
 export const MAX_EXPORT_BYTES = 32 * 1024 * 1024;
@@ -58,7 +58,7 @@ export async function readAccountExport(db: Database, userId: string) {
 				tx
 					.select(columns(s.authUsers, f.profile))
 					.from(s.authUsers)
-					.where(and(eq(s.authUsers.id, userId), isNull(s.authUsers.deletionRequestedAt)))
+					.where(and(eq(s.authUsers.id, userId), userIsActive()))
 					.limit(1)
 			);
 			if (!profile.length) throw new ExportAccessError('Account unavailable.');

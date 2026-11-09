@@ -39,7 +39,9 @@ HttpOnly cookie. It distinguishes pending, retry-needed and completed. Pending i
 not success; an operator must run the worker. Every reader takes that state from
 `deletionJobState()` in `privacy/lifecycle.ts`: completed when `completed_at` is
 set (it wins over any `last_error`), otherwise retry-needed when `last_error` is
-set, otherwise pending. No page or script maps the columns itself. Repeated or stale sessions cannot
+set, otherwise pending. Since migration 0025 the row agrees: the CHECK
+`privacy_deletions_completed_no_error_check` refuses a completed job that still
+carries `last_error`. No page or script maps the columns itself. Repeated or stale sessions cannot
 submit a second destructive request. Only minimal completion status is exposed by
 the random receipt capability, never account details.
 
@@ -153,13 +155,25 @@ Use `nextAfter` with `--after` to continue the account scan. Repeat bounded dele
 passes until no jobs remain; a failed batch exits nonzero, and `last_error` records
 only the failing stage (`ledger`, `storage`, `database`). A failure is never written
 onto a completed job (it is re-checked under the job row's lock), and completion
-clears `last_error`. A run claims its job with `FOR UPDATE SKIP LOCKED` and counts
-the claim in `attempts`, whatever the outcome. A job whose row another runner is
-claiming, or one of whose objects another holder has locked (a second runner, an
-upload, a retention sweep), is `busy`: no error is recorded and the batch does not
-fail. The row lock is not held across journal or object I/O, so two runners can
-still overlap between those points; each object's erasure is serialized and
-idempotent, and the job completes once. The dry run prints `pendingJobs` (open
+clears `last_error`. One runner works a job at a time. A run claims its job with a
+lease: one UPDATE sets `claimed_until` to now plus 15 minutes
+(`DELETION_LEASE_MS`) and counts the claim in `attempts`, only on an open job whose
+lease is absent or expired. A job another runner holds (a live lease, or its row
+in another transaction's short write, skipped with `SKIP LOCKED`), or one of whose
+objects another holder has locked (an upload, a retention sweep), is `busy`: no
+journal append, no attempt, no error, and the batch does not fail. Another user's
+job is `not_found`, never `busy`. Every exit of a claimed run releases the lease
+(a recorded failure in the same statement as `last_error`), and only the lease
+that run set, so a crashed runner's job is reclaimable once its lease expires.
+A run that outlived its lease and finds another runner's claim on the job writes
+no failure (that would clear the new claim) and reports `busy`.
+The run fits the lease: it starts no new object once 3 minutes of it are left
+(`DELETION_LEASE_STOP_MS`, more than one object's worst case of about a minute)
+and returns `pending` for the next run. The photo review page says so in its own
+words: a `busy` removal is "in progress", a recorded failure is waiting for an
+operator retry, and an unfinished one has not finished yet
+(`src/lib/photo-removal-ui.ts`; the stored state still comes from
+`deletionJobState()`). The dry run prints `pendingJobs` (open
 jobs), split into `pending` and `needsRetry`, with `maxAttempts`; apply prints the
 outcome counts (`completed`, `pending`, `failed`, `busy`, `not_found`, `removed`)
 and the same summary as `before`. Aggregates only, never job or owner identifiers.

@@ -2,7 +2,8 @@ import { homeState } from '$lib/server/home';
 import { fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { db } from '$lib/server/db';
-import { historyForMonth } from '$lib/server/history';
+import { historyForLocalMonth } from '$lib/server/history';
+import { dayKeyIn, userTimeZone, zoneOrUtc } from '$lib/server/user-time-zone';
 import {
 	hardDeleteSession,
 	listDeletedSessionsForUser,
@@ -11,26 +12,32 @@ import {
 import { requireUser } from '$lib/server/request-user';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ url, locals }) => {
-	// Month pagination via ?month=YYYY-MM; default = current month. The query
-	// itself lives in historyForMonth, owner-scoped — this route used to run it
-	// inline with no owner predicate and returned every user's history.
-	const monthParam = url.searchParams.get('month');
-	let rangeStart: Date;
-	let rangeEnd: Date;
-	if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
-		const [y, m] = monthParam.split('-').map(Number);
-		rangeStart = new Date(Date.UTC(y, m - 1, 1));
-		rangeEnd = new Date(Date.UTC(y, m, 1));
-	} else {
-		const now = new Date();
-		rangeStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-		rangeEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-	}
+const MONTH = /^(\d{4})-(0[1-9]|1[0-2])$/;
 
+/** 'YYYY-MM' shifted by `delta` months. */
+function shiftMonth(month: string, delta: number): string {
+	const [y, m] = month.split('-').map(Number);
+	const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+	return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export const load: PageServerLoad = async ({ url, locals }) => {
 	const userId = requireUser(locals).id;
+	// Days and months are the user's own (owner decision, 2026-11-09): the zone
+	// the phone's browser reported, or UTC until it has. On a phone at 8 pm in
+	// Detroit, tonight's workout is listed under today, not tomorrow.
+	const timeZone = zoneOrUtc(await userTimeZone(db, userId));
+	const currentMonth = dayKeyIn(new Date(), timeZone).slice(0, 7);
+
+	// Month pagination via ?month=YYYY-MM; default = the current local month.
+	// The query itself lives in historyForLocalMonth, owner-scoped — this route
+	// used to run it inline with no owner predicate and returned every user's
+	// history.
+	const monthParam = url.searchParams.get('month');
+	const month = monthParam && MONTH.test(monthParam) ? monthParam : currentMonth;
+
 	const [rows, trash, home] = await Promise.all([
-		historyForMonth(db, userId, rangeStart, rangeEnd),
+		historyForLocalMonth(db, userId, month, timeZone),
 		// Trash on History (0.5.2): every trashed workout of this user, quick or
 		// program, whatever the month. The quick program has no page, so this
 		// is the only place a trashed quick workout can be restored from.
@@ -39,15 +46,13 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	]);
 
 	// Month nav links (no future months).
-	const prev = new Date(rangeStart);
-	prev.setUTCMonth(prev.getUTCMonth() - 1);
-	const fmt = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-
+	const next = shiftMonth(month, 1);
 	return {
 		sessions: rows,
-		month: fmt(rangeStart),
-		prevMonth: fmt(prev),
-		nextMonth: rangeEnd <= new Date() ? fmt(rangeEnd) : null,
+		month,
+		prevMonth: shiftMonth(month, -1),
+		nextMonth: next <= currentMonth ? next : null,
+		timeZone,
 		trashSessions: trash.sessions,
 		trashCount: trash.total,
 		hasWorkouts: home.hasWorkouts

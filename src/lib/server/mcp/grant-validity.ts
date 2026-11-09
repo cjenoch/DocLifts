@@ -1,18 +1,7 @@
-import { and, eq, exists, gt, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, exists, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { authSessions, authUsers, oauthClient, oauthConsent } from '../db/schema';
-
-/** The one spelling of "this login session is still live": unexpired. A deleted
- * session has no row, so callers that join or test existence also refuse it.
- * Used by MCP access, MCP refresh and the account export. */
-export function sessionIsLive(now: Date = new Date()): SQL {
-	return gt(authSessions.expiresAt, now);
-}
-
-/** The account is not fenced for deletion. */
-export function userIsActive(): SQL {
-	return isNull(authUsers.deletionRequestedAt);
-}
+import { sessionIsLive, userIsActive } from '../session-liveness';
 
 /** The OAuth client has not been disabled (NULL is the provider's "enabled"). */
 export function clientIsUsable(): SQL {

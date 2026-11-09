@@ -16,6 +16,7 @@
  * - A block still on the photo placeholder ("Unidentified machine") is left
  *   with no exercise chosen, so the draft cannot be saved until it is named.
  */
+import { userTimeZone, zoneOrUtc } from './user-time-zone';
 import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { exercises, programs, sessionExercises, sessions, sets } from './db/schema';
@@ -37,8 +38,9 @@ export class WorkoutNotFoundError extends Error {
 }
 
 export const WORKOUT_DAY_NAME = 'Workout';
-export const workoutProgramName = (startedAt: Date) =>
-	`Workout · ${startedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`;
+/** "Workout · Nov 8, 2026", the day in the user's zone (UTC when none is stored). */
+export const workoutProgramName = (startedAt: Date, timeZone = 'UTC') =>
+	`Workout · ${startedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone })}`;
 
 const saved = (r: SetRow) =>
 	// workout-state-seam: allow — owner decision 2026-11-08 (plan §5.1): the draft drops set notes, so a notes-only set is not saved for templating
@@ -114,7 +116,8 @@ export async function programDraftFromWorkout(
 	sessionId: string
 ): Promise<ProgramDraft> {
 	const { day, startedAt } = await workoutDay(db, userId, sessionId);
-	return { name: workoutProgramName(startedAt), description: null, days: [day] };
+	const timeZone = zoneOrUtc(await userTimeZone(db, userId));
+	return { name: workoutProgramName(startedAt, timeZone), description: null, days: [day] };
 }
 
 /** An existing program's edit draft, with the workout added as its last day. */

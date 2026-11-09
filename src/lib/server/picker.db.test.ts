@@ -223,6 +223,60 @@ describe('pickerData (machines spec Parts I and J)', () => {
 	});
 });
 
+describe('remembered weight formats', () => {
+	it('a free weight remembers its newest format across equipment rows; a machine-less machine block remembers nothing', async () => {
+		const curl = await starter('Dumbbell curl');
+		const press = await starter('Leg press');
+		const rack = await createMachine(db, alice, {
+			gymId: home,
+			localLabel: 'Dumbbells',
+			equipmentType: 'dumbbell'
+		});
+		// Older: on the "Dumbbells" row, per arm.
+		const old = await workout(home);
+		const onRow = await addSessionExercise(db, alice, old, {
+			...base,
+			loadConvention: 'per_arm',
+			exerciseId: curl.id,
+			equipmentType: 'dumbbell',
+			gymId: home,
+			gymEquipmentId: rack.id
+		});
+		await logAll(onRow.id, 25);
+		await endSession(db, alice, old);
+		// Newer: no machine, unknown.
+		const now = await workout(home);
+		const free = await addSessionExercise(db, alice, now, {
+			...base,
+			loadConvention: 'unknown',
+			exerciseId: curl.id,
+			equipmentType: 'dumbbell'
+		});
+		await logAll(free.id, 50);
+		await endSession(db, alice, now);
+		await db
+			.update(s.sessions)
+			.set({ startedAt: new Date(Date.now() - 86_400_000) })
+			.where(eq(s.sessions.id, old));
+		// Legacy data: a machine-type block with no machine, in a real format.
+		const legacy = await workout(home);
+		const machineless = await addSessionExercise(db, alice, legacy, {
+			...base,
+			exerciseId: curl.id,
+			equipmentType: 'dumbbell'
+		});
+		await db
+			.update(s.sessionExercises)
+			.set({ exerciseId: press.id, equipmentType: 'machine-plate', loadConvention: 'per_arm' })
+			.where(eq(s.sessionExercises.id, machineless.id));
+		await endSession(db, alice, legacy);
+
+		const data = await pickerData(db, alice, home);
+		expect(data.conventions[`${curl.id}|`]).toBe('unknown');
+		expect(data.conventions[`${press.id}|`]).toBeUndefined();
+	});
+});
+
 describe('the Exercises page (machines spec Part J)', () => {
 	it('rename, region, hide and restore: past workouts keep their name, hidden leaves the picker only, another user cannot', async () => {
 		const curl = await starter('Dumbbell curl');

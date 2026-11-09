@@ -7,6 +7,7 @@
 	import type { ActionData, PageData } from './$types';
 	import { pageTitle } from '$lib/app-shell';
 	import { programUi } from '$lib/program-ui';
+	import { dayKeyIn, displayZone, lastLocalDays } from '$lib/local-day';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -16,27 +17,18 @@
 	let selectedDate = $state<string | null>(null);
 	let trashOpen = $state(false);
 
-	const calendarDays = $derived.by(() => {
-		const out: Array<{ dateKey: string; label: string; count: number }> = [];
-		const now = new Date();
-		for (let i = 13; i >= 0; i--) {
-			const d = new Date(now);
-			d.setDate(now.getDate() - i);
-			const dateKey = d.toISOString().slice(0, 10);
-			out.push({
-				dateKey,
-				label: `${d.getMonth() + 1}/${d.getDate()}`,
-				count: data.sessionsByDay[dateKey] ?? 0
-			});
-		}
-		return out;
-	});
+	// Days in the user's stored zone (UTC until the phone reports one), the same
+	// days the server counted sessionsByDay in, so the strip and its labels agree.
+	const zone = $derived(displayZone(data.timeZone));
+	const calendarDays = $derived(
+		lastLocalDays(14, zone).map((d) => ({ ...d, count: data.sessionsByDay[d.dateKey] ?? 0 }))
+	);
 
 	const filteredSessions = $derived.by(() => {
 		const date = selectedDate;
 		if (!date) return data.recentSessions;
-		return data.recentSessions.filter((session) =>
-			session.startedAt.toISOString().startsWith(date)
+		return data.recentSessions.filter(
+			(session) => dayKeyIn(new Date(session.startedAt), zone) === date
 		);
 	});
 </script>
@@ -205,7 +197,7 @@
 								<div>
 									<div class="font-medium text-zinc-100">{session.dayName}</div>
 									<div class="text-xs text-zinc-500">
-										{new Date(session.startedAt).toLocaleString()}
+										{new Date(session.startedAt).toLocaleString(undefined, { timeZone: zone })}
 										{#if sessionPhase(session) === 'ended'}
 											· ended
 										{:else}
@@ -252,6 +244,7 @@
 								<h3 class="font-medium text-zinc-100">{session.dayName}</h3>
 								<p class="mt-1 text-sm text-zinc-400">
 									{new Date(session.startedAt).toLocaleDateString(undefined, {
+										timeZone: zone,
 										month: 'short',
 										day: 'numeric',
 										year: 'numeric'
@@ -264,7 +257,7 @@
 										label="Delete permanently"
 										sessionId={session.id}
 										destructive
-										confirmation={`Permanently delete ${session.dayName} from ${new Date(session.startedAt).toLocaleDateString()}? This cannot be undone.`}
+										confirmation={`Permanently delete ${session.dayName} from ${new Date(session.startedAt).toLocaleDateString(undefined, { timeZone: zone })}? This cannot be undone.`}
 										confirmationField="confirmDelete"
 										confirmationValue="d"
 									/>

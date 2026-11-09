@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased — audit follow-ups, round 2 — not deployed
+
+Needs migration 0025 (rehearse first: docs/migrations.md, "0025"). The
+photo-safety warm-up already shipped in PR #64 (fb8b038); this branch only
+loosens its smoke limit to 4 s.
+
+- Workout days follow your time zone, taken automatically from the phone's
+  browser: History, /reports, the program page's 14-day strip, the workout
+  header and a saved workout's name. An 8 pm Detroit workout is on that day,
+  not the next UTC day. Until the browser has reported a zone, days stay UTC.
+  Owner decision 2026-11-09.
+- /reports: "last 7/28 days" count local calendar days ending today, matching
+  the 14-day strip (they were rolling 24-hour periods).
+- Photo safety (deployed in PR #64, acceptance pending: a phone upload): the
+  classifier runs two warm-up scans before it accepts uploads, so the first
+  upload after a deploy no longer times out on a cold model (seen once on
+  2026-11-09 after the 10b75b2 deploy). The smoke test's first-scan limit is
+  4 s.
+- Add sheet: a machine named in the sheet always asks for its weight format,
+  and a free weight remembers its newest format across old equipment rows.
+- Account deletion: one runner per job through a 15-minute lease
+  (`privacy_deletions.claimed_until`); a second runner is `busy` with no journal
+  append. The photo review page says "Removal is in progress" for that case.
+- Accounts: `createUser` writes the user and its credential row in one
+  transaction.
+- Migration 0025: one credential row per account
+  (`auth_account_provider_account_unique`; refuses with a count over existing
+  duplicates, preflight `scripts/auth-account-duplicates.sql`), a deletion job
+  cannot be both completed and failed, `privacy_deletions.claimed_until`, and
+  `auth.user.time_zone`.
+- Session and account liveness live in `session-liveness.ts`, with a seam test.
+
 ## Unreleased — audit follow-ups — not deployed
 
 - A replaced program version is read-only: its page says "This version was

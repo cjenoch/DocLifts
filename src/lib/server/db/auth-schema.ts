@@ -45,8 +45,10 @@ import {
 	integer,
 	jsonb,
 	foreignKey,
-	uniqueIndex
+	uniqueIndex,
+	check
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const authSchema = pgSchema('auth');
 
@@ -64,13 +66,25 @@ export const authUsers = authSchema.table(
 		emailVerified: boolean('email_verified').notNull().default(false),
 		image: text('image'),
 		deletionRequestedAt: timestamp('deletion_requested_at', { withTimezone: true }),
+		/**
+		 * IANA zone name ('America/Detroit'); NULL = unknown, treat as UTC (0025).
+		 * NOT a Better Auth field: it is absent from auth-core.ts's
+		 * `user.additionalFields`, so Better Auth never reads it into a session
+		 * and its update-user endpoint cannot write it. Only DocLifts server code,
+		 * which validates the name, writes it.
+		 */
+		timeZone: text('time_zone'),
 		createdAt: timestamp('created_at').notNull().defaultNow(),
 		updatedAt: timestamp('updated_at').notNull().defaultNow()
 	},
 	(t) => [
 		// Better Auth's own lookup paths: sign-in by email, session by token.
 		index('auth_user_email_idx').on(t.email),
-		index('auth_user_name_idx').on(t.name)
+		index('auth_user_name_idx').on(t.name),
+		check(
+			'auth_user_time_zone_length_check',
+			sql`${t.timeZone} IS NULL OR char_length(${t.timeZone}) BETWEEN 1 AND 64`
+		)
 	]
 );
 
@@ -117,10 +131,12 @@ export const authAccounts = authSchema.table(
 		updatedAt: timestamp('updated_at').notNull().defaultNow()
 	},
 	(t) => [
-		// One credential row per (provider, account). Email/password uses
-		// providerId 'credential', so this is also the sign-in lookup.
 		index('auth_account_user_id_idx').on(t.userId),
-		index('auth_account_provider_pair_idx').on(t.providerId, t.accountId)
+		// One row per (provider, account), enforced since 0025. Email/password
+		// uses providerId 'credential' with accountId = the user's id, so this
+		// is one credential row per user, and also the sign-in lookup. It
+		// replaced the plain auth_account_provider_pair_idx on the same columns.
+		uniqueIndex('auth_account_provider_account_unique').on(t.providerId, t.accountId)
 	]
 );
 

@@ -7,6 +7,7 @@
 	} from '$lib/catalog-labels';
 	import type { ActionData, PageData } from './$types';
 	import { pageTitle } from '$lib/app-shell';
+	import { removalStatusLine } from '$lib/photo-removal-ui';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	/** Below this, a field is marked for the user to check against the photo. */
@@ -50,9 +51,7 @@
 
 	{#if data.photo.status === 'discarded'}
 		<p data-testid="photo-status">
-			{data.removalPending
-				? 'Discarded from view. Object removal is pending while cleanup retries.'
-				: 'Discarded. The image is hidden. Backup copies expire separately.'}
+			{removalStatusLine(data.removal)}
 		</p>
 	{:else}
 		<img

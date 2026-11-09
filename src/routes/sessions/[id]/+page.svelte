@@ -17,6 +17,7 @@
 	import TrashAction from '$lib/TrashAction.svelte';
 	import { workoutUi } from '$lib/workout-ui';
 	import { isCompleted, isTouched } from '$lib/workout-state';
+	import { displayZone } from '$lib/local-day';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let dirtyIds = $state<string[]>([]);
 	let appending = $state<string | null>(null);
@@ -117,6 +118,7 @@
 		<h1>{heading}</h1>
 		<p class="muted">
 			{new Date(data.session.startedAt).toLocaleDateString(undefined, {
+				timeZone: displayZone(data.timeZone),
 				month: 'short',
 				day: 'numeric',
 				year: 'numeric'

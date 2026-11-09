@@ -1,11 +1,11 @@
 # Changelog
 
-## 2026-11-09 — identification retry — deployed, acceptance pending
+## 2026-11-09 — identification retry — deployed and accepted
 
 PR #67 shipped as `0ed52a1`, including the deadline follow-up `0b7d9c1`.
 Web only; no migration, safety rebuild or scheduled-worker update. Production's
 `LLM_TIMEOUT_MS` is verified as 60000. See the
-[release runbook](docs/release-2026-11-09.md) for evidence and pending phone checks.
+[release runbook](docs/release-2026-11-09.md) for evidence and the owner's November 9 acceptance.
 
 - Machine identification from a photo retries a transient provider answer
   (HTTP 429, 502, 503) once, against the saved photo (no new upload, photo row,
@@ -18,13 +18,13 @@ Web only; no migration, safety rebuild or scheduled-worker update. Production's
   timeouts, schema misses, caps, not configured, and the safety scan. Owner
   request after a production 429 on 2026-11-09. No migration.
 
-## 2026-11-09 — audit follow-ups, round 2 — deployed, acceptance pending
+## 2026-11-09 — audit follow-ups, round 2 — deployed and accepted
 
 PR #65 shipped as `bf5df84` after the independent full gate and branch CI.
 Migration 0025 passed the restore rehearsal and production named-schema and
 unchanged-row-count checks. Web and the pinned deletion worker use this release.
 The safety image remains the warm-up image shipped in PR #64 (`fb8b038`);
-its smoke-test source now uses a 4 s limit. Phone acceptance remains pending;
+its smoke-test source now uses a 4 s limit. The owner accepted this release on November 9, 2026;
 see the [release runbook](docs/release-2026-11-09.md).
 
 - Workout days follow your time zone, taken automatically from the phone's
@@ -34,7 +34,7 @@ see the [release runbook](docs/release-2026-11-09.md).
   Owner decision 2026-11-09.
 - /reports: "last 7/28 days" count local calendar days ending today, matching
   the 14-day strip (they were rolling 24-hour periods).
-- Photo safety (deployed in PR #64, acceptance pending: a phone upload): the
+- Photo safety (deployed in PR #64, accepted November 9, 2026): the
   classifier runs two warm-up scans before it accepts uploads. The original
   five-second upload timeout after the 10b75b2 deploy remains unexplained.
   The smoke test's first-scan limit is 4 s.
@@ -52,7 +52,10 @@ see the [release runbook](docs/release-2026-11-09.md).
   `auth.user.time_zone`.
 - Session and account liveness live in `session-liveness.ts`, with a seam test.
 
-## Unreleased — audit follow-ups — not deployed
+## 2026-11-09 — audit follow-ups — deployed and accepted
+
+PR #63 shipped as `10b75b2`; the owner accepted it with the subsequent audit
+follow-ups, safety warm-up and identification retry on November 9, 2026.
 
 - A replaced program version is read-only: its page says "This version was
   replaced." and links to the current version (or says none exists), with no

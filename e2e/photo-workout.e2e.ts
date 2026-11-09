@@ -338,9 +338,8 @@ run('photo in the workout (production build, no model configured)', () => {
 			.toBe(1);
 
 		// State: the block is the new exercise with no machine. The discarded
-		// photo's object is delete_pending, so its row cannot be unlinked and the
-		// placeholder is kept for now; erasing the photo removes it
-		// (live-guards.db.test.ts covers that half).
+		// photo is pending removal, and since migration 0024 its links may still be
+		// cleared: the swap unlinks it and deletes the empty placeholder at once.
 		const [swapped] = await harness.db
 			.select()
 			.from(s.sessionExercises)
@@ -350,10 +349,10 @@ run('photo in the workout (production build, no model configured)', () => {
 			.select()
 			.from(s.equipmentPhotos)
 			.where(eq(s.equipmentPhotos.sessionExerciseId, block.id));
-		expect(discarded).toMatchObject({ status: 'discarded', gymEquipmentId: placeholderId });
+		expect(discarded).toMatchObject({ status: 'discarded', gymEquipmentId: null });
 		expect(
 			await harness.db.select().from(s.gymEquipment).where(eq(s.gymEquipment.id, placeholderId))
-		).toHaveLength(1);
+		).toHaveLength(0);
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});

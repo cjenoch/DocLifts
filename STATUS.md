@@ -1,7 +1,7 @@
 # DocLifts — current status
 
 Updated November 9, 2026 UTC. Current application: **0.20.0 Alpha**, runtime `0ed52a1`.
-Deployed; owner phone acceptance for the audit follow-ups and identification retry remains pending.
+Deployed; the owner accepted the audit follow-ups, safety warm-up and identification retry on November 9, 2026.
 Resolve current documentation HEAD with `git rev-parse --short HEAD`; a later
 Markdown merge does not require rebuilding the application.
 
@@ -46,9 +46,7 @@ unchanged, migration count stays 26, and `LLM_TIMEOUT_MS` is verified as 60000.
 Public automation uploaded a generated image and reached review in 3.6 s;
 the audit confirmed one photo, one stored object, one safety scan and one
 successful identification call. No transient error occurred in that smoke.
-Phone acceptance is a normal identification and Retry identification if a
-transient failure occurs. Full-upload latency is not capped by the provider
-budget. See the [release runbook](docs/release-2026-11-09.md).
+The owner accepted this release on November 9, 2026. Full-upload latency is not capped by the provider budget. See the [release runbook](docs/release-2026-11-09.md).
 
 ## November 9 audit follow-ups
 
@@ -62,8 +60,7 @@ succeeded, and its timer is active. The PR #64 safety container is unchanged. Pu
 real sign-in and first use, time-zone storage, the new-machine format prompt,
 a persisted first set and workout completion using a fresh test account.
 
-Local workout days, the new-machine weight-format prompt, photo-removal wording
-and a real phone photo upload still need owner acceptance. See the
+The owner accepted local workout days, the new-machine weight-format prompt, photo-removal wording and the photo safety warm-up on November 9, 2026. See the
 [release runbook](docs/release-2026-11-09.md) for deployment and regression evidence.
 
 ## Deployment and evidence

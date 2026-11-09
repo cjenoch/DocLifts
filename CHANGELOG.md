@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased — audit follow-ups — not deployed
+
+- A replaced program version is read-only: its page says "This version was
+  replaced." and links to the current version (or says none exists), with no
+  Start or Edit; its editor link opens that page. A new workout on it is
+  refused by the server (409, nothing written), also when an edit races the
+  start. A workout already open on it still resumes. Owner decision
+  2026-11-08.
+- Workout page: one sheet at a time (add, change machine, swap), and opening
+  one closes the rest-timer settings. In the add sheet, Escape closes it
+  (except while a choice is saving or a search field has text), Back on the
+  weight-format step keeps what you chose, changing tab or gym drops a choice
+  that no longer applies, and a double tap adds once.
+- Empty Trash: Cancel clears the typed PURGE.
+- Rest timer: +30 s after a rest has finished runs 30 s from now and clears
+  "Rest finished".
+- /reports: day buckets and the 7- and 28-day counts no longer depend on the
+  database server's TimeZone (no change on a UTC server).
+- MCP: access and refresh check one predicate, `grantIsLive`. A refresh for a
+  disabled client or withdrawn consent is refused with `invalid_grant` and
+  that authorization's tokens are removed; before, a disabled client got the
+  provider's `invalid_client` and withdrawn consent refreshed.
+- Account deletion: job state is read through `deletionJobState` (completion
+  wins); a completed job is never marked with an error; a second runner on a
+  job gets `busy`, not a retry mark; `attempts` counts every run and
+  `pnpm privacy --mode deletions` reports pending, needsRetry, maxAttempts and
+  busy.
+- Retention settles a photo-safety reservation left `refused`/`pending` by a
+  crashed process (older than 15 minutes) to `timeout`/`abandoned` before
+  clearing details. It still counts toward the safety hourly limit.
+- `pnpm user:bootstrap` claims the 0011 sentinel in one transaction (email,
+  credential row, starter list), so a failure leaves nothing behind and a
+  re-run is safe. It refuses (exit 1) once the sentinel has a credential row,
+  where it used to add a second one. The startup warning names a half-claimed
+  sentinel. Removed the unused `hasLoginCapableAccount`.
+
 ## Unreleased — one workout-state vocabulary — not deployed
 
 - Phase 2 (server guards and workout-page fixes):

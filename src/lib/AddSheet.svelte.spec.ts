@@ -53,8 +53,27 @@ const picker: PickerData = {
 	lastMachineAt: {}
 };
 
-function show() {
-	return render(AddSheet, { props: { picker, sessionId: 'sess-1', open: true } });
+function show(data: PickerData = picker) {
+	return render(AddSheet, { props: { picker: data, sessionId: 'sess-1', open: true } });
+}
+/**
+ * Remembered formats: Leg curl has one with no machine (the key a free weight
+ * uses) and another on Curl A; Dumbbell curl has its free-weight one. Each
+ * differs from the type's preset, so a remembered one is told from a default.
+ */
+const remembering: PickerData = {
+	...picker,
+	conventions: { 'ex-curl|': 'unknown', 'ex-curl|m-a': 'unknown', 'ex-db|': 'displayed' }
+};
+/** Every add posts; the spy never answers, so the sheet stays as it was. */
+const spyAdds = () =>
+	vi.spyOn(window, 'fetch').mockImplementation(() => new Promise<Response>(() => {}));
+const posted = (spy: ReturnType<typeof spyAdds>) =>
+	spy.mock.calls.map(([, init]) => Object.fromEntries((init?.body as FormData).entries()));
+async function nameNewMachine(label: string) {
+	await page.getByRole('button', { name: ui.addByName }).click();
+	await page.getByRole('textbox', { name: ui.machineName }).fill(label);
+	await page.getByRole('button', { name: ui.add, exact: true }).click();
 }
 const dialog = () => page.getByRole('dialog', { name: ui.addExercise });
 const tab = (name: string) => page.getByRole('tab', { name, exact: true });
@@ -140,5 +159,60 @@ describe('AddSheet', () => {
 		// While busy, Escape leaves the sheet for the result to close.
 		await userEvent.keyboard('{Escape}');
 		expect(isOpen()).toBe(true);
+	});
+
+	describe('a remembered weight format', () => {
+		it('an exercise on a machine named just now asks for its format, and posts the one chosen', async () => {
+			const spy = spyAdds();
+			show(remembering);
+			await tab(ui.exercisesTab).click();
+			await page.getByTestId('exercise-row').filter({ hasText: 'Leg curl' }).click();
+			await nameNewMachine('New curl');
+			await expect.element(page.getByText(ui.weightFormat)).toBeVisible();
+			expect(spy).not.toHaveBeenCalled();
+			// Neither the remembered 'unknown' nor the preset 'displayed': the choice is what posts.
+			await page.getByRole('button', { name: 'Per hand / arm' }).click();
+			await page.getByRole('button', { name: ui.add, exact: true }).click();
+			await expect.poll(() => spy.mock.calls.length).toBe(1);
+			expect(posted(spy)[0]).toMatchObject({
+				exerciseId: 'ex-curl',
+				newMachineName: 'New curl',
+				loadConvention: 'per_arm'
+			});
+			expect(posted(spy)[0].gymEquipmentId).toBeUndefined();
+		});
+
+		it('a machine named first, then the exercise, asks too', async () => {
+			const spy = spyAdds();
+			show(remembering);
+			await nameNewMachine('New curl');
+			await page.getByTestId('exercise-row').filter({ hasText: 'Leg curl' }).click();
+			await expect.element(page.getByText(ui.weightFormat)).toBeVisible();
+			expect(spy).not.toHaveBeenCalled();
+		});
+
+		it('an existing machine with a remembered format adds at once, in that format', async () => {
+			const spy = spyAdds();
+			show(remembering);
+			await machineRow('Curl A').click();
+			await page.getByRole('button', { name: 'Leg curl' }).click();
+			await expect.poll(() => spy.mock.calls.length).toBe(1);
+			expect(posted(spy)[0]).toMatchObject({
+				exerciseId: 'ex-curl',
+				gymEquipmentId: 'm-a',
+				loadConvention: 'unknown'
+			});
+			expect(document.body.innerText).not.toContain(ui.weightFormat);
+		});
+
+		it('a free weight with a remembered format adds at once, in that format', async () => {
+			const spy = spyAdds();
+			show(remembering);
+			await tab(ui.exercisesTab).click();
+			await page.getByTestId('exercise-row').filter({ hasText: 'Dumbbell curl' }).click();
+			await expect.poll(() => spy.mock.calls.length).toBe(1);
+			expect(posted(spy)[0]).toMatchObject({ exerciseId: 'ex-db', loadConvention: 'displayed' });
+			expect(posted(spy)[0].gymEquipmentId).toBeUndefined();
+		});
 	});
 });

@@ -165,9 +165,11 @@ export async function pickerData(
 		machine_id: string | null;
 		equipment_type: string;
 		load_convention: string;
+		started_at: Date | string;
 	}>(sql`
 		SELECT DISTINCT ON (se.exercise_id, se.gym_equipment_id) se.exercise_id,
-			se.gym_equipment_id AS machine_id, se.equipment_type, se.load_convention
+			se.gym_equipment_id AS machine_id, se.equipment_type, se.load_convention,
+			sessions.started_at
 		FROM session_exercises se JOIN sessions ON sessions.id = se.session_id
 		WHERE sessions.user_id = ${userId} AND ${sessionIs.notTrashed()} AND se.load_convention <> 'legacy'
 		ORDER BY se.exercise_id, se.gym_equipment_id, sessions.started_at DESC`);
@@ -241,11 +243,19 @@ export async function pickerData(
 		if (list.length < 5) list.push(m.id);
 	}
 	const conventions: Record<string, string> = {};
-	for (const f of formats) {
+	// Newest first, so a free weight logged both on an old equipment row such as
+	// "Dumbbells" and with no machine remembers its latest format, not whichever
+	// row id sorted first.
+	const newestFirst = [...formats].sort(
+		(a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+	);
+	for (const f of newestFirst) {
+		const free = FREE_WEIGHT_TYPES.has(f.equipment_type);
+		// A machine-type block with no machine has nothing to remember a format
+		// for; its key would be the free-weight key `${exercise}|`.
+		if (!free && !f.machine_id) continue;
 		// Free weights remember one format per exercise, whatever row they sat on.
-		const key = FREE_WEIGHT_TYPES.has(f.equipment_type)
-			? `${f.exercise_id}|`
-			: `${f.exercise_id}|${f.machine_id ?? ''}`;
+		const key = free ? `${f.exercise_id}|` : `${f.exercise_id}|${f.machine_id}`;
 		conventions[key] ??= f.load_convention;
 	}
 	const machineGym = new Map(machines.map((m) => [m.id, m.gymId]));

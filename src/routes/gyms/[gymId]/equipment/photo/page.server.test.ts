@@ -40,7 +40,7 @@ import {
 	imageSentTo,
 	smallPng
 } from '$lib/server/photos/test-fixtures';
-import { answeringModel, testComplete } from '$lib/server/llm/test-models';
+import { answeringModel, scriptedModel, testComplete } from '$lib/server/llm/test-models';
 
 let harness: Awaited<ReturnType<typeof setupTestDb>>;
 let store: CountingPhotoStore;
@@ -182,4 +182,40 @@ it('upload: a refused upload logs one refused line; stages it never reached are 
 		modelMs: null
 	});
 	expect(isMs(foreign[0].totalMs)).toBe(true);
+});
+
+// 2026-11-09: the incident's path. A transient provider answer past the one
+// automatic retry is not a failed upload: the photo is saved, and the review
+// page it lands on says identification is temporarily unavailable.
+it('upload with 503 twice: the photo saved once, review?analysis=unavailable, two call rows', async () => {
+	model = scriptedModel([
+		{ status: 503, retryAfter: '0' },
+		{ status: 503, retryAfter: '0' }
+	]);
+	llm.complete = testComplete(model);
+	const thrown = await upload(alice, alicesGym, await smallPng()).catch((e) => e);
+	const photos = await harness.db
+		.select()
+		.from(s.equipmentPhotos)
+		.where(eq(s.equipmentPhotos.userId, alice));
+	expect(photos).toHaveLength(1);
+	expect(thrown).toMatchObject({
+		status: 303,
+		location: `/photos/${photos[0].id}/review?analysis=unavailable`
+	});
+	expect(photos[0].status).toBe('uploaded');
+	expect(model.doGenerateCalls).toHaveLength(2);
+	const calls = await harness.db.select().from(s.llmCalls).where(eq(s.llmCalls.userId, alice));
+	expect(calls.map((c) => c.errorCode).sort()).toEqual(['http_503', 'http_503']);
+	expect([store.puts, store.gets]).toEqual([1, 0]);
+});
+
+it('upload with a 401: not retried, the ordinary review?analysis=failed', async () => {
+	model = scriptedModel([{ status: 401 }]);
+	llm.complete = testComplete(model);
+	await expect(upload(alice, alicesGym, await smallPng())).rejects.toMatchObject({
+		status: 303,
+		location: expect.stringMatching(/\/review\?analysis=failed$/)
+	});
+	expect(model.doGenerateCalls).toHaveLength(1);
 });

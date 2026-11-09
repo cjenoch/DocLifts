@@ -356,4 +356,97 @@ run('photo in the workout (production build, no model configured)', () => {
 		expect(await violations(page)).toEqual([]);
 		await page.close();
 	});
+
+	it('identification temporarily unavailable (2026-11-09): both entry points re-read the same saved photo', async () => {
+		// On a phone, between sets: the owner's line and one 44 px "Retry
+		// identification". The served build has no model, so the tap's read is
+		// refused as not configured: what proves the tap is a NEW
+		// equipment_from_photo row for the SAME photo, and no new photo.
+		const page = await signedInPage();
+		await page.goto(origin + '/workout/start', { waitUntil: 'networkidle' });
+		if (page.url().includes('/sessions/')) {
+			page.once('dialog', (d) => d.accept());
+			await page.getByRole('button', { name: 'Finish workout' }).click();
+			await page.waitForURL(/\/sessions\/[^/]+$/);
+		}
+		const sessionId = await startWorkout(page);
+		await photoNextMachine(page);
+		await expect.poll(() => page.getByText(workoutUi.photoReadFailed).count()).toBe(1);
+		const [block] = await harness.db
+			.select()
+			.from(s.sessionExercises)
+			.where(eq(s.sessionExercises.sessionId, sessionId));
+		const [photo] = await harness.db
+			.select()
+			.from(s.equipmentPhotos)
+			.where(eq(s.equipmentPhotos.sessionExerciseId, block.id));
+		const photosBefore = (await photoRows()).length;
+
+		// The read on record: a 429 that outlived the automatic retry.
+		const transient = async () => {
+			const [call] = await harness.db
+				.insert(s.llmCalls)
+				.values({
+					userId,
+					purpose: 'equipment_from_photo',
+					provider: 'openrouter',
+					model: 'test/vision-model',
+					status: 'provider_error',
+					errorCode: 'http_429',
+					latencyMs: 1,
+					promptHash: '0'.repeat(16)
+				})
+				.returning();
+			await harness.db
+				.update(s.equipmentPhotos)
+				.set({ llmCallId: call.id })
+				.where(eq(s.equipmentPhotos.id, photo.id));
+			return call.id;
+		};
+		const reads = () =>
+			harness.db
+				.select()
+				.from(s.llmCalls)
+				.where(and(eq(s.llmCalls.userId, userId), eq(s.llmCalls.purpose, 'equipment_from_photo')));
+
+		// 1. The workout block.
+		let marked = await transient();
+		await page.goto(`${origin}/sessions/${sessionId}`, { waitUntil: 'networkidle' });
+		expect(await page.getByText(workoutUi.photoIdentifyUnavailable, { exact: true }).count()).toBe(
+			1
+		);
+		const retry = page.getByRole('button', { name: workoutUi.photoRetryIdentify, exact: true });
+		expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+		let before = (await reads()).length;
+		await retry.click();
+		await expect.poll(async () => (await reads()).length).toBe(before + 1);
+		await expect.poll(() => page.getByText(workoutUi.photoReadFailed).count()).toBe(1);
+		let [after] = await harness.db
+			.select()
+			.from(s.equipmentPhotos)
+			.where(eq(s.equipmentPhotos.id, photo.id));
+		expect(after.llmCallId).not.toBe(marked); // this photo's read moved on
+		expect(await photoRows()).toHaveLength(photosBefore);
+
+		// 2. The review page, where the gym page's upload lands.
+		marked = await transient();
+		await page.goto(`${origin}/photos/${photo.id}/review`, { waitUntil: 'networkidle' });
+		expect(await page.getByText(workoutUi.photoIdentifyUnavailable, { exact: true }).count()).toBe(
+			1
+		);
+		const again = page.getByRole('button', { name: workoutUi.photoRetryIdentify, exact: true });
+		expect((await again.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+		before = (await reads()).length;
+		await again.click();
+		await page.waitForURL(`**/photos/${photo.id}/review?analysis=failed`);
+		expect((await reads()).length).toBe(before + 1);
+		[after] = await harness.db
+			.select()
+			.from(s.equipmentPhotos)
+			.where(eq(s.equipmentPhotos.id, photo.id));
+		expect(after.llmCallId).not.toBe(marked);
+		expect(await photoRows()).toHaveLength(photosBefore);
+		expect(await violations(page)).toEqual([]);
+		await page.close();
+	});
 });

@@ -45,6 +45,7 @@ import {
 import { modelVisibleTo } from './catalog';
 import { matchCandidate } from './photos/match';
 import { parseCandidate } from './photos/analyze';
+import { isTransientErrorCode } from './llm';
 import { defaultMachineLabel } from '../catalog-labels';
 import { workoutUi } from '../workout-ui';
 import { sessionPhase } from '../workout-state';
@@ -710,6 +711,7 @@ export async function identifySessionExercise(
 export type PhotoBlockState =
 	| { kind: 'reading'; photoId: string }
 	| { kind: 'failed'; photoId: string }
+	| { kind: 'unavailable'; photoId: string }
 	| {
 			kind: 'match';
 			photoId: string;
@@ -724,7 +726,9 @@ export type PhotoBlockState =
 /**
  * What each unidentified photo block of this session shows, by block id.
  * `uploaded` whose recorded read (`llm_call_id`) did not end `ok`: `failed`,
- * "Read again" or name it. Any other `uploaded`: `reading`, the read has not
+ * "Read again" or name it; when that read was a transient provider answer
+ * (`isTransientErrorCode`: 429/502/503, after the automatic retry),
+ * `unavailable`, "Retry identification" or name it (2026-11-09). Any other `uploaded`: `reading`, the read has not
  * finished (the page reads it once, right after the photo; on a later load it
  * offers "Read again"). `analyzed` with a preselected match: the "Use this"
  * card. Anything else: name it now or later.
@@ -742,7 +746,8 @@ export async function photoBlocksForSession(
 		.select({
 			photo: equipmentPhotos,
 			occurrenceId: sessionExercises.id,
-			readStatus: llmCalls.status
+			readStatus: llmCalls.status,
+			readError: llmCalls.errorCode
 		})
 		.from(equipmentPhotos)
 		.innerJoin(sessionExercises, eq(sessionExercises.id, equipmentPhotos.sessionExerciseId))
@@ -755,11 +760,16 @@ export async function photoBlocksForSession(
 		.where(and(eq(sessionExercises.sessionId, sessionId), waitingForPhotoName(userId)))
 		.orderBy(desc(equipmentPhotos.createdAt));
 	const out: Record<string, PhotoBlockState> = {};
-	for (const { photo, occurrenceId, readStatus } of rows) {
+	for (const { photo, occurrenceId, readStatus, readError } of rows) {
 		if (out[occurrenceId]) continue;
 		if (photo.status === 'uploaded') {
 			const failed = readStatus != null && readStatus !== 'ok';
-			out[occurrenceId] = { kind: failed ? 'failed' : 'reading', photoId: photo.id };
+			const kind = !failed
+				? 'reading'
+				: readStatus === 'provider_error' && isTransientErrorCode(readError)
+					? 'unavailable'
+					: 'failed';
+			out[occurrenceId] = { kind, photoId: photo.id };
 			continue;
 		}
 		const candidate = photo.status === 'analyzed' ? parseCandidate(photo.candidate) : null;

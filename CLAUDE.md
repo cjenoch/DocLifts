@@ -298,6 +298,14 @@ What the seam guarantees, and what a second path would silently lose:
   A missing key reads as unknown and a synonym maps to its enum value (0.4.1,
   0.4.3); a wrong type is still a `schema_error`. Real models omit and reword.
 
+- **Retries live above `complete()` (2026-11-09).** `complete()` keeps
+  `maxRetries: 0`; a feature that retries calls `completeWithRetry`
+  (`llm/retry.ts`), which calls `complete()` once per attempt (own row, own cap
+  count) and retries only 429/502/503, once, inside one deadline. Classify with
+  `isTransientLlmError` / `isTransientErrorCode`; never re-spell the status
+  list. Photo identification is the only caller (`IDENTIFY_RETRY` in
+  `photos/analyze.ts`); the safety scan is never retried.
+
 Adding a provider is a `case` in `llm/provider.ts` and a dependency. See
 `docs/llm.md`.
 

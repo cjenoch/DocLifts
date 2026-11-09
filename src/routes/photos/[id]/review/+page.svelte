@@ -8,6 +8,7 @@
 	import type { ActionData, PageData } from './$types';
 	import { pageTitle } from '$lib/app-shell';
 	import { removalStatusLine } from '$lib/photo-removal-ui';
+	import { workoutUi } from '$lib/workout-ui';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	/** Below this, a field is marked for the user to check against the photo. */
@@ -95,6 +96,12 @@
 				The daily limit on photo analyses is reached. Try again later, or create the model yourself
 				below.
 			</p>
+		{:else if data.analysisNotice === 'unavailable'}
+			<!-- Owner's wording (2026-11-09): the photo is stored; this re-reads it. -->
+			<form method="POST" action="?/analyze" class="space-y-2" data-testid="identify-unavailable">
+				<p role="alert" class="text-amber-300">{workoutUi.photoIdentifyUnavailable}</p>
+				<button class="min-h-11 rounded bg-indigo-600 px-4">{workoutUi.photoRetryIdentify}</button>
+			</form>
 		{:else if data.analysisNotice === 'failed' || !c}
 			<p role="alert" class="text-amber-300">
 				Analysis failed, try again. You can also create the model yourself below.

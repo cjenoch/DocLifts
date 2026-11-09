@@ -26,8 +26,12 @@
 {#if block}
 	{@const pb = block}
 	{@const inFlight = photos.readingIds.includes(pb.photoId) || photos.autoRead.includes(pb.photoId)}
-	<!-- `reading` and `failed` both have no candidate yet: either can be read again. -->
-	{@const unread = pb.kind === 'reading' || pb.kind === 'failed'}
+	<!-- `reading`, `failed` and `unavailable` have no candidate yet: each can be read again. -->
+	{@const unread = pb.kind === 'reading' || pb.kind === 'failed' || pb.kind === 'unavailable'}
+	<!-- A read from this page outranks the stored one: it is the newer answer. -->
+	{@const unavailable =
+		photos.unavailableIds.includes(pb.photoId) ||
+		(pb.kind === 'unavailable' && !photos.failedIds.includes(pb.photoId))}
 	<div class="photo-block" data-testid="photo-block" data-kind={pb.kind}>
 		{#if unread && inFlight}
 			<p class="photo-line" aria-live="polite">{workoutUi.photoReading}</p>
@@ -73,6 +77,8 @@
 				</div>
 				<a class="other" href="/photos/{pb.photoId}/review">{workoutUi.photoOtherMachine}</a>
 			</form>
+		{:else if unread && unavailable}
+			<p class="photo-line">{workoutUi.photoIdentifyUnavailable}</p>
 		{:else if pb.kind === 'reading' && !photos.failedIds.includes(pb.photoId)}
 			<!-- No read on record and none running (the page was left mid-read): nothing failed. -->
 			<p class="photo-line">{workoutUi.photoNotRead}</p>
@@ -88,9 +94,9 @@
 				use:readOnce={photos.autoRead.includes(pb.photoId)}
 			>
 				<input type="hidden" name="photoId" value={pb.photoId} />
-				{#if !inFlight}<button>{workoutUi.photoReadAgain}</button><a
-						href="/photos/{pb.photoId}/review">{workoutUi.photoNameIt}</a
-					>{/if}
+				{#if !inFlight}<button
+						>{unavailable ? workoutUi.photoRetryIdentify : workoutUi.photoReadAgain}</button
+					><a href="/photos/{pb.photoId}/review">{workoutUi.photoNameIt}</a>{/if}
 			</form>
 		{:else if pb.kind === 'none' || photos.laterIds.includes(occurrenceId)}
 			<div class="photo-actions">

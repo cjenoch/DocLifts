@@ -40,10 +40,20 @@ import { mainPrefills } from './main-prefill';
 import { lockSession } from './session-lock';
 import { historyFilter, sessionIs, setIs } from './workout-state-sql';
 import { sessionPhase } from '../workout-state';
+import { programUi } from '../program-ui';
 
 export type StartSessionResult =
 	| { ok: true; sessionId: string }
 	| { ok: false; status: number; message: string };
+
+class ProgramRetiredError extends Error {}
+
+/** The refusal for a new workout on a retired program version: 409, not 404. */
+const retiredRefusal: StartSessionResult = {
+	ok: false,
+	status: 409,
+	message: programUi.startRefused
+};
 
 /**
  * Which sessions a load may return, named by phase (`sessionPhase`): `'open'`
@@ -86,6 +96,10 @@ export type SessionProjection = {
  * Reads are intentionally outside the transaction; the tx only wraps writes so
  * a mid-loop failure can't orphan a session.
  *
+ * A day of a retired program version (`is_active = false`: replaced by an
+ * edit) starts nothing: 409 with `programUi.startRefused`, no row written
+ * (owner decision, 2026-11-08). An open workout on it is still returned.
+ *
  * A day with no prescribed sets (the quick-workout day, 0.5.1) is valid: the
  * session is created empty, and exercises are added to it afterwards.
  */
@@ -98,7 +112,7 @@ export async function startSessionForDay(
 	// day is resolved by joining to the program it belongs to. Another user's
 	// day reads as absent, which is the same 404 an unknown day gets.
 	const [day] = await db
-		.select({ id: days.id, programId: days.programId })
+		.select({ id: days.id, programId: days.programId, programIsActive: programs.isActive })
 		.from(days)
 		.innerJoin(programs, eq(programs.id, days.programId))
 		.where(and(eq(days.id, dayId), eq(programs.userId, userId)))
@@ -107,10 +121,15 @@ export async function startSessionForDay(
 		return { ok: false, status: 404, message: 'Day not found' };
 	}
 
+	// An open workout is returned before the retired check: resuming a workout
+	// that was open when its program was edited must keep working.
 	const existing = await findOpenSessionForDay(db, userId, day.id);
 	if (existing) {
 		return { ok: true, sessionId: existing };
 	}
+	// A retired program version (replaced by an edit, owner decision
+	// 2026-11-08) starts no new workout. The quick program is never retired.
+	if (!day.programIsActive) return retiredRefusal;
 
 	const prescribed = await db
 		.select({
@@ -352,6 +371,15 @@ export async function startSessionForDay(
 
 	try {
 		const sessionId = await db.transaction(async (tx) => {
+			// Re-checked under a row lock: an edit holds its source program
+			// `FOR UPDATE` until it commits, so a start racing it waits here and
+			// then reads the version as retired, instead of starting on it.
+			const [program] = await tx
+				.select({ isActive: programs.isActive })
+				.from(programs)
+				.where(and(eq(programs.id, day.programId), eq(programs.userId, userId)))
+				.for('share');
+			if (!program?.isActive) throw new ProgramRetiredError();
 			const [session] = await tx
 				.insert(sessions)
 				.values({
@@ -404,6 +432,7 @@ export async function startSessionForDay(
 
 		return { ok: true, sessionId };
 	} catch (err) {
+		if (err instanceof ProgramRetiredError) return retiredRefusal;
 		// True race: another request's tx committed between our pre-check and
 		// our INSERT, so the `sessions_one_open_per_day` partial unique index
 		// rejected ours. Re-fetch the winner and return its id so the caller

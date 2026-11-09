@@ -3,10 +3,12 @@
 	import TrashAction from '$lib/TrashAction.svelte';
 	import TrashPurgeForm from '$lib/TrashPurgeForm.svelte';
 	import { enhance } from '$app/forms';
-	import type { PageData } from './$types';
+	import { invalidateAll } from '$app/navigation';
+	import type { ActionData, PageData } from './$types';
 	import { pageTitle } from '$lib/app-shell';
+	import { programUi } from '$lib/program-ui';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	// Per-day flag: one day's in-flight start must not disable other days' buttons.
 	let starting = $state<Record<string, boolean>>({});
@@ -49,11 +51,37 @@
 		<p class="mt-1 text-sm text-zinc-400">{data.program.description}</p>
 	{/if}
 
-	<a
-		href="/programs/{data.program.id}/edit"
-		class="mt-4 inline-block rounded-lg border border-zinc-700 px-4 py-3 text-sm text-indigo-300"
-		>Edit program as new version</a
-	>
+	<!-- A retired version (replaced by an edit) is read-only: no Edit, no Start;
+		open workouts still resume (owner decision, 2026-11-08). On a phone the
+		link to the current version is the one large tap target at the top. -->
+	{#if data.retired}
+		<section
+			class="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
+			data-testid="retired-version"
+		>
+			<p class="font-medium text-amber-200">{programUi.replaced}</p>
+			{#if data.retired.current}
+				<a
+					href="/programs/{data.retired.current.id}"
+					class="mt-3 flex min-h-11 items-center rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white active:bg-indigo-600"
+					>{programUi.openCurrent(data.retired.current.name)}</a
+				>
+			{:else}
+				<p class="mt-2 text-sm text-zinc-300">{programUi.noCurrent}</p>
+			{/if}
+			<p class="mt-2 text-xs text-zinc-400">{programUi.readOnlyNote}</p>
+		</section>
+	{:else}
+		<a
+			href="/programs/{data.program.id}/edit"
+			class="mt-4 inline-block rounded-lg border border-zinc-700 px-4 py-3 text-sm text-indigo-300"
+			>Edit program as new version</a
+		>
+	{/if}
+
+	{#if form?.message}
+		<p role="alert" class="mt-4 text-sm text-rose-300">{form.message}</p>
+	{/if}
 
 	<h2 class="mt-7 mb-2 text-xs font-semibold tracking-wider text-zinc-500 uppercase">Days</h2>
 
@@ -81,7 +109,7 @@
 							>
 								Resume
 							</a>
-						{:else}
+						{:else if !data.retired}
 							<form
 								method="POST"
 								action="?/startSession"
@@ -92,8 +120,11 @@
 										return;
 									}
 									starting[id] = true;
-									return async ({ update }) => {
+									return async ({ result, update }) => {
 										await update();
+										// A refused start (the version was replaced in another
+										// tab) reloads the page, which then renders read-only.
+										if (result.type === 'failure') await invalidateAll();
 										starting[id] = false;
 									};
 								}}

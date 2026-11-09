@@ -18,12 +18,14 @@
 		});
 	});
 
+	// The user's own day (2026-11-09): the zone the phone reported, UTC until
+	// it has. The server passes it, so the server render and the phone agree.
 	const fmtDate = (d: Date) =>
 		new Date(d).toLocaleDateString(undefined, {
 			weekday: 'short',
 			month: 'short',
 			day: 'numeric',
-			timeZone: 'UTC'
+			timeZone: data.timeZone
 		});
 
 	const trashLabel = (t: PageData['trashSessions'][number]) =>

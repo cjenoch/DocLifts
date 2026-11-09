@@ -88,7 +88,9 @@
 									><span class="text-zinc-100"
 										>{session.quick ? workoutUi.quickWorkoutLabel : session.dayName}</span
 									>
-									· {new Date(session.startedAt).toLocaleString()}</span
+									· {new Date(session.startedAt).toLocaleString(undefined, {
+										timeZone: data.timeZone
+									})}</span
 								>
 								<span class="font-mono text-zinc-100">{session.completionPct}%</span>
 							</div>

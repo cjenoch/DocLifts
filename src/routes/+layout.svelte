@@ -3,6 +3,7 @@
 	import BuildVersion from '$lib/BuildVersion.svelte';
 	import AppUpdate from '$lib/AppUpdate.svelte';
 	import { page } from '$app/state';
+	import { invalidateAll } from '$app/navigation';
 	import { accountInitial, activeTab, appShell } from '$lib/app-shell';
 	// Icons and the manifest are served from static/, not imported: Vite
 	// inlines small imported assets as data: URIs, which the CSP's img-src
@@ -15,6 +16,30 @@
 	// so through its load (`workoutBar`).
 	const showTabs = $derived(!!data.user && !page.data.workoutBar);
 	const current = $derived(activeTab(page.url.pathname));
+
+	// The phone's time zone (2026-11-09): History and Reports show the user's
+	// own days. Posted only when the browser's zone differs from the stored one
+	// (layout data), at most once per zone per page lifetime, then the loads
+	// re-run so the days on screen move at once. Effects run only in the
+	// browser; a failed post changes nothing and the days stay as they were.
+	let postedZone: string | null = null;
+	$effect(() => {
+		if (!data.user) return;
+		let zone: string | undefined;
+		try {
+			zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+		} catch {
+			return;
+		}
+		if (!zone || zone === data.timeZone || zone === postedZone) return;
+		postedZone = zone;
+		fetch('/account/time-zone', {
+			method: 'POST',
+			body: new URLSearchParams({ timeZone: zone })
+		})
+			.then((response) => (response.ok ? invalidateAll() : undefined))
+			.catch(() => undefined);
+	});
 </script>
 
 <svelte:head>

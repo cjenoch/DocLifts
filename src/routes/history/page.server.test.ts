@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { setupTestDb, resetTestDbWithUsers, withTwoUsers, type TestDb } from '$lib/server/test-db';
 import { endSession, softDeleteEndedSession, startSessionForDay } from '$lib/server/sessions';
 import { ensureQuickProgram } from '$lib/server/quick-workouts';
+import { setUserTimeZone } from '$lib/server/user-time-zone';
 
 const testDb = vi.hoisted(() => ({ db: null as TestDb | null }));
 vi.mock('$lib/server/db', async () => {
@@ -248,3 +249,34 @@ for (const kind of ['quick', 'program'] as const) {
 		expect((await rowOf(id)).deletedAt).toBeNull();
 	});
 }
+
+// ---------- The user's own days (2026-11-09) ----------
+
+it("defaults to the current month in the user's zone, and passes the zone to the page", async () => {
+	const { alice, bob } = await withTwoUsers(testDb.db!);
+	await setUserTimeZone(testDb.db!, alice, 'America/Detroit');
+	vi.useFakeTimers({ toFake: ['Date'] });
+	// 22:00 EDT on Oct 31 in Detroit; already Nov 1 in UTC.
+	vi.setSystemTime(new Date('2026-11-01T02:00:00Z'));
+	try {
+		// Positive first: Detroit is still in October, with no next month yet.
+		const detroit = (await call(null, alice)) as HistoryData & { timeZone: string };
+		expect(detroit).toMatchObject({
+			month: '2026-10',
+			nextMonth: null,
+			timeZone: 'America/Detroit'
+		});
+		// No stored zone: UTC, exactly as before.
+		const utc = (await call(null, bob)) as HistoryData & { timeZone: string };
+		expect(utc).toMatchObject({ month: '2026-11', prevMonth: '2026-10', timeZone: 'UTC' });
+		expect((await call('2026-10', bob)).nextMonth).toBe('2026-11');
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it('falls back to the current month for an impossible month number', async () => {
+	const result = await call('2026-13');
+	expect(result.month).not.toBe('2026-13');
+	expect(result.month).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
+});

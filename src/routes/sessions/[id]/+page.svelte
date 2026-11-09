@@ -22,9 +22,21 @@
 	let appending = $state<string | null>(null);
 	// The add sheet opens on a tap (0.8.0). An empty quick workout no longer
 	// opens it by itself: it is full-screen, and would cover "Photo next machine".
-	let pickerOpen = $state(false);
+	// One overlay at a time: the three sheets (add, bind mode 0.8.1, swap mode
+	// Part L) share this one value, so opening one closes the others, and
+	// opening any sheet closes the rest timer's settings panel.
+	type Sheet = 'add' | 'bind' | 'swap';
+	let sheet = $state<Sheet | null>(null);
+	function openSheet(kind: Sheet) {
+		timer?.closeSettings();
+		sheet = kind;
+	}
+	/** The setter half of each sheet's `bind:open`: closing a sheet clears only itself. */
+	function setSheet(kind: Sheet, open: boolean) {
+		if (open) openSheet(kind);
+		else if (sheet === kind) sheet = null;
+	}
 	// Bind mode (0.8.1): which planned exercise is choosing its machine.
-	let bindOpen = $state(false);
 	let bindTarget = $state<{
 		occurrenceId: string;
 		exerciseId: string;
@@ -54,7 +66,6 @@
 		}
 	}
 	// Editing a live workout (editor spec, Part L).
-	let swapOpen = $state(false);
 	let swapTarget = $state<{
 		occurrenceId: string;
 		exerciseId: string;
@@ -263,7 +274,7 @@
 						{edits}
 						onswap={(target) => {
 							swapTarget = target;
-							swapOpen = true;
+							openSheet('swap');
 						}}
 					/>
 				{/if}
@@ -289,7 +300,7 @@
 							exerciseName: group.exerciseName,
 							equipmentType: group.equipmentType
 						};
-						bindOpen = true;
+						openSheet('bind');
 					}}>{group.machineLabel ? pickerUi.changeMachine : pickerUi.chooseMachine}</button
 				>
 			{/if}
@@ -412,13 +423,13 @@
 		<button
 			class="add-trigger"
 			class:tool-hidden={!editing && data.groups.length > 0}
-			onclick={() => (pickerOpen = true)}>+ {pickerUi.addExercise}</button
+			onclick={() => openSheet('add')}>+ {pickerUi.addExercise}</button
 		>
 		<AddSheet
 			picker={data.picker}
 			sessionId={data.session.id}
 			photoGymId={data.photoEnabled ? data.session.gymId : null}
-			bind:open={pickerOpen}
+			bind:open={() => sheet === 'add', (v) => setSheet('add', v)}
 		/>
 		{#if swapTarget}
 			{#key swapTarget.occurrenceId}
@@ -426,7 +437,7 @@
 					picker={data.picker}
 					sessionId={data.session.id}
 					swap={swapTarget}
-					bind:open={swapOpen}
+					bind:open={() => sheet === 'swap', (v) => setSheet('swap', v)}
 				/>
 			{/key}
 		{/if}
@@ -436,7 +447,7 @@
 					picker={data.picker}
 					sessionId={data.session.id}
 					bind={bindTarget}
-					bind:open={bindOpen}
+					bind:open={() => sheet === 'bind', (v) => setSheet('bind', v)}
 				/>
 			{/key}
 		{/if}
@@ -462,7 +473,7 @@
 				<a href={backHref}>Pause</a><button
 					type="button"
 					class="jump-add"
-					onclick={() => (pickerOpen = true)}>{pickerUi.addExercise}</button
+					onclick={() => openSheet('add')}>{pickerUi.addExercise}</button
 				>
 				<form
 					method="POST"

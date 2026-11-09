@@ -10,7 +10,7 @@
 	 * protection against double submits.
 	 */
 	import { enhance } from '$app/forms';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { requestId as newRequestId } from '$lib/request-id';
 	import {
 		BODY_REGIONS,
@@ -78,7 +78,8 @@
 		| { kind: 'machine'; machine: PickerMachine }
 		| { kind: 'newMachine' }
 		| { kind: 'create' }
-		| { kind: 'format'; exercise: ExerciseChoice; machine: MachineChoice | null }
+		// `from`: the view the format step was reached from, for its Back.
+		| { kind: 'format'; exercise: ExerciseChoice; machine: MachineChoice | null; from: View }
 		| { kind: 'confirm'; machine: MachineChoice }
 		| { kind: 'swap'; exercise: PickerExercise };
 
@@ -135,9 +136,17 @@
 						: 'exercises';
 	});
 
+	/**
+	 * A tab change also drops the other flow's half-made choice: an exercise
+	 * waiting for a machine belongs to the Machines tab, a machine waiting for
+	 * an exercise to the Exercises tab. Kept hidden, it went on filtering and
+	 * was added with the next tap (audit, 2026-11-08).
+	 */
 	function setTab(next: 'machines' | 'exercises') {
 		tab = next;
 		view = { kind: 'list' };
+		if (next === 'exercises') exerciseContext = null;
+		else machineContext = null;
 		try {
 			sessionStorage.setItem(tabKey, next);
 		} catch {
@@ -155,6 +164,35 @@
 	function close() {
 		reset();
 		open = false;
+	}
+	// Closed from outside (the page opened another sheet): start fresh next time too.
+	$effect(() => {
+		if (!open) untrack(reset);
+	});
+	/**
+	 * Another gym: a machine chosen at the old gym no longer applies, nor does
+	 * a step about it. An exercise looking for a machine still does: it looks here.
+	 */
+	function switchGym(id: string) {
+		if (id === gymId) return;
+		gymId = id;
+		machineContext = null;
+		message = '';
+		if (view.kind === 'machine' || view.kind === 'format' || view.kind === 'confirm')
+			view = { kind: 'list' };
+	}
+	/**
+	 * Escape closes the sheet, from any step (one rule; each step has its own
+	 * Back). Two exceptions: while a choice is being saved (its result closes
+	 * the sheet or reports), and in a search field with text, where Escape
+	 * clears the text first, as the browser does.
+	 */
+	function onkeydown(e: KeyboardEvent) {
+		if (!open || e.key !== 'Escape' || e.defaultPrevented || busy) return;
+		const t = e.target;
+		if (t instanceof HTMLInputElement && t.type === 'search' && t.value) return;
+		e.preventDefault();
+		close();
 	}
 
 	const fmtDate = (iso: string) =>
@@ -225,6 +263,8 @@
 
 	/** An exercise chosen: add it, or ask for what is still missing. */
 	function chooseExercise(exercise: ExerciseChoice) {
+		// One tap, one add: a free weight and a remembered format submit at once.
+		if (busy) return;
 		message = '';
 		if (swap && exercise.id) {
 			view = { kind: 'swap', exercise: exercise as PickerExercise };
@@ -259,7 +299,8 @@
 		view = { kind: 'confirm', machine };
 	}
 	async function submitBind(machine: MachineChoice) {
-		if (!bind) return;
+		if (!bind || busy) return;
+		busy = true;
 		const fields: Record<string, string> = {
 			occurrenceId: bind.occurrenceId,
 			equipmentType: bind.equipmentType,
@@ -271,12 +312,12 @@
 		if (machine.id) fields.gymEquipmentId = machine.id;
 		else fields.newMachineName = machine.label;
 		payload = fields;
-		await tick();
-		bindFormEl?.requestSubmit();
+		await send(bindFormEl);
 	}
 	let swapFormEl: HTMLFormElement | undefined = $state();
 	async function submitSwap(exercise: PickerExercise, scope: 'today' | 'program') {
-		if (!swap) return;
+		if (!swap || busy) return;
+		busy = true;
 		const fields: Record<string, string> = {
 			occurrenceId: swap.occurrenceId,
 			exerciseId: exercise.id,
@@ -287,10 +328,10 @@
 			fields.loadConvention =
 				rememberedFormat(exercise, null) ?? conventionsFor(exercise.equipmentType).preset;
 		payload = fields;
-		await tick();
-		swapFormEl?.requestSubmit();
+		await send(swapFormEl);
 	}
 	function chooseMachine(machine: PickerMachine) {
+		if (busy) return;
 		message = '';
 		if (bind) return confirmBind(machine);
 		if (exerciseContext) {
@@ -307,7 +348,7 @@
 		const known = rememberedFormat(exercise, machine);
 		if (known) return submit(exercise, machine, known);
 		format = conventionsFor(machine.equipmentType).preset;
-		view = { kind: 'format', exercise, machine };
+		view = { kind: 'format', exercise, machine, from: view };
 	}
 
 	function startCreate() {
@@ -361,6 +402,10 @@
 		machine: MachineChoice | null,
 		convention: string
 	) {
+		if (busy) return;
+		// Set before the tick, so a second tap in between is refused; enhance
+		// keeps it set until the result is in.
+		busy = true;
 		const fields: Record<string, string> = {
 			requestId,
 			equipmentType: exercise.equipmentType,
@@ -383,10 +428,17 @@
 		if (machine?.id) fields.gymEquipmentId = machine.id;
 		else if (machine) fields.newMachineName = machine.label;
 		payload = fields;
+		await send(formEl);
+	}
+	/** Submits a hidden form once its fields are in; frees `busy` if there is no form. */
+	async function send(form: HTMLFormElement | undefined) {
 		await tick();
-		formEl?.requestSubmit();
+		if (form) form.requestSubmit();
+		else busy = false;
 	}
 </script>
+
+<svelte:window {onkeydown} />
 
 {#if open}
 	<div class="sheet" role="dialog" aria-modal="true" aria-label={ui.addExercise}>
@@ -415,7 +467,7 @@
 										class="chip"
 										aria-pressed={g.id === gymId}
 										onclick={(e) => {
-											gymId = g.id;
+											switchGym(g.id);
 											(e.currentTarget.closest('details') as HTMLDetailsElement).open = false;
 										}}>{g.name}</button
 									>
@@ -538,6 +590,10 @@
 					disabled={busy}
 					onclick={() => view.kind === 'format' && submit(view.exercise, view.machine, format)}
 					>{ui.add}</button
+				>
+				<!-- Back to the step it came from; the chosen machine or exercise stays. -->
+				<button class="row mt-2" onclick={() => view.kind === 'format' && (view = view.from)}
+					>{ui.back}</button
 				>
 			{:else if view.kind === 'newMachine'}
 				<label class="block text-sm text-zinc-300"

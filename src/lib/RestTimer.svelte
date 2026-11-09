@@ -62,6 +62,21 @@
 		keep({ startedAt: Date.now(), seconds: duration, ...(setId ? { setId } : {}) });
 		status = '';
 	}
+	/** Closes the settings panel: the session page calls it when a sheet opens (one overlay at a time). */
+	export function closeSettings() {
+		settings = false;
+	}
+	/**
+	 * "+30 s". On a running rest it extends that rest. On one that has run out
+	 * it starts 30 s from now (adding to the old total would leave it expired),
+	 * and the "Rest finished" line goes, since the rest is running again.
+	 */
+	function addTime() {
+		if (!rest) return;
+		if (left > 0) return keep({ ...rest, seconds: rest.seconds + ui.restAddSeconds });
+		keep({ ...rest, startedAt: Date.now(), seconds: ui.restAddSeconds });
+		status = '';
+	}
 	/** The end of a rest: the line under the clock, then the visual and the chime. */
 	function alert() {
 		status = ui.restFinished;
@@ -163,12 +178,7 @@
 						><span>{left ? ui.restLabel : ui.restOver}</span><output data-testid="rest-clock"
 							>{clock(left)}</output
 						></button
-					><button
-						type="button"
-						aria-label={ui.restAdd}
-						onclick={() => rest && keep({ ...rest, seconds: rest.seconds + ui.restAddSeconds })}
-						>{ui.restAdd}</button
-					>
+					><button type="button" aria-label={ui.restAdd} onclick={addTime}>{ui.restAdd}</button>
 				</div>
 			{:else}<span class="idle">{clock(duration)}</span><button
 					type="button"
